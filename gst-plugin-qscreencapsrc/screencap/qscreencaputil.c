@@ -248,12 +248,20 @@ output_listener_mode(void *data,
                      int32_t height,
                      int32_t refresh)
 {
-   struct output *output = data;
+#ifdef USE_V6
+   struct output *output= wl_output_get_user_data(wl_output);
 
+   if (wl_output == output->output && (flags & WL_OUTPUT_MODE_CURRENT)) {
+     output->width = width;
+     output->height = height;
+   }
+#else
+   struct output *output = data;
    if (flags & WL_OUTPUT_MODE_CURRENT) {
      output->width = width;
      output->height = height;
    }
+#endif
    GST_DEBUG("the mode in hardware units w %d h %d",width,height);
 }
 
@@ -294,15 +302,49 @@ struct wl_shm_listener shm_listener = {
 };
 
 static void
+#ifdef USE_V6
+xdg_shell_ping(void *data, struct zxdg_shell_v6 *shell, uint32_t serial)
+{
+	zxdg_shell_v6_pong(shell, serial);
+}
+#else
 xdg_shell_ping(void *data, struct xdg_shell *shell, uint32_t serial)
 {
 	xdg_shell_pong(shell, serial);
 }
-
+#endif
+#ifdef USE_V6
+static const struct zxdg_shell_v6_listener xdg_shell_listener = {
+#else
 static const struct xdg_shell_listener xdg_shell_listener = {
+#endif
 	xdg_shell_ping,
 };
+#ifdef USE_V6
+static void
+handle_xdg_toplevel_configure(void *data, struct zxdg_toplevel_v6 *toplevel,
+			  int32_t width, int32_t height,
+			  struct wl_array *states)
+{
+	struct QDisplay *qdisplay = data;
 
+	//output->parent.configure_width = width;
+	//output->parent.configure_height = height;
+
+	//output->parent.wait_for_configure = false;
+	/* FIXME: implement resizing */
+}
+
+static void
+handle_xdg_toplevel_close(void *data, struct zxdg_toplevel_v6 *xdg_toplevel)
+{
+}
+
+static const struct zxdg_toplevel_v6_listener xdg_toplevel_listener = {
+	handle_xdg_toplevel_configure,
+	handle_xdg_toplevel_close,
+};
+#endif
 #define XDG_VERSION 5 /* The version of xdg-shell that we implement */
 
 static void
@@ -318,11 +360,19 @@ registry_handle_global(void *data, struct wl_registry *registry,
     self->shm = (struct wl_shm *)wl_registry_bind(registry,
       id, &wl_shm_interface, 1);
     wl_shm_add_listener(self->shm, &shm_listener, self);
+#ifdef USE_V6
+  } else if (strcmp(interface, "zxdg_shell_v6") == 0) {
+     self->shell = wl_registry_bind(registry,
+         id, &zxdg_shell_v6_interface, 1);
+     //xdg_shell_use_unstable_version(self->shell, XDG_VERSION);
+     zxdg_shell_v6_add_listener(self->shell, &xdg_shell_listener, self);
+#else
   } else if (strcmp(interface, "xdg_shell") == 0) {
      self->shell = wl_registry_bind(registry,
          id, &xdg_shell_interface, 1);
      xdg_shell_use_unstable_version(self->shell, XDG_VERSION);
      xdg_shell_add_listener(self->shell, &xdg_shell_listener, self);
+#endif
   } else if (strcmp(interface, "ivi_application") == 0) {
     self->ivi_application = (struct ivi_application *)
        wl_registry_bind(registry, id,
@@ -356,6 +406,24 @@ static const struct wl_registry_listener registry_listener = {
  registry_handle_global_remove
 };
 
+#ifdef USE_V6
+static void
+handle_surface_configure(void *data, struct zxdg_surface_v6 *surface,
+                 uint32_t serial)
+{
+	zxdg_surface_v6_ack_configure(surface, serial);
+}
+
+static void
+handle_surface_delete(void *data, struct zxdg_surface_v6 *xdg_surface)
+{
+}
+
+static const struct zxdg_surface_v6_listener xdg_surface_listener = {
+	handle_surface_configure,
+	handle_surface_delete,
+};
+#else
 static void
 handle_surface_configure(void *data, struct xdg_surface *surface,
                  int32_t width, int32_t height,
@@ -373,7 +441,7 @@ static const struct xdg_surface_listener xdg_surface_listener = {
 	handle_surface_configure,
 	handle_surface_delete,
 };
-
+#endif
 static void
 handle_ivi_surface_configure(void *data, struct ivi_surface *ivi_surface,
                              int32_t width, int32_t height)
@@ -434,15 +502,27 @@ QDisplay *create_display(void)
 	qdisplay->surface = wl_compositor_create_surface(qdisplay->compositor);
 	wl_proxy_set_queue ((struct wl_proxy *)qdisplay->surface , qdisplay->queue);
 	if (qdisplay->shell) {
+#ifdef USE_V6
 		qdisplay->xdg_surface =
-			xdg_shell_get_xdg_surface(qdisplay->shell,
+			zxdg_shell_v6_get_xdg_surface(qdisplay->shell,
 				qdisplay->surface);
 
 
+		zxdg_surface_v6_add_listener(qdisplay->xdg_surface,
+			&xdg_surface_listener, qdisplay);
+                qdisplay->xdg_toplevel = zxdg_surface_v6_get_toplevel(qdisplay->xdg_surface);
+		zxdg_toplevel_v6_add_listener(qdisplay->xdg_toplevel,
+					      &xdg_toplevel_listener, qdisplay);
+		zxdg_toplevel_v6_set_title(qdisplay->xdg_toplevel, "screen_capture_surface");
+		wl_surface_commit(qdisplay->surface);
+#else
+		qdisplay->xdg_surface =
+			xdg_shell_get_xdg_surface(qdisplay->shell,
+				qdisplay->surface);
 		xdg_surface_add_listener(qdisplay->xdg_surface,
 			&xdg_surface_listener, qdisplay);
-
 		xdg_surface_set_title(qdisplay->xdg_surface, "screen_capture_surface");
+#endif
                 gst_qsc_wl_display_roundtrip(qdisplay);
 
 	} else if (qdisplay->ivi_application) {
@@ -466,7 +546,11 @@ QDisplay *create_display(void)
 	/* Select output */
 	wl_list_for_each_safe(output, next, &qdisplay->output_list, link) {
                 GST_DEBUG("%s",output->name);
+#ifdef USE_V6
+		if (!strcmp(output->name, "DSI-0")) {
+#else
 		if (!strcmp(output->name, "HDMI-A-1")) {
+#endif
 			found = 1;
 			break;
 		}
@@ -601,8 +685,15 @@ void destroy_display(QDisplay *qdisplay)
     if (qdisplay->screen_cap)
        screen_capture_destroy(qdisplay->screen_cap);
 
+#ifdef USE_V6
+    if (qdisplay->xdg_toplevel)
+		zxdg_toplevel_v6_destroy(qdisplay->xdg_toplevel);
+    if (qdisplay->xdg_surface)
+		zxdg_surface_v6_destroy(qdisplay->xdg_surface);
+#else
     if (qdisplay->xdg_surface)
        xdg_surface_destroy(qdisplay->xdg_surface);
+#endif
     if (qdisplay->ivi_application)
        ivi_surface_destroy(qdisplay->ivi_surface);
     if (qdisplay->surface)
@@ -611,9 +702,13 @@ void destroy_display(QDisplay *qdisplay)
     if (qdisplay->shm)
        wl_shm_destroy(qdisplay->shm);
 
+#ifdef USE_V6
     if (qdisplay->shell)
+       zxdg_shell_v6_destroy(qdisplay->shell);
+#else
+	if (qdisplay->shell)
        xdg_shell_destroy(qdisplay->shell);
-
+#endif
     if (qdisplay->compositor)
        wl_compositor_destroy(qdisplay->compositor);
 

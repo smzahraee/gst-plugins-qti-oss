@@ -7,6 +7,7 @@ plugin_LTLIBRARIES = libgstqscreencapsrc.la
 libgstqscreencapsrc_la_SOURCES = qscreencaputil.c \
 	gstqscreencapsrc.c \
 	gbm-buffer-backend-protocol.c \
+	xdg-shell-unstable-v6-protocol.c \
 	xdg-shell-protocol.c \
 	ivi-application-protocol.c \
 	screen-capture-protocol.c
@@ -16,13 +17,14 @@ libgstqscreencapsrc_la_SOURCES = qscreencaputil.c \
 noinst_HEADERS = \
 	qscreencaputil.h \
 	gstqscreencapsrc.h \
+	xdg-shell-unstable-v6-client-protocol.h \
 	xdg-shell-client-protocol.h \
 	gbm-buffer-backend-client-protocol.h \
 	ivi-application-client-protocol.h \
 	screen-capture-client-protocol.h
 
-EXTRA_DIST = ivi-application.xml gbm-buffer-backend.xml xdg-shell.xml screen-capture.xml
-CLEANFILES = ivi-application-protocol.c ivi-application-client-protocol.h gbm-buffer-backend-protocol.c gbm-buffer-backend-client-protocol.h xdg-shell-protocol.c xdg-shell-client-protocol.h screen-capture-protocol.c  screen-capture-client-protocol.h
+EXTRA_DIST = ivi-application.xml gbm-buffer-backend.xml xdg-shell-unstable-v6.xml xdg-shell.xml screen-capture.xml
+CLEANFILES = ivi-application-protocol.c ivi-application-client-protocol.h gbm-buffer-backend-protocol.c gbm-buffer-backend-client-protocol.h xdg-shell-unstable-v6-protocol.c xdg-shell-unstable-v6-client-protocol.h xdg-shell-protocol.c xdg-shell-client-protocol.h screen-capture-protocol.c  screen-capture-client-protocol.h
 
 # compiler and linker flags used to compile this plugin, set in configure.ac
 libgstqscreencapsrc_la_CFLAGS = $(GST_CFLAGS) -DUSE_GBM

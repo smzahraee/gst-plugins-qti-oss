@@ -43,7 +43,11 @@
 #include <wayland-client.h>
 #include "msm_drm.h"
 #include <drm_fourcc.h>
+#ifdef USE_V6
+#include "xdg-shell-unstable-v6-client-protocol.h"
+#else
 #include "xdg-shell-client-protocol.h"
+#endif
 #include "gbm-buffer-backend-client-protocol.h"
 #include "screen-capture-client-protocol.h"
 #include "ivi-application-client-protocol.h"
@@ -119,12 +123,21 @@ struct _QDisplay {
         struct wl_event_queue *queue;
 	struct wl_compositor *compositor;
 	struct output *output;
+#ifdef USE_V6
+	struct zxdg_shell_v6 *shell;
+#else
 	struct xdg_shell *shell;
+#endif
 	struct wl_shm *shm;
 	uint32_t formats;
 	struct wl_surface *surface;
 	struct wl_callback *callback;
+#ifdef USE_V6
+	struct zxdg_surface_v6 *xdg_surface;
+	struct zxdg_toplevel_v6 *xdg_toplevel;
+#else
 	struct xdg_surface *xdg_surface;
+#endif
 	struct ivi_surface *ivi_surface;
         struct ivi_application *ivi_application;
 	struct gbm_buffer_backend *gbmbuf;
