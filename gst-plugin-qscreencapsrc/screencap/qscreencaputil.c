@@ -50,6 +50,7 @@
 #include "qscreencaputil.h"
 #include "media/msm_media_info.h"
 #include <gst/video/video.h>
+#include <gst/ionbuf/gstionbuf_meta.h>
 
 QGbm_info * gbm_memory_alloc(GstQCtx * qctx,int w,int h);
 void gbm_memory_free(GstQCtx * qctx,QGbm_info *buf_gbm_info);
@@ -761,6 +762,8 @@ gst_qscreencapbuf_new (GstQCtx * qctx,
   struct gbm_buffer_params *params;
   uint32_t flags;
   gint64 timeout;
+  GstIonBufFdMeta *ionmeta;
+
   qscreencapbuf = gst_buffer_new ();
   GST_MINI_OBJECT_CAST (qscreencapbuf)->dispose =
       (GstMiniObjectDisposeFunction) gst_qscreencap_buffer_dispose;
@@ -827,6 +830,12 @@ gst_qscreencapbuf_new (GstQCtx * qctx,
   /* Keep a ref to our src */
   meta->parent = gst_object_ref (parent);
   meta->return_func = return_func;
+
+  /*add ionmeta for downstreaming*/
+  ionmeta = gst_buffer_add_ionbuf_meta (qscreencapbuf, meta->gbminfo->bo_fd, 0,
+        meta->size, FALSE, meta->gbminfo->meta_fd, 0, 0, 0);
+  g_assert(ionmeta != NULL);
+
 teak:
   if (!succeeded) {
     gst_qscreencap_buffer_free (qscreencapbuf);

@@ -41,7 +41,6 @@
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
-#include <gst/ionbuf/gstionbuf_meta.h>
 
 #define GSTBUFFERNUMBER 5
 
@@ -480,7 +479,6 @@ redraw_checking:
   {
     /* get the output gstbuf */
     GstMetaQScreenCap *meta;
-    GstIonBufFdMeta *ionmeta;
     QDisplay *qdisplay = qscreencapsrc->qctx->qdisplay;
     g_mutex_lock (&qdisplay->capture_lock);
     if (!g_queue_is_empty (&qdisplay->pending_buffers) ) {
@@ -490,15 +488,6 @@ redraw_checking:
        meta = GST_META_QSCREENCAP_GET (gstbuf);
        g_assert(meta != NULL);
 
-       ionmeta = gst_buffer_add_ionbuf_meta (gstbuf, meta->gbminfo->bo_fd, 0,
-	   meta->size, FALSE, meta->gbminfo->meta_fd, 0, 0, 0);
-
-       if (!ionmeta) {
-	     GST_ERROR_OBJECT (qscreencapsrc,
-                 "Addition of ionBufInfo metadata to decoder output buffer failed.\n");
-	     return GST_FLOW_ERROR;
-
-       }
 #ifdef DUMPFILE
        dump_tga("/home/root/app-data/abgr.tga", meta->width, meta->height, meta->stride, meta->data);
 #endif
