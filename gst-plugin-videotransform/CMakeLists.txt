@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.8.2)
-project(GST_PLUGIN_QTI_OSS_QMMFSRC
+project(GST_PLUGIN_QTI_OSS_VIDEOTRANSFORM
   VERSION ${GST_PLUGINS_QTI_OSS_VERSION}
-  LANGUAGES C CXX
+  LANGUAGES C
 )
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -27,40 +27,37 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 add_definitions(-DHAVE_CONFIG_H)
 
 # Common compiler flags.
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-parameter")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-variable")
 
 # GStreamer plugin.
-set(GST_QMMFSRC_PLUGIN gstqmmfsrc)
+set(GST_QTI_VIDEO_TRANSFORM videotransform)
 
-add_library(${GST_QMMFSRC_PLUGIN} SHARED
-  qmmf_source.cc
-  qmmf_source_utils.c
-  qmmf_source_video_pad.cc
-  qmmf_source_audio_pad.cc
-  qmmf_source_image_pad.cc
+add_library(${GST_QTI_VIDEO_TRANSFORM} SHARED
+  video_transform.c
+  video_transform_buffer_pool.c
+  c2d_video_converter.c
 )
 
-target_include_directories(${GST_QMMFSRC_PLUGIN} PRIVATE
+target_include_directories(${GST_QTI_VIDEO_TRANSFORM} PUBLIC
   ${GST_INCLUDE_DIRS}
 )
+target_include_directories(${GST_QTI_VIDEO_TRANSFORM} PRIVATE
+  ${KERNEL_BUILDDIR}/usr/include
+)
 
-target_link_libraries(${GST_QMMFSRC_PLUGIN} PRIVATE
-  qmmf_recorder_client
+target_link_libraries(${GST_QTI_VIDEO_TRANSFORM} PRIVATE
   ${GST_LIBRARIES}
-  ${GST_VIDEO_LIBRARIES}
-  ${GST_AUDIO_LIBRARIES}
   ${GST_ALLOC_LIBRARIES}
+  ${GST_VIDEO_LIBRARIES}
+  gbm
 )
 
 install(
-  TARGETS ${GST_QMMFSRC_PLUGIN}
+  TARGETS ${GST_QTI_VIDEO_TRANSFORM}
   LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
               GROUP_EXECUTE GROUP_READ
               GROUP_EXECUTE GROUP_READ
 )
-
-add_subdirectory(test)
