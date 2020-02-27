@@ -1,0 +1,22 @@
+The demo secureappsrc is used for verifying the secure video playback in secure memory.
+
+Now the demo only supports the special clips. In the clips, there are a four bytes header before every frame data.
+If disable the macro SECURE_PLAYBACK in file secureappsrc.c, the demo will be changed to non-secure version. The
+non-secure demo only support h264 decoding now.
+
+./secureappsrc [OPTION]... [FILE]...
+
+[OPTION]
+1. h264
+2. hevc
+3. vp9
+
+./secureappsrc 1 video.raw.h264
+./secureappsrc 1 video.raw.h264
+./secureappsrc 1 video.raw.h264
+
+Some definitions in the project have been replaced by self-defined ones.
+Please make sure the alignment of some definitions:
+secure_handle <-> QSEECom_handle (in QSEEComAPI.h)
+enum SecureCopyResult <-> enum SampleClientResult (in content_protection_copy.h)
+SecureCopyDir <-> SampleClientCopyDir (in content_protection_copy.h)
