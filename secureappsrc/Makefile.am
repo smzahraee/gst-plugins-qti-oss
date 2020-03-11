@@ -5,4 +5,4 @@ secureappsrc_LDFLAGS = -lgstvideo-1.0 -lgstbase-1.0 -lgstreamer-1.0 -lgobject-2.
 secureappsrc_LIBTOOLFLAGS = --tag=disable-static
 
 noinst_HEADERS = \
-	crypto.h
+  crypto.h

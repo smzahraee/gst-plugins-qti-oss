@@ -12,8 +12,8 @@ non-secure demo only support h264 decoding now.
 3. vp9
 
 ./secureappsrc 1 video.raw.h264
-./secureappsrc 1 video.raw.h264
-./secureappsrc 1 video.raw.h264
+./secureappsrc 2 video.raw.hevc
+./secureappsrc 3 video.raw.vp9
 
 Some definitions in the project have been replaced by self-defined ones.
 Please make sure the alignment of some definitions:
