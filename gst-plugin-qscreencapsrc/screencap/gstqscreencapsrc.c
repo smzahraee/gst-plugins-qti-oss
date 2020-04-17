@@ -83,7 +83,7 @@ GST_STATIC_PAD_TEMPLATE ("src", GST_PAD_SRC, GST_PAD_ALWAYS,
 enum
 {
   PROP_0,
-  PROP_SHOW_POINTER
+  PROP_SCREEN
 };
 
 #define gst_qscreencap_src_parent_class parent_class
@@ -91,6 +91,10 @@ G_DEFINE_TYPE (GstQScreenCapSrc, gst_qscreencap_src, GST_TYPE_PUSH_SRC);
 
 static GstCaps *gst_qscreencap_src_fixate (GstBaseSrc * bsrc, GstCaps * caps);
 static void gst_qscreencap_src_clear_bufpool (GstQScreenCapSrc * qscreencapsrc);
+static void gst_qscreencap_src_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec);
+static void gst_qscreencap_src_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec);
 
 
 static gboolean
@@ -138,7 +142,7 @@ gst_qscreencap_src_open_display (GstQScreenCapSrc * s)
   {
     g_mutex_lock (&s->qc_lock);
     if (s->qctx->qdisplay == NULL) {
-      s->qctx->qdisplay = create_display();
+      s->qctx->qdisplay = create_display(s->screen);
       if (s->qctx->qdisplay == NULL) {
         g_mutex_unlock (&s->qc_lock);
         GST_ERROR_OBJECT (s,"Could not create display");
@@ -153,7 +157,7 @@ gst_qscreencap_src_open_display (GstQScreenCapSrc * s)
     return TRUE;
   }
   g_mutex_lock (&s->qc_lock);
-  s->qctx = qscreencap_qctx_get (GST_ELEMENT (s));
+  s->qctx = qscreencap_qctx_get (GST_ELEMENT (s), s->screen);
   if (s->qctx == NULL) {
     g_mutex_unlock (&s->qc_lock);
     GST_ELEMENT_ERROR (s, RESOURCE, OPEN_READ,
@@ -550,7 +554,10 @@ gst_qscreencap_src_finalize (GObject * object)
   if (src->qctx)
     qscreencap_qctx_clear (src->qctx);
   src->qctx = NULL;
-
+  if(src->screen){
+    free(src->screen);
+    src->screen = NULL;
+  }
   g_mutex_clear (&src->buffer_lock);
   g_mutex_clear (&src->qc_lock);
 
@@ -655,7 +662,8 @@ gst_qscreencap_src_class_init (GstQScreenCapSrcClass * klass)
 
   gobjclass->dispose = gst_qscreencap_src_dispose;
   gobjclass->finalize = GST_DEBUG_FUNCPTR (gst_qscreencap_src_finalize);
-
+  gobjclass->set_property = gst_qscreencap_src_set_property;
+  gobjclass->get_property = gst_qscreencap_src_get_property;
 
   gst_element_class_add_pad_template (elemclass,
       gst_static_pad_template_get (&src_factory));
@@ -665,6 +673,11 @@ gst_qscreencap_src_class_init (GstQScreenCapSrcClass * klass)
       "Source/Video",
       "Creates a screencapture video stream",
       "laisheng <laisheng@codeaurora.org>");
+  g_object_class_install_property
+    (gobjclass, PROP_SCREEN,
+    g_param_spec_string ("screen", "screen",
+    "Set the screen want to capture, like DSI-0. By default, it's NULL and use internal logic.", NULL,
+    G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   basesc->fixate = gst_qscreencap_src_fixate;
   basesc->get_caps = gst_qscreencap_src_get_caps;
@@ -683,6 +696,7 @@ gst_qscreencap_src_init (GstQScreenCapSrc * qscreencapsrc)
 
   g_mutex_init (&qscreencapsrc->buffer_lock);
   g_mutex_init (&qscreencapsrc->qc_lock);
+  qscreencapsrc->screen = NULL;
 
 }
 
@@ -700,6 +714,33 @@ plugin_init (GstPlugin * plugin)
   return ret;
 }
 
+static void
+gst_qscreencap_src_set_property (GObject * object, guint prop_id,
+  const GValue * value, GParamSpec * pspec)
+{
+  GstQScreenCapSrc * qscreencapsrc = GST_QSCREENCAP_SRC(object);
+  switch (prop_id){
+    case PROP_SCREEN:
+      g_free (qscreencapsrc->screen);//g_free could handle NULL case
+      qscreencapsrc->screen = g_strdup (g_value_get_string (value));
+      break;
+    default:
+      break;
+  }
+}
+static void
+gst_qscreencap_src_get_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec)
+{
+  GstQScreenCapSrc * qscreencapsrc = GST_QSCREENCAP_SRC(object);
+  switch (prop_id){
+    case PROP_SCREEN:
+      g_value_set_string (value, qscreencapsrc->screen);
+      break;
+    default:
+      break;
+  }
+}
 GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
     qscreencapsrc,

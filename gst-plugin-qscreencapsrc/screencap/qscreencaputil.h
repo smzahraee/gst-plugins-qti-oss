@@ -139,9 +139,9 @@ struct _GstQContext {
 
 
 GstQCtx *
-qscreencap_qctx_get (GstElement * parent);
+qscreencap_qctx_get (GstElement * parent, gchar* screen);
 void qscreencap_qctx_clear (GstQCtx *qctx);
-QDisplay *create_display(void);
+QDisplay *create_display(gchar* screen);
 
 /* BufferReturnFunc is called when a buffer is finalised */
 typedef gboolean (*BufferReturnFunc) (GstElement *parent, GstBuffer *buf);
