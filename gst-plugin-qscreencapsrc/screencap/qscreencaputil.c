@@ -551,6 +551,7 @@ QDisplay *create_display(void)
 #else
 		if (!strcmp(output->name, "HDMI-A-1")) {
 #endif
+			qdisplay->output = output;
 			found = 1;
 			break;
 		}

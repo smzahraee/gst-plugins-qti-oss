@@ -43,6 +43,8 @@
 #include <wayland-client.h>
 #include "msm_drm.h"
 #include <drm_fourcc.h>
+#include "gbm.h"
+#include "gbm_priv.h"
 #ifdef USE_V6
 #include "xdg-shell-unstable-v6-client-protocol.h"
 #else
@@ -53,45 +55,6 @@
 #include "ivi-application-client-protocol.h"
 
 G_BEGIN_DECLS
-#define GBM_PERFORM_GET_METADATA_ION_FD             0x24 /* Get Metadata ion fd from BO*/
-#define __gbm_fourcc_code(a,b,c,d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | \
-                              ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
-
-#define GBM_FORMAT_ABGR8888     __gbm_fourcc_code('A', 'B', '2', '4') /* [31:0] A:B:G:R 8:8:8:8 little endian */
-/**
- * Flags to indicate the intended use for the buffer - these are passed into
- * gbm_bo_create(). The caller must set the union of all the flags that are
- * appropriate
- *
- * \sa Use gbm_device_is_format_supported() to check if the combination of format
- * and use flags are supported
- */
-enum gbm_bo_flags {
-   /**
-    * Buffer is going to be presented to the screen using an API such as KMS
-    */
-   GBM_BO_USE_SCANOUT      = (1 << 0),
-   /**
-    * Buffer is going to be used as cursor
-    */
-   GBM_BO_USE_CURSOR       = (1 << 1),
-   /**
-    * Deprecated
-    */
-   GBM_BO_USE_CURSOR_64X64 = GBM_BO_USE_CURSOR,
-   /**
-    * Buffer is to be used for rendering - for example it is going to be used
-    * as the storage for a color buffer
-    */
-   GBM_BO_USE_RENDERING    = (1 << 2),
-   /**
-    * Buffer can be used for gbm_bo_write.  This is guaranteed to work
-    * with GBM_BO_USE_CURSOR. but may not work for other combinations.
-    */
-   GBM_BO_USE_WRITE    = (1 << 3),
-};
-
-#define GBM_BO_USAGE_UBWC_ALIGNED_QTI	 0x00000400
 
 typedef struct _GstQContext GstQCtx;
 typedef struct _GstMetaQSCreenCap GstMetaQScreenCap;
