@@ -631,7 +631,8 @@ qscreencap_qctx_get (GstElement * parent)
   qctx->width = qctx->qdisplay->output->width;
   qctx->height = qctx->qdisplay->output->height;
 
-  qctx->gbm_device_fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+#define GBMDEV_DEVICE_NODE "/dev/dri/renderD128"  //"/dev/dri/card0"
+  qctx->gbm_device_fd = open(GBMDEV_DEVICE_NODE, O_RDWR | O_CLOEXEC);
   if (qctx->gbm_device_fd < 0) {
          GST_ERROR("opening gbm device failed");
          return NULL;
