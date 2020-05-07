@@ -44,7 +44,7 @@
 
 #define GSTBUFFERNUMBER 5
 
-GST_DEBUG_CATEGORY_STATIC (gst_debug_qscreencap_src);
+GST_DEBUG_CATEGORY (gst_debug_qscreencap_src);
 #define GST_CAT_DEFAULT gst_debug_qscreencap_src
 #pragma pack(1)
 typedef struct

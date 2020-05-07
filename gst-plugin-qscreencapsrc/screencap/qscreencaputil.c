@@ -52,6 +52,9 @@
 #include <gst/video/video.h>
 #include <gst/ionbuf/gstionbuf_meta.h>
 
+GST_DEBUG_CATEGORY_EXTERN (gst_debug_qscreencap_src);
+#define GST_CAT_DEFAULT gst_debug_qscreencap_src
+
 QGbm_info * gbm_memory_alloc(GstQCtx * qctx,int w,int h);
 void gbm_memory_free(GstQCtx * qctx,QGbm_info *buf_gbm_info);
 GType
