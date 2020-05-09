@@ -190,8 +190,6 @@ enum
   NOISE_REDUCTION_OFF,
   NOISE_REDUCTION_FAST,
   NOISE_REDUCTION_HIGH_QUALITY,
-  NOISE_REDUCTION_MINIMAL,
-  NOISE_REDUCTION_ZSL,
 };
 
 GType gst_qmmfsrc_effect_mode_get_type (void);
@@ -272,6 +270,14 @@ static const gchar * gst_camera_exposure_table[] =
     "incrementPriorityKneeEntries",
     "expIndexKneeEntries",
     "thresAntiBandingMinExpTimePct",
+};
+
+/// org.quic.camera.ltmDynamicContrast
+static const gchar * gst_camera_ltm_data[] =
+{
+    "ltmDynamicContrastStrength",
+    "ltmDarkBoostStrength",
+    "ltmBrightSupressStrength",
 };
 
 G_END_DECLS

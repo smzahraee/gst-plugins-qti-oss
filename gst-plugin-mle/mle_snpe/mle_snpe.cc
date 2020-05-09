@@ -83,7 +83,8 @@ enum {
 
 
 static GstStaticCaps gst_mle_snpe_format_caps =
-    GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE_WITH_FEATURES ("ANY", GST_ML_VIDEO_FORMATS));
+    GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE (GST_ML_VIDEO_FORMATS) ";"
+    GST_VIDEO_CAPS_MAKE_WITH_FEATURES ("ANY", GST_ML_VIDEO_FORMATS));
 
 static void
 gst_mle_set_property_mask(guint &mask, guint property_id)
@@ -548,17 +549,10 @@ gst_mle_snpe_set_info(GstVideoFilter *filter, GstCaps *in,
 static GstFlowReturn gst_mle_snpe_transform_frame_ip(GstVideoFilter * filter,
                                                      GstVideoFrame * frame)
 {
-  GstMemory *memory = NULL;
   GstMLESNPE *mle = GST_MLE_SNPE (filter);
 
-  memory = gst_buffer_peek_memory (frame->buffer, 0);
-  if (!gst_is_fd_memory (memory)) {
-    return GST_FLOW_ERROR;
-  }
-
-  mle->source_frame.fd = gst_fd_memory_get_fd (memory);
-  mle->source_frame.frame_data[0] = GST_VIDEO_FRAME_COMP_DATA (frame, 0);
-  mle->source_frame.frame_data[1] = GST_VIDEO_FRAME_COMP_DATA (frame, 1);
+  mle->source_frame.frame_data[0] = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA (frame, 0);
+  mle->source_frame.frame_data[1] = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA (frame, 1);
 
   gint ret = mle->engine->Process(&mle->source_frame, frame->buffer);
   if (ret) {

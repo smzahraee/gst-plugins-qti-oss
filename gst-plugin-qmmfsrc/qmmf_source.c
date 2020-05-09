@@ -48,26 +48,29 @@
 GST_DEBUG_CATEGORY_STATIC (qmmfsrc_debug);
 #define GST_CAT_DEFAULT qmmfsrc_debug
 
-#define DEFAULT_PROP_CAMERA_ID               0
-#define DEFAULT_PROP_CAMERA_SHDR_MODE        FALSE
-#define DEFAULT_PROP_CAMERA_EIS_MODE         FALSE
-#define DEFAULT_PROP_CAMERA_EFFECT_MODE      EFFECT_MODE_OFF
-#define DEFAULT_PROP_CAMERA_SCENE_MODE       SCENE_MODE_DISABLED
-#define DEFAULT_PROP_CAMERA_ANTIBANDING      ANTIBANDING_MODE_AUTO
-#define DEFAULT_PROP_CAMERA_AE_COMPENSATION  0
-#define DEFAULT_PROP_CAMERA_AE_METERING_MODE AE_METERING_MODE_AVERAGE
-#define DEFAULT_PROP_CAMERA_AE_MODE          AE_MODE_ON
-#define DEFAULT_PROP_CAMERA_AE_LOCK          FALSE
-#define DEFAULT_PROP_CAMERA_EXPOSURE_TABLE   NULL
-#define DEFAULT_PROP_CAMERA_EXPOSURE_TIME    33333333
-#define DEFAULT_PROP_CAMERA_AWB_MODE         AWB_MODE_AUTO
-#define DEFAULT_PROP_CAMERA_AWB_LOCK         FALSE
-#define DEFAULT_PROP_CAMERA_AF_MODE          AF_MODE_AUTO
-#define DEFAULT_PROP_CAMERA_IR_MODE          IR_MODE_OFF
-#define DEFAULT_PROP_CAMERA_NOISE_REDUCTION  NOISE_REDUCTION_OFF
-#define DEFAULT_PROP_CAMERA_ISO_MODE         ISO_MODE_AUTO
-#define DEFAULT_PROP_CAMERA_DEFOG_TABLE      NULL
-#define DEFAULT_PROP_CAMERA_SLAVE            FALSE
+#define DEFAULT_PROP_CAMERA_ID                  0
+#define DEFAULT_PROP_CAMERA_LDC_MODE            FALSE
+#define DEFAULT_PROP_CAMERA_SHDR_MODE           FALSE
+#define DEFAULT_PROP_CAMERA_EIS_MODE            FALSE
+#define DEFAULT_PROP_CAMERA_EFFECT_MODE         EFFECT_MODE_OFF
+#define DEFAULT_PROP_CAMERA_SCENE_MODE          SCENE_MODE_DISABLED
+#define DEFAULT_PROP_CAMERA_ANTIBANDING         ANTIBANDING_MODE_AUTO
+#define DEFAULT_PROP_CAMERA_AE_COMPENSATION     0
+#define DEFAULT_PROP_CAMERA_AE_METERING_MODE    AE_METERING_MODE_AVERAGE
+#define DEFAULT_PROP_CAMERA_AE_MODE             AE_MODE_ON
+#define DEFAULT_PROP_CAMERA_AE_LOCK             FALSE
+#define DEFAULT_PROP_CAMERA_EXPOSURE_TABLE      NULL
+#define DEFAULT_PROP_CAMERA_EXPOSURE_TIME       33333333
+#define DEFAULT_PROP_CAMERA_AWB_MODE            AWB_MODE_AUTO
+#define DEFAULT_PROP_CAMERA_AWB_LOCK            FALSE
+#define DEFAULT_PROP_CAMERA_AF_MODE             AF_MODE_AUTO
+#define DEFAULT_PROP_CAMERA_IR_MODE             IR_MODE_OFF
+#define DEFAULT_PROP_CAMERA_NOISE_REDUCTION     NOISE_REDUCTION_FAST
+#define DEFAULT_PROP_CAMERA_ISO_MODE            ISO_MODE_AUTO
+#define DEFAULT_PROP_CAMERA_DEFOG_TABLE         NULL
+#define DEFAULT_PROP_CAMERA_SLAVE               FALSE
+#define DEFAULT_PROP_CAMERA_ADRC                FALSE
+#define DEFAULT_PROP_CAMERA_LOCAL_TONE_MAPPING  NULL
 
 static void gst_qmmfsrc_child_proxy_init (gpointer g_iface, gpointer data);
 
@@ -90,6 +93,7 @@ enum
 {
   PROP_0,
   PROP_CAMERA_ID,
+  PROP_CAMERA_LDC,
   PROP_CAMERA_SHDR,
   PROP_CAMERA_EIS,
   PROP_CAMERA_EFFECT_MODE,
@@ -106,10 +110,12 @@ enum
   PROP_CAMERA_SLAVE,
   PROP_CAMERA_AF_MODE,
   PROP_CAMERA_IR_MODE,
+  PROP_CAMERA_ADRC,
   PROP_CAMERA_ISO_MODE,
   PROP_CAMERA_NOISE_REDUCTION,
   PROP_CAMERA_ZOOM,
   PROP_CAMERA_DEFOG_TABLE,
+  PROP_CAMERA_LOCAL_TONE_MAPPING,
 };
 
 static GstStaticPadTemplate qmmfsrc_video_src_template =
@@ -273,6 +279,13 @@ qmmfsrc_request_pad (GstElement * element, GstPadTemplate * templ,
   gst_child_proxy_child_added (GST_CHILD_PROXY (element), G_OBJECT (srcpad),
       GST_OBJECT_NAME (srcpad));
 
+  // Connect a callback to the 'notify' signal of a pad property to be
+  // called when a that property changes during runtime.
+  g_signal_connect (srcpad, "notify::bitrate",
+      G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
+  g_signal_connect (srcpad, "notify::framerate",
+      G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
+
   return srcpad;
 }
 
@@ -330,13 +343,6 @@ qmmfsrc_create_session (GstQmmfSrc * qmmfsrc)
     success = gst_qmmf_context_create_stream (qmmfsrc->context, pad);
     QMMFSRC_RETURN_VAL_IF_FAIL (qmmfsrc, success, FALSE,
         "Video stream creation failed!");
-
-    // Connect a callback to the 'notify' signal of a pad property to be
-    // called when a that property changes during runtime.
-    g_signal_connect (pad, "notify::bitrate",
-        G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
-    g_signal_connect (pad, "notify::framerate",
-        G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
   }
 
   for (list = qmmfsrc->imgindexes; list != NULL; list = list->next) {
@@ -626,6 +632,10 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_ID, value);
       break;
+    case PROP_CAMERA_LDC:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_LDC, value);
+      break;
     case PROP_CAMERA_SHDR:
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_SHDR, value);
@@ -690,6 +700,10 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_IR_MODE, value);
       break;
+    case PROP_CAMERA_ADRC:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_ADRC, value);
+      break;
     case PROP_CAMERA_ISO_MODE:
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_ISO_MODE, value);
@@ -705,6 +719,10 @@ qmmfsrc_set_property (GObject * object, guint property_id,
     case PROP_CAMERA_DEFOG_TABLE:
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_DEFOG_TABLE, value);
+      break;
+    case PROP_CAMERA_LOCAL_TONE_MAPPING:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_LOCAL_TONE_MAPPING, value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -724,6 +742,10 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_ID, value);
       break;
+    case PROP_CAMERA_LDC:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_LDC, value);
+      break;
     case PROP_CAMERA_SHDR:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_SHDR, value);
@@ -788,6 +810,10 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_IR_MODE, value);
       break;
+    case PROP_CAMERA_ADRC:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_ADRC, value);
+      break;
     case PROP_CAMERA_ISO_MODE:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_ISO_MODE, value);
@@ -803,6 +829,10 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
     case PROP_CAMERA_DEFOG_TABLE:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_DEFOG_TABLE, value);
+      break;
+    case PROP_CAMERA_LOCAL_TONE_MAPPING:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_LOCAL_TONE_MAPPING, value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -865,6 +895,10 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
       g_param_spec_uint ("camera", "Camera ID",
           "Camera device ID to be used by video/image pads",
           0, 10, DEFAULT_PROP_CAMERA_ID,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+    g_object_class_install_property (gobject, PROP_CAMERA_LDC,
+      g_param_spec_boolean ("ldc", "LDC",
+          "Lens Distortion Correction", DEFAULT_PROP_CAMERA_LDC_MODE,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
     g_object_class_install_property (gobject, PROP_CAMERA_SHDR,
       g_param_spec_boolean ("shdr", "SHDR",
@@ -955,6 +989,11 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
           GST_TYPE_QMMFSRC_IR_MODE, DEFAULT_PROP_CAMERA_IR_MODE,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_ADRC,
+      g_param_spec_boolean ("adrc", "ADRC",
+          "Automatic dynamic range compression", DEFAULT_PROP_CAMERA_ADRC,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_PLAYING));
   g_object_class_install_property (gobject, PROP_CAMERA_ISO_MODE,
       g_param_spec_enum ("iso-mode", "ISO Mode",
           "ISO exposure mode",
@@ -980,6 +1019,12 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
       g_param_spec_string ("defog-table", "Defog Table",
           "A GstStructure describing defog table",
           DEFAULT_PROP_CAMERA_DEFOG_TABLE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_LOCAL_TONE_MAPPING,
+      g_param_spec_string ("ltm-data", "LTM Data",
+          "A GstStructure describing local tone mapping data",
+          DEFAULT_PROP_CAMERA_LOCAL_TONE_MAPPING,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
 
