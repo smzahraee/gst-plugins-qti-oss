@@ -1,12 +1,15 @@
 set(GST_MLE_LIBRARY Engine_MLE)
 
 list(APPEND SOURCE_FILES "tflite_base.cc")
+list(APPEND SOURCE_FILES "tflite_segmentation.cc")
+list(APPEND SOURCE_FILES "tflite_posenet.cc")
 
 if (SNPE_ENABLE)
   add_definitions(-DSNPE_ENABLE)
   list(APPEND SOURCE_FILES "snpe_base.cc")
   list(APPEND SOURCE_FILES "snpe_complex.cc")
   list(APPEND SOURCE_FILES "snpe_single_ssd.cc")
+  list(APPEND SOURCE_FILES "snpe_segmentation.cc")
   list(APPEND SNPE_DIRS "${SNPE_INCLUDE_DIR}")
   add_library(SNPE SHARED IMPORTED)
   set_target_properties(SNPE PROPERTIES
