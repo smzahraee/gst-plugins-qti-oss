@@ -98,6 +98,7 @@ extern "C"{
 #else
 #include <glib.h>
 #define strlcpy g_strlcpy
+#define strlcat g_strlcat
 
 //#define ALOGE(fmt, args...) fprintf(stderr, fmt, ##args)
 enum {
@@ -1491,8 +1492,11 @@ int main(int argc, char **argv)
 
     strlcpy(in_filename, argv[1], strlen(argv[1])+1);
 #ifdef _MSM8974_
-    strlcpy(crclogname, argv[1], strlen(argv[1])+1);
-    strcat(crclogname, ".crc");
+    {
+        int slen = strlen(argv[1])+1;
+        strlcpy(crclogname, argv[1], slen);
+        strlcat(crclogname, ".crc", slen+4);
+    }
 #endif
     if(argc > 2)
     {
