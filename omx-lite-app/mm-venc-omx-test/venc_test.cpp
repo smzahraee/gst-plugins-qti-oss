@@ -789,27 +789,27 @@ result = OMX_SetParameter(m_hHandle,
    {
 #if 1
 /////////////C A B A C ///A N D/////D E B L O C K I N G /////////////////
-
-      OMX_VIDEO_PARAM_AVCTYPE avcdata;
-      avcdata.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
-      result = OMX_GetParameter(m_hHandle,
-                                OMX_IndexParamVideoAvc,
-                                &avcdata);
-      CHK(result);
-// TEST VALUES (CHANGE FOR DIFF CONFIG's)
-    avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterEnable;
-//      avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisable;
-    avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisableSliceBoundary;
-   avcdata.bEntropyCodingCABAC = OMX_FALSE;
-//   avcdata.bEntropyCodingCABAC = OMX_TRUE;
-   avcdata.nCabacInitIdc = 1;
+       OMX_VIDEO_PARAM_AVCTYPE avcdata;
+       avcdata.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+       result = OMX_GetParameter(m_hHandle,
+                                 OMX_IndexParamVideoAvc,
+                                 &avcdata);
+       CHK(result);
+       avcdata.nPFrames = m_sProfile.nFramerate * 2 - 1;
+       avcdata.nBFrames = 0;
+       // TEST VALUES (CHANGE FOR DIFF CONFIG's)
+       avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterEnable;
+       //avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisable;
+       avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisableSliceBoundary;
+       avcdata.bEntropyCodingCABAC = OMX_FALSE;
+       //avcdata.bEntropyCodingCABAC = OMX_TRUE;
+       avcdata.nCabacInitIdc = 1;
 ///////////////////////////////////////////////
 
-      result = OMX_SetParameter(m_hHandle,
-                                OMX_IndexParamVideoAvc,
-                                &avcdata);
-      CHK(result);
-
+       result = OMX_SetParameter(m_hHandle,
+                                 OMX_IndexParamVideoAvc,
+                                 &avcdata);
+       CHK(result);
 /////////////C A B A C ///A N D/////D E B L O C K I N G /////////////////
 #endif
    }
