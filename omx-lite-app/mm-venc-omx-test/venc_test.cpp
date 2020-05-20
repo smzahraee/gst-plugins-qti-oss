@@ -2033,6 +2033,11 @@ int main(int argc, char** argv)
 
     if (m_eMode != MODE_PROFILE)
    {
+      if(!m_sProfile.cOutFileName)
+      {
+         E("No output file name");
+	 CHK(1);
+      }
 	  m_nOutFd = fopen(m_sProfile.cOutFileName,"ab");
       if (m_nOutFd == NULL)
       {
@@ -2074,6 +2079,11 @@ int main(int argc, char** argv)
        m_eMode == MODE_PROFILE)
    {
       int i;
+      if(!m_sProfile.cInFileName)
+      {
+          E("No input file name");
+	  CHK(1);
+      }
       m_nInFd = open(m_sProfile.cInFileName, O_RDONLY);
   	  if (m_nInFd < 0)
       {

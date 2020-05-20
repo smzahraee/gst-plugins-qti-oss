@@ -3043,6 +3043,8 @@ static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_hand
         return OMX_ErrorInsufficientResources;
      }
     outPort_ion = (struct vdec_ion *)calloc(sizeof(struct vdec_ion), bufCntMin);
+    if(!outPort_ion)
+        return OMX_ErrorInsufficientResources;
 
     //output_use_buffer = true;
     for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
@@ -3954,21 +3956,23 @@ static int Read_Buffer_From_DivX_311_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
     unsigned int frame_size = 0;
     unsigned int num_bytes_size = 4;
     unsigned int num_bytes_frame_type = 1;
-    unsigned int n_offset = pBufHdr->nOffset;
+    unsigned int n_offset = 0;
+
+    if (pBufHdr != NULL)
+    {
+         p_buffer = (char *)pBufHdr->pBuffer + pBufHdr->nOffset;
+    }
+    else
+    {
+         DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: pBufHdr is NULL");
+         return 0;
+    }
+
+    n_offset = pBufHdr->nOffset;
 
     DEBUG_PRINT("Inside %s ", __FUNCTION__);
 
     pBufHdr->nTimeStamp = timeStampLfile;
-
-    if (pBufHdr != NULL)
-    {
-        p_buffer = (char *)pBufHdr->pBuffer + pBufHdr->nOffset;
-    }
-    else
-    {
-        DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: pBufHdr is NULL");
-        return 0;
-    }
 
     if (p_buffer == NULL)
     {
@@ -4007,10 +4011,10 @@ static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
     unsigned int num_bytes_size = 4;
     unsigned int num_bytes_frame_type = 1;
 	unsigned long long time_stamp;
-    unsigned int n_offset = pBufHdr->nOffset;
+    unsigned int n_offset = 0;
 	static int ivf_header_read;
 
-	if (pBufHdr != NULL)
+    if (pBufHdr != NULL)
     {
         p_buffer = (char *)pBufHdr->pBuffer + pBufHdr->nOffset;
     }
@@ -4019,6 +4023,7 @@ static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
         DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: pBufHdr is NULL");
         return 0;
     }
+    n_offset = pBufHdr->nOffset;
 
     if (p_buffer == NULL)
     {
@@ -5149,16 +5154,18 @@ create_window(struct display *display, int width, int height)
 static void
 destroy_window(struct window *window)
 {
-  if (window->xdg_surface)
-     xdg_surface_destroy(window->xdg_surface);
-  if (window->display->ivi_application) {
-     ivi_surface_destroy(window->ivi_surface);
-     ivi_application_destroy(window->display->ivi_application);
-  }
-  if (window->surface)
-     wl_surface_destroy(window->surface);
   if (window)
-    free(window);
+  {
+      if (window->xdg_surface)
+          xdg_surface_destroy(window->xdg_surface);
+      if (window->display->ivi_application) {
+          ivi_surface_destroy(window->ivi_surface);
+          ivi_application_destroy(window->display->ivi_application);
+      }
+      if (window->surface)
+          wl_surface_destroy(window->surface);
+      free(window);
+  }
 }
 static struct eglimage *
 create_egl (struct display *display)
@@ -5199,11 +5206,13 @@ create_egl (struct display *display)
 }
 static void destroy_egl (struct eglimage * eglimage)
 {
-  if (eglimage->egldpy)
-    eglTerminate(eglimage->egldpy);
   if (eglimage)
-    free(eglimage);
+  {
+      if (eglimage->egldpy)
+          eglTerminate(eglimage->egldpy);
+      free(eglimage);
   }
+}
 #endif
 int open_display()
 {
