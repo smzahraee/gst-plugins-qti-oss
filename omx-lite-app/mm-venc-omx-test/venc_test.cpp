@@ -1087,6 +1087,8 @@ result = OMX_SetParameter(m_hHandle,
 
    OMX_CONFIG_FRAMERATETYPE enc_framerate; // OMX_IndexConfigVideoFramerate
    enc_framerate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+   enc_framerate.nSize = sizeof(OMX_CONFIG_FRAMERATETYPE);
+
    result = OMX_GetConfig(m_hHandle,
                           OMX_IndexConfigVideoFramerate,
                           &enc_framerate);
