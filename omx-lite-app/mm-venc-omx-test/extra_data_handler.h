@@ -35,8 +35,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string.h>
 #include <stdlib.h>
 #include "OMX_QCOMExtns.h"
-#include<linux/msm_vidc_dec.h>
-#include<linux/msm_vidc_enc.h>
+//#include<linux/msm_vidc_dec.h>
+//#include<linux/msm_vidc_enc.h>
 
 #ifdef _ANDROID_
 extern "C" {

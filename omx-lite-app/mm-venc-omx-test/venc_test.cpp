@@ -65,6 +65,7 @@ REFERENCES
 #include "OMX_Core.h"
 #include "OMX_Video.h"
 #include "OMX_VideoExt.h"
+#include "OMX_IndexExt.h"
 #include "OMX_Component.h"
 #include "camera_test.h"
 //#include "fb_test.h"
@@ -72,11 +73,23 @@ REFERENCES
 #include "extra_data_handler.h"
 #ifdef USE_ION
 #include <linux/msm_ion.h>
+#if TARGET_ION_ABI_VERSION >= 2
+#include <ion/ion.h>
+#include <linux/dma-buf.h>
+#else
+#include <linux/ion.h>
+#endif
 #endif
 #ifdef _MSM8974_
 #include <media/msm_media_info.h>
 #endif
-
+#include "OMX_Types.h"
+typedef struct PrependSPSPPSToIDRFramesParams {
+  OMX_U32 nSize;
+  OMX_VERSIONTYPE nVersion;
+  OMX_BOOL bEnable;
+} PrependSPSPPSToIDRFramesParams;
+#define DEADVALUE ((OMX_S32) 0xDEADDEAD) //in decimal : 3735936685
 //////////////////////////
 // MACROS
 //////////////////////////
@@ -97,12 +110,12 @@ REFERENCES
 
 #else
      #ifdef TEST_LOG
-       #define D(fmt, ...) fprintf(stderr, "venc_test Debug %s::%d "fmt"\n",   \
+       #define D(fmt, ...) fprintf(stderr, "venc_test Debug %s::%d " fmt "\n",   \
                             __FUNCTION__, __LINE__,                     \
                             ## __VA_ARGS__)
 
      /// Error message macro
-      #define E(fmt, ...) fprintf(stderr, "venc_test Error %s::%d "fmt"\n", \
+      #define E(fmt, ...) fprintf(stderr, "venc_test Error %s::%d " fmt "\n", \
                             __FUNCTION__, __LINE__,                   \
                             ## __VA_ARGS__)
      #else
@@ -378,9 +391,39 @@ struct enc_ion
 {
    int ion_device_fd;
    struct ion_allocation_data alloc_data;
-   struct ion_fd_data ion_alloc_fd;
+   int data_fd;
 };
 #endif
+struct StoreMetaDataInBuffersParams {
+       OMX_U32 nSize;
+       OMX_VERSIONTYPE nVersion;
+       OMX_U32 nPortIndex;
+       OMX_BOOL bStoreMetaData;
+};
+typedef enum _MetaBufferType {
+#ifdef USE_NATIVE_HANDLE_SOURCE
+       CameraSource = 3,
+#else
+       CameraSource = 0,
+#endif
+       GrallocSource = 1,
+}MetaBufferType;
+#define ITUR601 0x200000
+typedef struct _NativeHandle {
+       OMX_S32 version;        /* sizeof(native_handle_t) */
+       OMX_S32 numFds;         /* number of file-descriptors at &data[0] */
+       OMX_S32 numInts;        /* number of ints at &data[numFds] */
+       OMX_S32 data[0];        /* numFds + numInts ints */
+}NativeHandle;
+typedef struct _MetaBuffer {
+       MetaBufferType buffer_type;
+       NativeHandle* meta_handle;
+}MetaBuffer;
+#define OMX_SPEC_VERSION 0x00000101
+#define OMX_INIT_STRUCT(_s_, _name_)            \
+   memset((_s_), 0x0, sizeof(_name_));          \
+   (_s_)->nSize = sizeof(_name_);               \
+   (_s_)->nVersion.nVersion = OMX_SPEC_VERSION
 
 //////////////////////////
 // MODULE VARS
@@ -411,6 +454,7 @@ static int m_scaling_width = 0;
 static int m_scaling_height = 0;
 static int m_nAVCSliceMode = 0;
 static bool m_bWatchDogKicked = false;
+static int m_eMetaMode = 0;
 FILE  *m_pDynConfFile = NULL;
 static struct DynamicConfig dynamic_config;
 
@@ -436,6 +480,73 @@ struct enc_ion ion_data;
 //////////////////////////
 // MODULE FUNCTIONS
 //////////////////////////
+OMX_ERRORTYPE GetVendorExtension(char* sExtensionName, OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE *ext) {
+    OMX_ERRORTYPE result = OMX_ErrorNone;
+
+    if(!ext) {
+        E("\nNULL vendor extension instance");
+        return OMX_ErrorUndefined;
+    }
+
+    //check all supported vendor extensions and get the index for the expected one
+    for(OMX_U32 index = 0;;index++) {
+        ext->nIndex = index;
+        result = OMX_GetConfig(m_hHandle,
+        (OMX_INDEXTYPE)OMX_IndexConfigAndroidVendorExtension,
+        (OMX_PTR)ext);
+
+        if(result == OMX_ErrorNone) {
+            if(!strcmp((char*)ext->cName, sExtensionName)) {
+                   D("find extension %s\n", sExtensionName);
+                   return result;
+            }
+        }
+        else {
+            E("\nfailed to get vendor extension %s", sExtensionName);
+            return OMX_ErrorUndefined;
+        }
+    }
+}
+
+
+OMX_ERRORTYPE SetVendorRateControlMode(OMX_VIDEO_CONTROLRATETYPE eControlRate) {
+    OMX_ERRORTYPE result = OMX_ErrorNone;
+    OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE* ext = NULL;
+    char extensionName[] = "qti-ext-enc-bitrate-mode";
+    OMX_U32 paramSizeUsed = 1;
+    OMX_U32 size = sizeof(OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE) +
+                (paramSizeUsed - 1) * sizeof(OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE::nParam);
+
+    ext = (OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE*)malloc(size);
+    if(!ext) {
+        E("\nUnable to create rate control vendor extension instance");
+        return OMX_ErrorUndefined;
+    }
+
+    memset(ext, 0, sizeof(OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE));
+    ext->nSize = size;
+    ext->nParamSizeUsed = paramSizeUsed;
+    result = GetVendorExtension(extensionName, ext);
+
+    if(result == OMX_ErrorNone) {
+        D("set rate control vendor extension");
+        ext->nParam[0].bSet = OMX_TRUE;
+        ext->nParam[0].nInt32 = eControlRate;
+        result = OMX_SetConfig(m_hHandle,
+            (OMX_INDEXTYPE)OMX_IndexConfigAndroidVendorExtension,
+            (OMX_PTR)ext);
+    }
+
+    if(result != OMX_ErrorNone) {
+        E("\nFailed to SetConfig - OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE");
+    }
+
+    if(ext) {
+        free(ext);
+        ext = NULL;
+    }
+    return result;
+}
 
 void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize)
 {
@@ -446,7 +557,7 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize)
       return NULL;
 
 #ifdef USE_ION
-  ion_data.ion_device_fd = open (PMEM_DEVICE, O_RDONLY);
+  ion_data.ion_device_fd = ion_open();
   if(ion_data.ion_device_fd < 0)
   {
       E("\nERROR: ION Device open() Failed");
@@ -454,26 +565,13 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize)
   }
   nSize = (nSize + 4095) & (~4095);
   ion_data.alloc_data.len = nSize;
-  ion_data.alloc_data.heap_id_mask = 0x1 << ION_IOMMU_HEAP_ID;;
-  ion_data.alloc_data.align = 4096;
+  ion_data.alloc_data.heap_id_mask = ION_HEAP(ION_SYSTEM_HEAP_ID);
   ion_data.alloc_data.flags = 0;
 
-  rc = ioctl(ion_data.ion_device_fd,ION_IOC_ALLOC,&ion_data.alloc_data);
-  if(rc || !ion_data.alloc_data.handle) {
-         E("\n ION ALLOC memory failed rc: %d, handle: %p", rc, ion_data.alloc_data.handle);
-         ion_data.alloc_data.handle = 0;
-         return NULL;
-  }
-
-  ion_data.ion_alloc_fd.handle = ion_data.alloc_data.handle;
-  rc = ioctl(ion_data.ion_device_fd,ION_IOC_MAP,&ion_data.ion_alloc_fd);
-  if(rc) {
-        E("\n ION MAP failed ");
-        ion_data.ion_alloc_fd.fd =-1;
-        ion_data.ion_alloc_fd.fd =-1;
-        return NULL;
-  }
-  pMem->pmem_fd = ion_data.ion_alloc_fd.fd;
+  rc = ion_alloc_fd(ion_data.ion_device_fd, ion_data.alloc_data.len, 0,
+                      ion_data.alloc_data.heap_id_mask, ion_data.alloc_data.flags,
+                      &ion_data.data_fd);
+  pMem->pmem_fd = ion_data.data_fd;
 #else
    pMem->pmem_fd = open(PMEM_DEVICE, O_RDWR);
    if ((int)(pMem->pmem_fd) < 0)
@@ -489,12 +587,8 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize)
       close(pMem->pmem_fd);
       pMem->pmem_fd = -1;
 #ifdef USE_ION
-    if(ioctl(ion_data.ion_device_fd,ION_IOC_FREE,
-       &ion_data.alloc_data.handle)) {
-      E("ion recon buffer free failed");
-    }
-    ion_data.alloc_data.handle = 0;
-    ion_data.ion_alloc_fd.fd =-1;
+    close(ion_data.data_fd);
+    ion_data.data_fd =-1;
     close(ion_data.ion_device_fd);
     ion_data.ion_device_fd =-1;
 #endif
@@ -515,12 +609,8 @@ int PmemFree(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, void* pvirt, int nSize)
    close(pMem->pmem_fd);
    pMem->pmem_fd = -1;
 #ifdef USE_ION
-   if(ioctl(ion_data.ion_device_fd,ION_IOC_FREE,
-         &ion_data.alloc_data.handle)) {
-        E("ion recon buffer free failed");
-   }
-   ion_data.alloc_data.handle = 0;
-   ion_data.ion_alloc_fd.fd =-1;
+   close(ion_data.data_fd);
+   ion_data.data_fd =-1;
    close(ion_data.ion_device_fd);
    ion_data.ion_device_fd =-1;
 #endif
@@ -614,6 +704,7 @@ OMX_ERRORTYPE ConfigureEncoder()
    CHK(result);
    portdef.format.video.nFrameWidth = m_sProfile.nFrameWidth;
    portdef.format.video.nFrameHeight = m_sProfile.nFrameHeight;
+   portdef.format.video.eColorFormat = (OMX_COLOR_FORMATTYPE) QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
 
    E ("\n Height %lu width %lu bit rate %lu",portdef.format.video.nFrameHeight
       ,portdef.format.video.nFrameWidth,portdef.format.video.nBitrate);
@@ -785,9 +876,9 @@ result = OMX_SetParameter(m_hHandle,
        CHK(result);
          }
    }
+
    if (m_sProfile.eCodec == OMX_VIDEO_CodingAVC)
    {
-#if 1
 /////////////C A B A C ///A N D/////D E B L O C K I N G /////////////////
        OMX_VIDEO_PARAM_AVCTYPE avcdata;
        avcdata.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
@@ -795,15 +886,33 @@ result = OMX_SetParameter(m_hHandle,
                                  OMX_IndexParamVideoAvc,
                                  &avcdata);
        CHK(result);
+       avcdata.nPFrames = 6;
+       avcdata.nBFrames = 0;
+       avcdata.bUseHadamard = OMX_FALSE;
+       avcdata.nRefFrames = 1;
+       avcdata.nRefIdx10ActiveMinus1 = 1;
+       avcdata.nRefIdx11ActiveMinus1 = 0;
+       avcdata.bEnableUEP = OMX_FALSE;
+       avcdata.bEnableFMO = OMX_FALSE;
+       avcdata.bEnableASO = OMX_FALSE;
+       avcdata.bEnableRS = OMX_FALSE;
+       avcdata.nAllowedPictureTypes = 2;
+       avcdata.bFrameMBsOnly = OMX_FALSE;
+       avcdata.bMBAFF = OMX_FALSE;
+       avcdata.bWeightedPPrediction = OMX_FALSE;
+       avcdata.nWeightedBipredicitonMode = 0;
+       avcdata.bconstIpred = OMX_FALSE;
+       avcdata.bDirect8x8Inference = OMX_FALSE;
+       avcdata.bDirectSpatialTemporal = OMX_FALSE;
        avcdata.nPFrames = m_sProfile.nFramerate * 2 - 1;
        avcdata.nBFrames = 0;
        // TEST VALUES (CHANGE FOR DIFF CONFIG's)
-       avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterEnable;
-       //avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisable;
-       avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisableSliceBoundary;
-       avcdata.bEntropyCodingCABAC = OMX_FALSE;
+ //      avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterEnable;
+       avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisable;
+    //   avcdata.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterDisableSliceBoundary;
+//      avcdata.bEntropyCodingCABAC = OMX_FALSE;
        //avcdata.bEntropyCodingCABAC = OMX_TRUE;
-       avcdata.nCabacInitIdc = 1;
+//       avcdata.nCabacInitIdc = 1;
 ///////////////////////////////////////////////
 
        result = OMX_SetParameter(m_hHandle,
@@ -811,41 +920,82 @@ result = OMX_SetParameter(m_hHandle,
                                  &avcdata);
        CHK(result);
 /////////////C A B A C ///A N D/////D E B L O C K I N G /////////////////
-#endif
    }
+   /////////////////////////bitrate/////////////////////
+   if (m_sProfile.eControlRate == OMX_Video_ControlRateDisable) {
+      D("Setting vendor extended rate control mode RC_OFF");
+      result = SetVendorRateControlMode(m_sProfile.eControlRate);
+   }
+   else if (m_sProfile.nBitrate != DEADVALUE &&
+            (m_sProfile.eControlRate == OMX_Video_ControlRateVariableSkipFrames ||
+             m_sProfile.eControlRate == OMX_Video_ControlRateConstantSkipFrames)) {
+        D("Setting vendor extended rate control mode controlrate skip");
+        result = SetVendorRateControlMode(m_sProfile.eControlRate);
+        CHK(result);
+        OMX_VIDEO_PARAM_BITRATETYPE bitrate;
+        memset(&bitrate, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
+         bitrate.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
+        bitrate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+        result = OMX_GetParameter(m_hHandle,
+            OMX_IndexParamVideoBitrate, (OMX_PTR)&bitrate);
+        if (result != OMX_ErrorNone) {
+           return result;
+        }
+        //no need eControlRate
+        bitrate.nTargetBitrate = m_sProfile.nBitrate;
+        bitrate.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
+        result = OMX_SetParameter(m_hHandle,
+            OMX_IndexParamVideoBitrate, (OMX_PTR)&bitrate);
+   }
+   else if (m_sProfile.nBitrate != DEADVALUE) {
+      D("Setting common rate control mode eControlRate %d bits %d\n",m_sProfile.eControlRate,m_sProfile.nBitrate);
+        OMX_VIDEO_PARAM_BITRATETYPE bitrate;
 
-   OMX_VIDEO_PARAM_BITRATETYPE bitrate; // OMX_IndexParamVideoBitrate
-   bitrate.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
-   bitrate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
-   result = OMX_GetParameter(m_hHandle,
-                             OMX_IndexParamVideoBitrate,
-                             &bitrate);
-   E("\n OMX_IndexParamVideoBitrate Get Paramter port");
-   CHK(result);
-   bitrate.eControlRate = m_sProfile.eControlRate;
-   bitrate.nTargetBitrate = m_sProfile.nBitrate;
-   result = OMX_SetParameter(m_hHandle,
-                             OMX_IndexParamVideoBitrate,
-                             &bitrate);
+        memset(&bitrate, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
+        bitrate.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
+        bitrate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+        result = OMX_GetParameter(m_hHandle,
+            OMX_IndexParamVideoBitrate, (OMX_PTR)&bitrate);
+        if (result != OMX_ErrorNone) {
+           return result;
+        }
+        bitrate.eControlRate = m_sProfile.eControlRate;//ControlRate
+        bitrate.nTargetBitrate = m_sProfile.nBitrate;
+        bitrate.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
+        result = OMX_SetParameter(m_hHandle,
+            OMX_IndexParamVideoBitrate, (OMX_PTR)&bitrate);
+
+    }
+   /////////////////////////bitrate////////////////////////////////
    E("\n OMX_IndexParamVideoBitrate Set Paramter port");
    CHK(result);
+        ///////////////////////////////////////
+        // set SPS/PPS insertion for IDR frames
+        ///////////////////////////////////////
+         PrependSPSPPSToIDRFramesParams param;
+        memset(&param, 0, sizeof(PrependSPSPPSToIDRFramesParams));
+        param.nSize = sizeof(PrependSPSPPSToIDRFramesParams);
+        param.bEnable = OMX_FALSE;
+        D ("\n Set SPS/PPS headers: %d", param.bEnable);
+        result = OMX_SetParameter(m_hHandle,
+                (OMX_INDEXTYPE)OMX_QcomIndexParamSequenceHeaderWithIDR,
+                (OMX_PTR)&param);
 
-   OMX_VIDEO_PARAM_PORTFORMATTYPE framerate; // OMX_IndexParamVidePortFormat
-   framerate.nSize = sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE);
-   framerate.nPortIndex = 0;
-   result = OMX_GetParameter(m_hHandle,
-                             OMX_IndexParamVideoPortFormat,
-                             &framerate);
-   E("\n OMX_IndexParamVideoPortFormat Get Paramter port");
-   CHK(result);
-   FractionToQ16(framerate.xFramerate,(int) (m_sProfile.nFramerate * 2),2);
-   result = OMX_SetParameter(m_hHandle,
-                             OMX_IndexParamVideoPortFormat,
-                             &framerate);
-   E("\n OMX_IndexParamVideoPortFormat Set Paramter port");
-   CHK(result);
-
-#if 1
+        if (result != OMX_ErrorNone) {
+            return result;
+        }
+        ///////////////////////////////////////
+        // set AU delimiters for video stream
+        ///////////////////////////////////////
+        OMX_QCOM_VIDEO_CONFIG_AUD param_aud;
+        memset(&param_aud, 0, sizeof(OMX_QCOM_VIDEO_CONFIG_AUD));
+        param_aud.nSize = sizeof(OMX_QCOM_VIDEO_CONFIG_AUD);
+        param_aud.bEnable = OMX_FALSE;
+        D ("\n et AU Delimiters = %d",param_aud.bEnable);
+        result = OMX_SetParameter(m_hHandle,
+                (OMX_INDEXTYPE)OMX_QcomIndexParamAUDelimiter,
+                (OMX_PTR)&param_aud);
+        CHK(result); 
 ///////////////////I N T R A P E R I O D ///////////////////
 
       QOMX_VIDEO_INTRAPERIODTYPE intra;
@@ -873,9 +1023,8 @@ result = OMX_SetParameter(m_hHandle,
 
 
 ///////////////////I N T R A P E R I O D ///////////////////
-#endif
 
-#if 1
+
 ///////////////////E R R O R C O R R E C T I O N ///////////////////
 
       ResyncMarkerType eResyncMarkerType = RESYNC_MARKER_NONE;
@@ -905,24 +1054,9 @@ result = OMX_SetParameter(m_hHandle,
 //      eResyncMarkerType = RESYNC_MARKER_BYTE;
 //      nResyncMarkerSpacing = 1920;
 
-      //nResyncMarkerSpacing sets the slice size in venc_set_multislice_cfg
-      //
-      //As of 9/24/10, it is known that the firmware has a bitstream
-      //corruption issue when RateControl and multislice are enabled for 720P
-      //So, disabling multislice for 720P when ratecontrol is enabled until
-      //the firmware issue is resolved.
+      eResyncMarkerType = RESYNC_MARKER_NONE;
+      nResyncMarkerSpacing = 0;
 
-      if ( ( (m_sProfile.nFrameWidth == 1280) && (m_sProfile.nFrameHeight = 720) ) &&
-           (m_sProfile.eControlRate  != OMX_Video_ControlRateDisable) )
-      {
-         eResyncMarkerType = RESYNC_MARKER_NONE;
-         nResyncMarkerSpacing = 0;
-      }
-      else
-      {
-         eResyncMarkerType = RESYNC_MARKER_NONE;
-          nResyncMarkerSpacing = 0;
-      }
    }
 
    OMX_VIDEO_PARAM_ERRORCORRECTIONTYPE errorCorrection; //OMX_IndexParamVideoErrorCorrection
@@ -934,8 +1068,9 @@ result = OMX_SetParameter(m_hHandle,
    errorCorrection.bEnableRVLC = OMX_FALSE;
    errorCorrection.bEnableDataPartitioning = OMX_FALSE;
 
+   if (eResyncMarkerType != RESYNC_MARKER_NONE) {
       if ((eResyncMarkerType == RESYNC_MARKER_BYTE) &&
-         (m_sProfile.eCodec == OMX_VIDEO_CodingMPEG4)){
+           (m_sProfile.eCodec == OMX_VIDEO_CodingMPEG4)) {
             errorCorrection.bEnableResync = OMX_TRUE;
             errorCorrection.nResynchMarkerSpacing = nResyncMarkerSpacing;
             errorCorrection.bEnableHEC = enableHEC;
@@ -951,13 +1086,13 @@ result = OMX_SetParameter(m_hHandle,
          errorCorrection.nResynchMarkerSpacing = nResyncMarkerSpacing;
          errorCorrection.bEnableDataPartitioning = OMX_TRUE;
          }
-
       result = OMX_SetParameter(m_hHandle,
                             (OMX_INDEXTYPE) OMX_IndexParamVideoErrorCorrection,
                             (OMX_PTR) &errorCorrection);
-   CHK(result);
+      CHK(result);
+   }
 
-      if (eResyncMarkerType == RESYNC_MARKER_MB){
+   if (eResyncMarkerType == RESYNC_MARKER_MB){
          if (m_sProfile.eCodec == OMX_VIDEO_CodingAVC){
             OMX_VIDEO_PARAM_AVCTYPE avcdata;
             avcdata.nPortIndex = (OMX_U32) PORT_INDEX_OUT; // output
@@ -992,12 +1127,10 @@ result = OMX_SetParameter(m_hHandle,
                CHK(result);
             }
          }
-         }
+   }
 
 ///////////////////E R R O R C O R R E C T I O N ///////////////////
-#endif
 
-#if 1
 ///////////////////I N T R A R E F R E S H///////////////////
       bool bEnableIntraRefresh = OMX_TRUE;
 
@@ -1021,8 +1154,7 @@ result = OMX_SetParameter(m_hHandle,
             }
          }
       }
-#endif
-#if 1
+
 ///////////////////FRAMEPACKING DATA///////////////////
       OMX_QCOM_FRAME_PACK_ARRANGEMENT framePackingArrangement;
       FILE *m_pConfigFile;
@@ -1083,7 +1215,6 @@ result = OMX_SetParameter(m_hHandle,
       CHK(result);
 
 //////////////////////OMX_VIDEO_PARAM_INTRAREFRESHTYPE///////////////////
-#endif
 
    OMX_CONFIG_FRAMERATETYPE enc_framerate; // OMX_IndexConfigVideoFramerate
    enc_framerate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
@@ -1345,7 +1476,21 @@ OMX_ERRORTYPE VencTest_RegisterYUVBuffer(OMX_BUFFERHEADERTYPE** ppBufferHeader,
   #endif
    D("register buffer");
    D("Calling UseBuffer for Input port");
-   if ((result = OMX_UseBuffer(m_hHandle,
+   if (m_eMetaMode) {
+     OMX_S32 nFds = 1;
+     OMX_S32 nInts = 3;
+     result = OMX_AllocateBuffer(m_hHandle, ppBufferHeader,
+       (OMX_U32) PORT_INDEX_IN, pAppPrivate, sizeof(MetaBuffer));
+     (*ppBufferHeader)->pInputPortPrivate = pBuffer;
+     MetaBuffer *pMetaBuffer = (MetaBuffer *)((*ppBufferHeader)->pBuffer);
+     if (pMetaBuffer) {
+       NativeHandle* pMetaHandle = (NativeHandle*)calloc((
+         sizeof(NativeHandle)+ sizeof(OMX_S32)*(nFds + nInts)), 1);
+       pMetaBuffer->meta_handle = pMetaHandle;
+       pMetaBuffer->buffer_type = CameraSource;
+       D("use metamode for Input port");
+     }
+   }else if ((result = OMX_UseBuffer(m_hHandle,
                                ppBufferHeader,
                                (OMX_U32) PORT_INDEX_IN,
                                pAppPrivate,
@@ -1558,6 +1703,7 @@ OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
 {
    OMX_ERRORTYPE result = OMX_ErrorNone;
 #if defined(MAX_RES_720P) && !defined(_MSM8974_)
+   D("m_sProfile.nFrameBytes %d", m_sProfile.nFrameBytes);
    if (read(m_nInFd,
             pYUVBuffer->pBuffer,
             m_sProfile.nFrameBytes) != m_sProfile.nFrameBytes)
@@ -1567,28 +1713,35 @@ OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
 #elif _MSM8974_
    int i, lscanl, lstride, cscanl, cstride, height, width;
    int bytes = 0, read_bytes = 0;
-   OMX_U8 *yuv = pYUVBuffer->pBuffer;
+   OMX_U8 *yuv = NULL;
+   OMX_U8 *start = NULL;
    height = m_sProfile.nFrameHeight;
    width = m_sProfile.nFrameWidth;
    lstride = VENUS_Y_STRIDE(COLOR_FMT_NV12, width);
    lscanl = VENUS_Y_SCANLINES(COLOR_FMT_NV12, height);
    cstride = VENUS_UV_STRIDE(COLOR_FMT_NV12, width);
    cscanl = VENUS_UV_SCANLINES(COLOR_FMT_NV12, height);
-
+   if (m_eMetaMode) {
+     yuv = (OMX_U8 *)pYUVBuffer->pInputPortPrivate;
+     start = (OMX_U8 *)pYUVBuffer->pInputPortPrivate;
+   }else{
+     yuv = pYUVBuffer->pBuffer;
+     start = pYUVBuffer->pBuffer;
+   }
    for(i = 0; i < height; i++) {
 	   bytes = read(m_nInFd, yuv, width);
 	   if (bytes != width) {
-		   E("read failed: %d != %d\n", read, width);
+		   E("read failed: %d != %d\n", bytes, width);
 		   return OMX_ErrorUndefined;
 	   }
 	   read_bytes += bytes;
 	   yuv += lstride;
    }
-   yuv = pYUVBuffer->pBuffer + (lscanl * lstride);
+   yuv = start + (lscanl * lstride);
    for (i = 0; i < ((height + 1) >> 1); i++) {
 	   bytes = read(m_nInFd, yuv, width);
 	   if (bytes != width) {
-		   E("read failed: %d != %d\n", read, width);
+		   E("read failed: %d != %d\n", bytes, width);
 		   return OMX_ErrorUndefined;
 	   }
 	   read_bytes += bytes;
@@ -1596,6 +1749,34 @@ OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
    }
    m_sProfile.nFrameRead = VENUS_BUFFER_SIZE(COLOR_FMT_NV12, width, height);
    E("\n\nActual read bytes: %d, NV12 buffer size: %d\n\n\n", read_bytes, m_sProfile.nFrameRead);
+   if(m_eMetaMode){
+     OMX_S32 nFds = 1;
+     OMX_S32 nInts = 3;
+     int offset = 0;
+     int maxsize = 0;
+     OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO*)(pYUVBuffer->pAppPrivate);
+     MetaBuffer *pMetaBuffer = (MetaBuffer *)(pYUVBuffer->pBuffer);
+     NativeHandle* pMetaHandle = NULL;
+     if (!pMem || !pMetaBuffer) {
+       return OMX_ErrorUndefined;
+     }
+     pMetaHandle = pMetaBuffer->meta_handle;
+     if (!pMetaHandle) {
+       return OMX_ErrorUndefined;
+     }
+     pMetaHandle->version = sizeof(NativeHandle);
+     pMetaHandle->numFds = nFds;
+     pMetaHandle->numInts = nInts;
+     pMetaHandle->data[0] = pMem->pmem_fd;
+     pMetaHandle->data[1] = 0; //offset
+     pMetaHandle->data[2] = m_sProfile.nFrameRead;
+     pMetaHandle->data[3] = ITUR601;
+     // if (pYUVBuffer->port->port_def.format.video.eColorFormat == QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed){
+      //  pMetaHandle->data[3] |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+     // }
+     pMetaBuffer->buffer_type = CameraSource;
+     D("metamode data[2] %d", pMetaHandle->data[2]);
+   }
 #else
          OMX_U32 bytestoread = m_sProfile.nFrameWidth*m_sProfile.nFrameHeight;
          // read Y first
@@ -1797,6 +1978,7 @@ void help()
 	printf("      -c ratecontrol option\n");
     printf("         (Values 0 - 4 for RC_OFF, RC_CBR_CFR, RC_CBR_VFR, RC_VBR_CFR, RC_VBR_VFR\n");
 	printf("      -d dynamic control file\n");
+	printf("      -M metamode (value 0 or 1, 0 not use metamode, 1 use metamode)");
 	printf("      --scaling-width\n");
 	printf("      --scaling-higth\n");
 	printf("      --help  Print this menu\n");
@@ -1820,6 +2002,7 @@ static int parse_args(int argc, char **argv)
         { "infile",      required_argument, NULL, 'i'},
         { "outfile",      required_argument, NULL, 'o'},
         { "rotation",      required_argument, NULL, 'r'},
+        { "metamode",    required_argument, NULL, 'M'},
         { "help",        no_argument,       NULL, 0},
         { "scaling-width",        required_argument,       NULL, 1},
         { "scaling-height",        required_argument,       NULL, 2},
@@ -1829,7 +2012,7 @@ static int parse_args(int argc, char **argv)
     m_sProfile.eControlRate = OMX_Video_ControlRateVariable;
     m_sProfile.nUserProfile = 0;
 
-    while ((command = getopt_long(argc, argv, "m:t:w:h:f:b:n:c:i:o:r:d:", longopts,
+    while ((command = getopt_long(argc, argv, "m:t:w:h:f:b:n:c:i:o:r:d:M:", longopts,
                     NULL)) != -1) {
         switch (command) {
             case 'm':
@@ -1937,6 +2120,13 @@ static int parse_args(int argc, char **argv)
                 else
                     memset(&dynamic_config, 0, sizeof(struct DynamicConfig));
                 break;
+            case 'M':
+              m_eMetaMode = atoi(optarg);
+              if (m_eMetaMode != 0 && m_eMetaMode != 1){
+                E ("Invalid metamode");
+                return -1;
+              }
+              break;
             case 0:
                 help();
                 exit(0);
@@ -2040,7 +2230,7 @@ int main(int argc, char** argv)
          E("No output file name");
 	 CHK(1);
       }
-	  m_nOutFd = fopen(m_sProfile.cOutFileName,"ab");
+	  m_nOutFd = fopen(m_sProfile.cOutFileName,"wb");
       if (m_nOutFd == NULL)
       {
          E("could not open output file %s", m_sProfile.cOutFileName);
@@ -2105,7 +2295,16 @@ int main(int argc, char** argv)
       portDef.nPortIndex = 0;
       result = OMX_GetParameter(m_hHandle, OMX_IndexParamPortDefinition, &portDef);
       CHK(result);
-
+      if (m_eMetaMode) {
+        StoreMetaDataInBuffersParams sMetadataMode;
+        OMX_INIT_STRUCT(&sMetadataMode, StoreMetaDataInBuffersParams);
+        sMetadataMode.nPortIndex = portDef.nPortIndex;
+        sMetadataMode.bStoreMetaData = OMX_TRUE;
+        result = OMX_SetParameter(m_hHandle,
+            (OMX_INDEXTYPE)OMX_QcomIndexParamVideoMetaBufferMode,
+            (OMX_PTR)&sMetadataMode);
+        CHK(result);
+    }
       D("allocating Input buffers");
       num_in_buffers = portDef.nBufferCountActual;
       for (i = 0; i < portDef.nBufferCountActual; i++)
@@ -2372,6 +2571,10 @@ int main(int argc, char** argv)
       // deallocate pmem buffers
       for (int i = 0; i < num_in_buffers; i++)
       {
+         if(m_eMetaMode && ((MetaBuffer *)(m_pInBuffers[i]->pBuffer))->meta_handle){
+           free(((MetaBuffer *)(m_pInBuffers[i]->pBuffer))->meta_handle);
+           ((MetaBuffer *)(m_pInBuffers[i]->pBuffer))->meta_handle = NULL;
+         }
          PmemFree((OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO*)m_pInBuffers[i]->pAppPrivate,
                   m_pInBuffers[i]->pBuffer,
                   m_sProfile.nFrameBytes);

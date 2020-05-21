@@ -1,9 +1,9 @@
-project(mm-venc-omx-test)
+project(mm-venc-omx-test-lite)
 cmake_minimum_required(VERSION 2.6)
 
 set(ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wno-int-conversion")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror ")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
 add_definitions(
     -D__AGL__
@@ -23,17 +23,18 @@ set(SOURCE_FILES
     ${ROOT_PATH}/camera_test.h
 )
 
-add_executable (mm-venc-omx-test ${SOURCE_FILES})
+add_executable (mm-venc-omx-test-lite ${SOURCE_FILES})
 
 include_directories (${SYSROOTINC_PATH})
 include_directories (${SYSROOT_INCLUDEDIR})
 
 link_directories(${SYSROOT_LIBDIR})
 
-target_link_libraries (mm-venc-omx-test glib-2.0)
-target_link_libraries (mm-venc-omx-test pthread)
-target_link_libraries (mm-venc-omx-test OmxCore)
-target_link_libraries (mm-venc-omx-test OmxVenc)
+target_link_libraries (mm-venc-omx-test-lite glib-2.0)
+target_link_libraries (mm-venc-omx-test-lite pthread)
+target_link_libraries (mm-venc-omx-test-lite OmxCore)
+target_link_libraries (mm-venc-omx-test-lite OmxVenc)
+target_link_libraries (mm-venc-omx-test-lite ion)
 
 
-install (TARGETS mm-venc-omx-test DESTINATION ${CMAKE_INSTALL_BINDIR})
+install (TARGETS mm-venc-omx-test-lite DESTINATION ${CMAKE_INSTALL_BINDIR})

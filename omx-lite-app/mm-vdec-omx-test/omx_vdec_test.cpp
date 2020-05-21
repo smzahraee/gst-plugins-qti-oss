@@ -77,7 +77,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cutils/properties.h>
 #endif
 
-#include <linux/android_pmem.h>
+//#include <linux/android_pmem.h>
 
 #ifdef _ANDROID_
 #include <binder/MemoryHeapBase.h>
@@ -116,10 +116,9 @@ enum {
   do {                                        \
     char *ptr = getenv("OMX_DEBUG_LEVEL");    \
     if (level & (ptr?atoi(ptr):0) )           \
-       printf("[%ld:%ld]:[%s:%d] "fmt" \n", getpid(), \
+       printf("[%ld:%ld]:[%s:%d] " fmt " \n", getpid(), \
        gettid(), __FILENAME__, __LINE__, ##args); \
   } while(0)
-
 #define DEBUG_PRINT(fmt, args...) DEBUG_PRINT_CTL(PRIO_LOW, fmt, ##args)
 #define DEBUG_PRINT_ERROR(fmt,args...) DEBUG_PRINT_CTL(PRIO_ERROR, fmt, ##args)
 #define ALOGE DEBUG_PRINT_ERROR
@@ -147,12 +146,18 @@ extern "C" {
 #include <eglext.h>
 #include <EGL/eglwaylandext.h>
 
-#include "gbm.h"
-#include "msm_drm.h"
+#include <gbm.h>
+#include <gbm_priv.h>
 #endif
 
 #ifdef USE_ION
 #include <linux/msm_ion.h>
+#if TARGET_ION_ABI_VERSION >= 2
+#include <ion/ion.h>
+#include <linux/dma-buf.h>
+#else
+#include <linux/ion.h>
+#endif
 #endif
 /************************************************************************/
 /*              #DEFINES                            */
@@ -161,6 +166,7 @@ extern "C" {
 //#define false 0
 //#define true 1
 #define H264_START_CODE 0x00000001
+#define H265_START_CODE 0x00000001
 #define VOP_START_CODE 0x000001B6
 #define SHORT_HEADER_START_CODE 0x00008000
 #define MPEG2_FRAME_START_CODE 0x00000100
@@ -173,6 +179,30 @@ extern "C" {
 #define NUMBER_OF_ARBITRARYBYTES_READ  (4 * 1024)
 #define VC1_SEQ_LAYER_SIZE_WITHOUT_STRUCTC 32
 #define VC1_SEQ_LAYER_SIZE_V1_WITHOUT_STRUCTC 16
+#define HEVC_NAL_UNIT_TYPE_MASK 0x7F
+#define HEVC_NAL_UNIT_TYPE_TRAIL_N 0x00
+#define HEVC_NAL_UNIT_TYPE_NONIDR 0x16
+#define HEVC_NAL_UNIT_TYPE_IDR_W_RADL 19
+#define HEVC_NAL_UNIT_TYPE_IDR_N_LP 20
+#define HEVC_NAL_UNIT_TYPE_RSV_VCL_N10 10
+#define HEVC_NAL_UNIT_TYPE_RSV_VCL_N12 12
+#define HEVC_NAL_UNIT_TYPE_RSV_VCL_N14 14
+#define HEVC_NAL_UNIT_TYPE_RSV_VCL_R11 11
+#define HEVC_NAL_UNIT_TYPE_RSV_VCL_R13 13
+#define HEVC_NAL_UNIT_TYPE_RSV_VCL_R15 15
+#define HEVC_NAL_UNIT_TYPE_RSV_IRAP_VCL22 22
+#define HEVC_NAL_UNIT_TYPE_RSV_IRAP_VCL23 23
+#define HEVC_NAL_UNIT_TYPE_VCL_LIMIT 23
+#define HEVC_NAL_UNIT_TYPE_RESERVED_START 0x18
+#define HEVC_NAL_UNIT_TYPE_RESERVED_END 0x1F
+#define HEVC_NAL_UNIT_TYPE_VPS 0x20
+#define HEVC_NAL_UNIT_TYPE_SPS 0x21
+#define HEVC_NAL_UNIT_TYPE_PPS 0x22
+#define HEVC_NAL_UNIT_TYPE_AUD 0x23
+#define HEVC_NAL_UNIT_TYPE_PREFIX_SEI 0x27
+#define HEVC_NAL_UNIT_TYPE_SUFFIX_SEI 0x28
+#define HEVC_NAL_UNIT_TYPE_RESERVED_UNSPECIFIED 0x29
+#define HEVC_FIRST_MB_IN_SLICE_MASK 0x80
 static int previous_vc1_au = 0;
 #define CONFIG_VERSION_SIZE(param) \
     param.nVersion.nVersion = CURRENT_OMX_SPEC_VERSION;\
@@ -186,7 +216,7 @@ static int previous_vc1_au = 0;
 #define MDP_DEINTERLACE 0x80000000
 
 #define ALLOCATE_BUFFER 1
-#define USE_OUTPUT_BUFFER 1
+//#define USE_OUTPUT_BUFFER 1
 
 #ifdef _MSM8974_
 #define PMEM_DEVICE "/dev/ion"
@@ -215,15 +245,14 @@ using namespace android;
 #define MEM_HEAP_ID ION_CP_MM_HEAP_ID
 
 struct vdec_ion {
-    int ion_device_fd;
-    struct ion_fd_data fd_ion_data;
-    struct ion_allocation_data ion_alloc_data;
+    int dev_fd;
+    int data_fd;
+    struct ion_allocation_data alloc_data;
 };
 
 struct vdec_ion *outPort_ion;
 
-int alloc_map_ion_memory(OMX_U32 buffer_size,OMX_U32 alignment, struct ion_allocation_data *alloc_data,
-                         struct ion_fd_data *fd_data,int flag);
+bool alloc_map_ion_memory(OMX_U32 buffer_size, struct vdec_ion *ion_info, int flag);
 void free_ion_memory(struct vdec_ion *buf_ion_info);
 #endif
 
@@ -346,7 +375,11 @@ typedef enum {
 #ifdef _MSM8974_
   FILE_TYPE_START_OF_VP8_SPECIFIC = 60,
   FILE_TYPE_VP8_START_CODE = FILE_TYPE_START_OF_VP8_SPECIFIC,
-  FILE_TYPE_VP8
+  FILE_TYPE_VP8,
+
+  FILE_TYPE_START_OF_H265_SPECIFIC = 70,
+  FILE_TYPE_265_NAL_SIZE_LENGTH = FILE_TYPE_START_OF_H265_SPECIFIC,
+  FILE_TYPE_265_START_CODE_BASED
 #endif
 
 } file_type;
@@ -554,6 +587,7 @@ static int video_playback_count = 1;
 static int open_video_file ();
 static int Read_Buffer_From_DAT_File(OMX_BUFFERHEADERTYPE  *pBufHdr );
 static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
+static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_ArbitraryBytes(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_Vop_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_Mpeg2_Start_Code(OMX_BUFFERHEADERTYPE  *pBufHdr);
@@ -633,7 +667,7 @@ void wait_for_event(void)
     DEBUG_PRINT("Running .... get the event");
 }
 
-void event_complete(void )
+void event_complete(void)
 {
     pthread_mutex_lock(&lock);
     if (event_is_done == 0) {
@@ -1586,8 +1620,11 @@ int main(int argc, char **argv)
       printf(" 2--> ARBITRARY BYTES (need .264/.264c/.m4v/.263/.rcv/.vc1/.m2v)\n");
       if (codec_format_option == CODEC_FORMAT_H264)
       {
-        printf(" 3--> NAL LENGTH SIZE CLIP (.264c)\n");
         printf(" 4--> START CODE BASED CLIP (.264/.h264)\n");
+      }
+      if (codec_format_option == CODEC_FORMAT_HEVC)
+      {
+        printf(" 4--> START CODE BASED CLIP (.265/.h265)\n");
       }
       else if ( (codec_format_option == CODEC_FORMAT_MP4) || (codec_format_option == CODEC_FORMAT_H263) )
       {
@@ -1778,7 +1815,10 @@ int main(int argc, char **argv)
           break;
 #ifdef _MSM8974_
 	case CODEC_FORMAT_VP8:
-	break;
+        break;
+        case CODEC_FORMAT_HEVC:
+          file_type_option = (file_type)(FILE_TYPE_START_OF_H265_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
+          break;
 #endif
         default:
           DEBUG_PRINT_ERROR("Error: Unknown code %d", codec_format_option);
@@ -1952,6 +1992,14 @@ int run_tests()
        return -1;
     }
   }
+  else if(codec_format_option == CODEC_FORMAT_HEVC) {
+    if (file_type_option == FILE_TYPE_265_START_CODE_BASED) {
+       Read_Buffer = Read_Buffer_From_H265_Start_Code_File;
+    } else {
+       DEBUG_PRINT_ERROR("Invalid file_type_option(%d) for HEVC", file_type_option);
+       return -1;
+    }
+  }
   else if((codec_format_option == CODEC_FORMAT_H263) ||
           (codec_format_option == CODEC_FORMAT_MP4)) {
     Read_Buffer = Read_Buffer_From_Vop_Start_Code_File;
@@ -1993,6 +2041,7 @@ int run_tests()
     case FILE_TYPE_VC1:
 #ifdef _MSM8974_
     case FILE_TYPE_VP8:
+    case FILE_TYPE_265_START_CODE_BASED:
 #endif
     case FILE_TYPE_DIVX_4_5_6:
 #ifdef MAX_RES_1080P
@@ -2285,6 +2334,7 @@ int Play_Decoder()
       case FILE_TYPE_PICTURE_START_CODE:
       case FILE_TYPE_MPEG2_START_CODE:
       case FILE_TYPE_264_START_CODE_BASED:
+      case FILE_TYPE_265_START_CODE_BASED:
       case FILE_TYPE_RCV:
       case FILE_TYPE_VC1:
 #ifdef MAX_RES_1080P
@@ -2735,7 +2785,6 @@ int Play_Decoder()
         pInputBufHdrs[i]->nInputPortIndex = 0;
         pInputBufHdrs[i]->nFlags |= OMX_BUFFERFLAG_EOS;;
         bInputEosReached = true;
-
         OMX_EmptyThisBuffer(dec_handle, pInputBufHdrs[i]);
         etb_count++;
         DEBUG_PRINT("File is small::Either EOS or Some Error while reading file");
@@ -3013,10 +3062,7 @@ static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_hand
                             nPortIndex, &pPlatformList[bufCnt], bufSize, pvirt);
     }
 #else
-    int ion_device_fd =-1;
-    struct ion_allocation_data ion_alloc_data;
-    struct ion_fd_data fd_ion_data;
-
+    struct vdec_ion vdecion;
     *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
                    malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
     if(*pBufHdrs == NULL){
@@ -3062,17 +3108,15 @@ static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_hand
       pPlatformList[bufCnt].entryList   = &pPlatformEntry[bufCnt];
       pPMEMInfo[bufCnt].offset          =  0;
 
-      ion_device_fd = alloc_map_ion_memory(
-                                bufSize, 4096, &ion_alloc_data,
-                                &fd_ion_data, 0);
-      if (ion_device_fd < 0) {
+      bool status =  alloc_map_ion_memory(bufSize, &vdecion, 0);
+      if (status == false) {
           return OMX_ErrorInsufficientResources;
       }
-      pPMEMInfo[bufCnt].pmem_fd  = fd_ion_data.fd;
+      pPMEMInfo[bufCnt].pmem_fd  = vdecion.data_fd;
 
-      outPort_ion[bufCnt].ion_device_fd = ion_device_fd;
-      outPort_ion[bufCnt].ion_alloc_data = ion_alloc_data;
-      outPort_ion[bufCnt].fd_ion_data = fd_ion_data;
+      outPort_ion[bufCnt].dev_fd = vdecion.dev_fd;
+      outPort_ion[bufCnt].alloc_data = vdecion.alloc_data;
+      outPort_ion[bufCnt].data_fd = vdecion.data_fd;
 
       DEBUG_PRINT(" allocation size %d pmem fd 0x%x",bufSize,pPMEMInfo[bufCnt].pmem_fd);
       pvirt = (unsigned char *)mmap(NULL,bufSize,PROT_READ|PROT_WRITE,
@@ -3341,6 +3385,102 @@ static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
                 lseek64(inputBufferFileFd, -5, SEEK_CUR);
                 cnt -= 5;
                 DEBUG_PRINT("%s: Found NAL unit (type 0x%x) of size = %d", __FUNCTION__, (dataptr[4] & 0x1F), cnt);
+                break;
+            }
+        }
+    } while (1);
+
+#ifdef TEST_TS_FROM_SEI
+    if (timeStampLfile == 0)
+      pBufHdr->nTimeStamp = 0;
+    else
+      pBufHdr->nTimeStamp = LLONG_MAX;
+#else
+    pBufHdr->nTimeStamp = timeStampLfile;
+#endif
+    timeStampLfile += timestampInterval;
+
+    return cnt;
+}
+static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
+{
+    int bytes_read = 0;
+    int cnt = 0;
+    unsigned int code = 0;
+    int naluType = 0;
+    int newFrame = 0;
+    char *dataptr = (char *)pBufHdr->pBuffer;
+    DEBUG_PRINT("Inside %s", __FUNCTION__);
+    do
+    {
+        newFrame = 0;
+        bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
+        if (!bytes_read)
+        {
+            DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+            break;
+        }
+        code <<= 8;
+        code |= (0x000000FF & dataptr[cnt]);
+        cnt++;
+        if ((cnt == 4) && (code != H265_START_CODE))
+        {
+            DEBUG_PRINT_ERROR("%s: ERROR: Invalid start code found 0x%x", __FUNCTION__, code);
+            cnt = 0;
+            break;
+        }
+        if ((cnt > 4) && (code == H265_START_CODE))
+        {
+            DEBUG_PRINT("%s: Found H265_START_CODE", __FUNCTION__);
+            bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
+            if (!bytes_read)
+            {
+                DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+                break;
+            }
+            DEBUG_PRINT("%s: READ Byte[%d] = 0x%x", __FUNCTION__, cnt, dataptr[cnt]);
+            naluType = (dataptr[cnt] & HEVC_NAL_UNIT_TYPE_MASK) >> 1;
+            cnt++;
+            if (naluType <= HEVC_NAL_UNIT_TYPE_VCL_LIMIT &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_IRAP_VCL22 &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_IRAP_VCL23 &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_N10 &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_N12 &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_N14 &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_R11 &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_R13 &&
+                     naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_R15)
+            {
+                DEBUG_PRINT("%s: Found AU for HEVC \n", __FUNCTION__);
+                bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
+                if (!bytes_read)
+                {
+                    DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+                    break;
+                }
+                cnt ++;
+                bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
+                DEBUG_PRINT("%s: READ Byte[%d] = 0x%x firstsliceflag %d\n", __FUNCTION__, cnt, dataptr[cnt],dataptr[cnt] >>7);
+                newFrame = (dataptr[cnt] >>7); //firstsliceflag
+                cnt++;
+                if (newFrame)
+                {
+                      lseek64(inputBufferFileFd, -7, SEEK_CUR);
+                      cnt -= 7;
+                      DEBUG_PRINT("%s: Found a NAL unit (type 0x%x) of size = %d", __FUNCTION__, ((dataptr[4] & HEVC_NAL_UNIT_TYPE_MASK) >> 1), cnt);
+                      break;
+                }
+                else
+                {
+
+                    DEBUG_PRINT("%s: Not a New Frame", __FUNCTION__);
+                }
+            }
+            else
+            {
+                lseek64(inputBufferFileFd, -5, SEEK_CUR);
+                cnt -= 5;
+                DEBUG_PRINT("%s: Found NAL unit (type 0x%x) of size = %d", __FUNCTION__, ((dataptr[4] & HEVC_NAL_UNIT_TYPE_MASK) >> 1), cnt);
                 break;
             }
         }
@@ -4071,7 +4211,7 @@ static int open_video_file ()
 
     if (takeYuvLog) {
         strlcpy(outputfilename, "yuvframes.yuv", 14);
-        outputBufferFile = fopen (outputfilename, "ab");
+        outputBufferFile = fopen (outputfilename, "wb");
         if (outputBufferFile == NULL)
         {
           DEBUG_PRINT_ERROR("ERROR - o/p file %s could NOT be opened", outputfilename);
@@ -4975,7 +5115,6 @@ int output_port_reconfig()
     width = portFmt.format.video.nFrameWidth;
     stride = portFmt.format.video.nStride;
     sliceheight = portFmt.format.video.nSliceHeight;
-
     crop_rect.nWidth = width;
     crop_rect.nHeight = height;
 
@@ -5314,65 +5453,47 @@ freespace_query_failed:
 }
 
 #ifdef USE_ION
-int alloc_map_ion_memory(OMX_U32 buffer_size,
-              OMX_U32 alignment, struct ion_allocation_data *alloc_data,
-	      struct ion_fd_data *fd_data, int flag)
+bool alloc_map_ion_memory(OMX_U32 buffer_size,
+              struct vdec_ion *ion_info, int flag)
 {
-  int fd = -EINVAL;
+  int dev_fd = -EINVAL;
   int rc = -EINVAL;
-  int ion_dev_flag;
-  struct vdec_ion ion_buf_info;
   int secure_mode = 0;
 
-  if (!alloc_data || buffer_size <= 0 || !fd_data) {
+  if (!ion_info || buffer_size <= 0) {
      DEBUG_PRINT_ERROR("Invalid arguments to alloc_map_ion_memory");
-     return -EINVAL;
+     return FALSE;
   }
-  ion_dev_flag = O_RDONLY;
-  fd = open (MEM_DEVICE, ion_dev_flag);
-  if (fd < 0) {
-    DEBUG_PRINT_ERROR("opening ion device failed with fd = %d", fd);
-    return fd;
+  dev_fd = ion_open();
+  if (dev_fd < 0) {
+    DEBUG_PRINT_ERROR("opening ion device failed with fd = %d", dev_fd);
+    return FALSE;
   }
-  alloc_data->flags = 0;
-  if(!secure_mode && (flag & ION_FLAG_CACHED))
-  {
-    alloc_data->flags |= ION_FLAG_CACHED;
-  }
-  alloc_data->len = buffer_size;
-  alloc_data->align = clip2(alignment);
-  if (alloc_data->align < 4096)
-  {
-    alloc_data->align = 4096;
-  }
-  if ((secure_mode) && (flag & ION_SECURE))
-      alloc_data->flags |= ION_SECURE;
+  ion_info->alloc_data.flags = flag;
+  ion_info->alloc_data.len = buffer_size;
 
-  alloc_data->heap_id_mask = ION_HEAP(ION_IOMMU_HEAP_ID);
-  if (secure_mode)
-	  alloc_data->heap_id_mask = ION_HEAP(MEM_HEAP_ID);
-  rc = ioctl(fd,ION_IOC_ALLOC,alloc_data);
-  if (rc || !alloc_data->handle) {
-    DEBUG_PRINT_ERROR(" ION ALLOC memory failed ");
-    alloc_data->handle = 0;
-    close(fd);
-    fd = -ENOMEM;
-    return fd;
+  ion_info->alloc_data.heap_id_mask = ION_HEAP(ION_SYSTEM_HEAP_ID);
+  if (secure_mode && (ion_info->alloc_data.flags & ION_FLAG_SECURE)) {
+        ion_info->alloc_data.heap_id_mask = ION_HEAP(MEM_HEAP_ID);
   }
-  fd_data->handle = alloc_data->handle;
+      /* Use secure display cma heap for obvious reasons. */
+  if (ion_info->alloc_data.flags & ION_FLAG_CP_BITSTREAM) {
+      ion_info->alloc_data.heap_id_mask |= ION_HEAP(ION_SECURE_DISPLAY_HEAP_ID);
+  }
+  rc = ion_alloc_fd(dev_fd, ion_info->alloc_data.len, 0,
+                      ion_info->alloc_data.heap_id_mask, ion_info->alloc_data.flags,
+                      &ion_info->data_fd);
 
-  rc = ioctl(fd,ION_IOC_MAP,fd_data);
-  if (rc) {
-    DEBUG_PRINT_ERROR(" ION MAP failed ");
-    ion_buf_info.ion_alloc_data = *alloc_data;
-    ion_buf_info.ion_device_fd = fd;
-    ion_buf_info.fd_ion_data = *fd_data;
-    free_ion_memory(&ion_buf_info);
-    fd_data->fd =-1;
-    close(fd);
-    fd = -ENOMEM;
+  if (rc || ion_info->data_fd < 0) {
+      DEBUG_PRINT_ERROR("ION ALLOC memory failed");
+      ion_close(ion_info->dev_fd);
+      ion_info->data_fd = -1;
+      ion_info->dev_fd = -1;
+      return FALSE;
   }
-  return fd;
+  ion_info->dev_fd = dev_fd;
+
+  return TRUE;
 }
 
 void free_ion_memory(struct vdec_ion *buf_ion_info) {
@@ -5381,13 +5502,13 @@ void free_ion_memory(struct vdec_ion *buf_ion_info) {
        DEBUG_PRINT_ERROR(" ION: free called with invalid fd/allocdata");
        return;
      }
-     if(ioctl(buf_ion_info->ion_device_fd,ION_IOC_FREE,
-             &buf_ion_info->ion_alloc_data.handle)) {
-       DEBUG_PRINT_ERROR(" ION: free failed" );
-     }
-     close(buf_ion_info->ion_device_fd);
-     buf_ion_info->ion_device_fd = -1;
-     buf_ion_info->ion_alloc_data.handle = 0;
-     buf_ion_info->fd_ion_data.fd = -1;
+    if (buf_ion_info->data_fd >= 0) {
+        close(buf_ion_info->data_fd);
+        buf_ion_info->data_fd = -1;
+    }
+    if (buf_ion_info->dev_fd >= 0) {
+        ion_close(buf_ion_info->dev_fd);
+        buf_ion_info->dev_fd = -1;
+    }
 }
 #endif

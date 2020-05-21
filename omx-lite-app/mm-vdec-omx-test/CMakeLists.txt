@@ -1,9 +1,9 @@
-project(mm-vdec-omx-test)
+project(mm-vdec-omx-test-lite)
 cmake_minimum_required(VERSION 2.6)
 
 set(ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror -Wno-int-conversion")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror ")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ")
 
 add_definitions(
     -D__AGL__
@@ -26,21 +26,22 @@ set(SOURCE_FILES
     ${ROOT_PATH}/omx_vdec_test.cpp
 )
 
-add_executable (mm-vdec-omx-test ${SOURCE_FILES})
+add_executable (mm-vdec-omx-test-lite ${SOURCE_FILES})
 
 include_directories (${SYSROOTINC_PATH})
 include_directories (${SYSROOT_INCLUDEDIR})
 
 link_directories(${SYSROOT_LIBDIR})
 
-target_link_libraries (mm-vdec-omx-test glib-2.0)
-target_link_libraries (mm-vdec-omx-test pthread)
-target_link_libraries (mm-vdec-omx-test wayland-client)
-target_link_libraries (mm-vdec-omx-test gbm)
-target_link_libraries (mm-vdec-omx-test drm)
-target_link_libraries (mm-vdec-omx-test OmxCore)
-target_link_libraries (mm-vdec-omx-test OmxVdec)
-target_link_libraries (mm-vdec-omx-test EGL_adreno)
+target_link_libraries (mm-vdec-omx-test-lite glib-2.0)
+target_link_libraries (mm-vdec-omx-test-lite pthread)
+target_link_libraries (mm-vdec-omx-test-lite wayland-client)
+target_link_libraries (mm-vdec-omx-test-lite gbm)
+target_link_libraries (mm-vdec-omx-test-lite drm)
+target_link_libraries (mm-vdec-omx-test-lite OmxCore)
+target_link_libraries (mm-vdec-omx-test-lite OmxVdec)
+target_link_libraries (mm-vdec-omx-test-lite EGL_adreno)
+target_link_libraries (mm-vdec-omx-test-lite ion)
 
 
-install (TARGETS mm-vdec-omx-test DESTINATION ${CMAKE_INSTALL_BINDIR})
+install (TARGETS mm-vdec-omx-test-lite DESTINATION ${CMAKE_INSTALL_BINDIR})
