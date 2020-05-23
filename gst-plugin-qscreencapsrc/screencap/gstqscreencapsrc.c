@@ -510,7 +510,7 @@ redraw_checking:
         GST_BUFFER_DURATION (*buf));
   GST_DEBUG_OBJECT (qscreencapsrc, "push time %" G_GUINT64_FORMAT,
         GST_BUFFER_PTS (*buf));
-  printf("push gstbuf %p\n",gstbuf);
+  GST_INFO_OBJECT (qscreencapsrc, "Will push gstbuf %p to downstream, pts %" G_GUINT64_FORMAT, gstbuf, GST_BUFFER_PTS(gstbuf));
 done:
   return GST_FLOW_OK;
 }
@@ -744,5 +744,5 @@ gst_qscreencap_src_get_property (GObject * object, guint prop_id,
 GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
     qscreencapsrc,
-    "gst screen capture plugin ",
-    plugin_init, VERSION, "LGPL", " gstreamer screen capture plugin", "unknown package origin");
+    "gst screen capture plugin",
+    plugin_init, VERSION, "LGPL", "gstreamer screen capture plugin", "unknown package origin");
