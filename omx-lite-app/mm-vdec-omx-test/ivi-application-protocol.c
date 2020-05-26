@@ -30,34 +30,34 @@ extern const struct wl_interface ivi_surface_interface;
 extern const struct wl_interface wl_surface_interface;
 
 static const struct wl_interface *types[] = {
-	NULL,
-	NULL,
-	NULL,
-	&wl_surface_interface,
-	&ivi_surface_interface,
+  NULL,
+  NULL,
+  NULL,
+  &wl_surface_interface,
+  &ivi_surface_interface,
 };
 
 static const struct wl_message ivi_surface_requests[] = {
-	{ "destroy", "", types + 0 },
+  { "destroy", "", types + 0 },
 };
 
 static const struct wl_message ivi_surface_events[] = {
-	{ "configure", "ii", types + 0 },
+  { "configure", "ii", types + 0 },
 };
 
 WL_EXPORT const struct wl_interface ivi_surface_interface = {
-	"ivi_surface", 1,
-	1, ivi_surface_requests,
-	1, ivi_surface_events,
+  "ivi_surface", 1,
+  1, ivi_surface_requests,
+  1, ivi_surface_events,
 };
 
 static const struct wl_message ivi_application_requests[] = {
-	{ "surface_create", "uon", types + 2 },
+  { "surface_create", "uon", types + 2 },
 };
 
 WL_EXPORT const struct wl_interface ivi_application_interface = {
-	"ivi_application", 1,
-	1, ivi_application_requests,
-	0, NULL,
+  "ivi_application", 1,
+  1, ivi_application_requests,
+  0, NULL,
 };
 

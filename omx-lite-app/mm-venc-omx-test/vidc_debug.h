@@ -37,36 +37,36 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <media/msm_media_info.h>
 
 enum {
-   PRIO_ERROR=0x1,
-   PRIO_INFO=0x1,
-   PRIO_HIGH=0x2,
-   PRIO_LOW=0x4,
-   PRIO_TRACE_HIGH = 0x10,
-   PRIO_TRACE_LOW = 0x20,
+  PRIO_ERROR=0x1,
+  PRIO_INFO=0x1,
+  PRIO_HIGH=0x2,
+  PRIO_LOW=0x4,
+  PRIO_TRACE_HIGH = 0x10,
+  PRIO_TRACE_LOW = 0x20,
 };
 
 extern int debug_level;
 
 #undef DEBUG_PRINT_ERROR
 #define DEBUG_PRINT_ERROR(fmt, args...) ({ \
-      if (debug_level & PRIO_ERROR) \
-          ALOGE(fmt,##args); \
-      })
+  if (debug_level & PRIO_ERROR) \
+    ALOGE(fmt,##args); \
+  })
 #undef DEBUG_PRINT_INFO
 #define DEBUG_PRINT_INFO(fmt, args...) ({ \
-      if (debug_level & PRIO_INFO) \
-          ALOGI(fmt,##args); \
-      })
+  if (debug_level & PRIO_INFO) \
+    ALOGI(fmt,##args); \
+  })
 #undef DEBUG_PRINT_LOW
 #define DEBUG_PRINT_LOW(fmt, args...) ({ \
-      if (debug_level & PRIO_LOW) \
-          ALOGD(fmt,##args); \
-      })
+  if (debug_level & PRIO_LOW) \
+    ALOGD(fmt,##args); \
+  })
 #undef DEBUG_PRINT_HIGH
 #define DEBUG_PRINT_HIGH(fmt, args...) ({ \
-      if (debug_level & PRIO_HIGH) \
-          ALOGD(fmt,##args); \
-      })
+  if (debug_level & PRIO_HIGH) \
+    ALOGD(fmt,##args); \
+  })
 #else
 #define DEBUG_PRINT_ERROR printf
 #define DEBUG_PRINT_INFO printf
@@ -75,15 +75,15 @@ extern int debug_level;
 #endif
 
 #define VALIDATE_OMX_PARAM_DATA(ptr, paramType)                                \
-    {                                                                          \
-        if (ptr == NULL) { return OMX_ErrorBadParameter; }                     \
-        paramType *p = reinterpret_cast<paramType *>(ptr);                     \
-        if (p->nSize < sizeof(paramType)) {                                    \
-            ALOGE("Insufficient object size(%u) v/s expected(%zu) for type %s",\
-                    (unsigned int)p->nSize, sizeof(paramType), #paramType);    \
-            return OMX_ErrorBadParameter;                                      \
-        }                                                                      \
-    }                                                                          \
+  {                                                                          \
+    if (ptr == NULL) { return OMX_ErrorBadParameter; }                     \
+    paramType *p = reinterpret_cast<paramType *>(ptr);                     \
+    if (p->nSize < sizeof(paramType)) {                                    \
+      ALOGE("Insufficient object size(%u) v/s expected(%zu) for type %s",\
+            (unsigned int)p->nSize, sizeof(paramType), #paramType);    \
+      return OMX_ErrorBadParameter;                                      \
+    }                                                                      \
+  }                                                                          \
 
 /*
  * Validate OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE type param
@@ -92,48 +92,48 @@ extern int debug_level;
  *  the calling code handles it.
  */
 #define VALIDATE_OMX_VENDOR_EXTENSION_PARAM_DATA(ext)                                             \
-    {                                                                                             \
-        if (ext->nParamSizeUsed < 1 || ext->nParamSizeUsed > OMX_MAX_ANDROID_VENDOR_PARAMCOUNT) { \
-            ALOGE("VendorExtension: sub-params(%u) not in expected range(%u - %u)",               \
-                    ext->nParamSizeUsed, 1, OMX_MAX_ANDROID_VENDOR_PARAMCOUNT);                   \
-            return OMX_ErrorBadParameter;                                                         \
-        }                                                                                         \
-        OMX_U32 expectedSize = (OMX_U32)sizeof(OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE) +         \
-                ((ext->nParamSizeUsed - 1) * (OMX_U32)sizeof(OMX_CONFIG_ANDROID_VENDOR_PARAMTYPE));\
-        if (ext->nSize < expectedSize) {                                                          \
-            ALOGE("VendorExtension: Insifficient size(%u) v/s expected(%u)",                      \
-                    ext->nSize, expectedSize);                                                    \
-            return OMX_ErrorBadParameter;                                                         \
-        }                                                                                         \
-    }                                                                                             \
+  {                                                                                             \
+    if (ext->nParamSizeUsed < 1 || ext->nParamSizeUsed > OMX_MAX_ANDROID_VENDOR_PARAMCOUNT) { \
+      ALOGE("VendorExtension: sub-params(%u) not in expected range(%u - %u)",               \
+              ext->nParamSizeUsed, 1, OMX_MAX_ANDROID_VENDOR_PARAMCOUNT);                   \
+      return OMX_ErrorBadParameter;                                                         \
+    }                                                                                         \
+    OMX_U32 expectedSize = (OMX_U32)sizeof(OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE) +         \
+          ((ext->nParamSizeUsed - 1) * (OMX_U32)sizeof(OMX_CONFIG_ANDROID_VENDOR_PARAMTYPE));\
+    if (ext->nSize < expectedSize) {                                                          \
+      ALOGE("VendorExtension: Insifficient size(%u) v/s expected(%u)",                      \
+            ext->nSize, expectedSize);                                                    \
+      return OMX_ErrorBadParameter;                                                         \
+    }                                                                                         \
+  }                                                                                             \
 
 class auto_lock {
-    public:
-        auto_lock(pthread_mutex_t &lock)
-            : mLock(lock) {
-                pthread_mutex_lock(&mLock);
-            }
-        ~auto_lock() {
-            pthread_mutex_unlock(&mLock);
-        }
-    private:
-        pthread_mutex_t &mLock;
+  public:
+    auto_lock(pthread_mutex_t &lock)
+      : mLock(lock) {
+          pthread_mutex_lock(&mLock);
+      }
+      ~auto_lock() {
+        pthread_mutex_unlock(&mLock);
+      }
+  private:
+    pthread_mutex_t &mLock;
 };
 
 class AutoUnmap {
-    void *vaddr;
-    int size;
+  void *vaddr;
+  int size;
 
-    public:
-        AutoUnmap(void *vaddr, int size) {
-            this->vaddr = vaddr;
-            this->size = size;
-        }
+  public:
+    AutoUnmap(void *vaddr, int size) {
+      this->vaddr = vaddr;
+      this->size = size;
+    }
 
-        ~AutoUnmap() {
-            if (vaddr)
-                munmap(vaddr, size);
-        }
+    ~AutoUnmap() {
+      if (vaddr)
+        munmap(vaddr, size);
+    }
 };
 
 #ifdef _ANDROID_
@@ -141,74 +141,74 @@ class AutoUnmap {
 #include <utils/Trace.h>
 
 class AutoTracer {
-    int mPrio;
+  int mPrio;
 public:
-    AutoTracer(int prio, const char* msg)
-        : mPrio(prio) {
-        if (debug_level & prio) {
-            ATRACE_BEGIN(msg);
-        }
+  AutoTracer(int prio, const char* msg)
+    : mPrio(prio) {
+      if (debug_level & prio) {
+        ATRACE_BEGIN(msg);
+      }
     }
-    ~AutoTracer() {
-        if (debug_level & mPrio) {
-            ATRACE_END();
-        }
+  ~AutoTracer() {
+    if (debug_level & mPrio) {
+      ATRACE_END();
     }
+  }
 };
 
 struct __attribute__((packed)) IvfFileHeader {
-    uint8_t signature[4];
-    uint16_t version;
-    uint16_t size;
-    uint8_t fourCC[4];
-    uint16_t width;
-    uint16_t height;
-    uint32_t rate;
-    uint32_t scale;
-    uint32_t frameCount;
-    uint32_t unused;
+  uint8_t signature[4];
+  uint16_t version;
+  uint16_t size;
+  uint8_t fourCC[4];
+  uint16_t width;
+  uint16_t height;
+  uint32_t rate;
+  uint32_t scale;
+  uint32_t frameCount;
+  uint32_t unused;
 
-    IvfFileHeader();
-    IvfFileHeader(bool isVp9, int width, int height,
-                int rate, int scale, int nFrameCount);
+  IvfFileHeader();
+  IvfFileHeader(bool isVp9, int width, int height,
+              int rate, int scale, int nFrameCount);
 };
 
 struct __attribute__((packed)) IvfFrameHeader {
-    uint32_t filledLen;
-    uint64_t timeStamp;
+  uint32_t filledLen;
+  uint64_t timeStamp;
 
-    IvfFrameHeader();
-    IvfFrameHeader(uint32_t size, uint64_t timeStamp);
+  IvfFrameHeader();
+  IvfFrameHeader(uint32_t size, uint64_t timeStamp);
 };
 
 inline int getYuvSize(int colorFormat, int width, int height) {
-    int yStride = VENUS_Y_STRIDE(colorFormat, width);
-    int uvStride = VENUS_UV_STRIDE(colorFormat, width);
-    int yScanlines = VENUS_Y_SCANLINES(colorFormat, height);
-    int uvScanlines = VENUS_UV_SCANLINES(colorFormat, height);
-    int yMetaStride = VENUS_Y_META_STRIDE(colorFormat, width);
-    int yMetaScanlines = VENUS_Y_META_SCANLINES(colorFormat, height);
-    int uvMetaStride = VENUS_UV_META_STRIDE(colorFormat, width);
-    int uvMetaScanlines = VENUS_UV_META_SCANLINES(colorFormat, height);
-    int yPlane = (yStride * yScanlines + 4095) & ~4095;
-    int uvPlane = (uvStride * uvScanlines + 4095) & ~4095;
-    int yMetaPlane = (yMetaStride * yMetaScanlines + 4095) & ~4095;
-    int uvMetaPlane = (uvMetaStride * uvMetaScanlines + 4095) & ~4095;
-    return yPlane + uvPlane + yMetaPlane + uvMetaPlane;
+  int yStride = VENUS_Y_STRIDE(colorFormat, width);
+  int uvStride = VENUS_UV_STRIDE(colorFormat, width);
+  int yScanlines = VENUS_Y_SCANLINES(colorFormat, height);
+  int uvScanlines = VENUS_UV_SCANLINES(colorFormat, height);
+  int yMetaStride = VENUS_Y_META_STRIDE(colorFormat, width);
+  int yMetaScanlines = VENUS_Y_META_SCANLINES(colorFormat, height);
+  int uvMetaStride = VENUS_UV_META_STRIDE(colorFormat, width);
+  int uvMetaScanlines = VENUS_UV_META_SCANLINES(colorFormat, height);
+  int yPlane = (yStride * yScanlines + 4095) & ~4095;
+  int uvPlane = (uvStride * uvScanlines + 4095) & ~4095;
+  int yMetaPlane = (yMetaStride * yMetaScanlines + 4095) & ~4095;
+  int uvMetaPlane = (uvMetaStride * uvMetaScanlines + 4095) & ~4095;
+  return yPlane + uvPlane + yMetaPlane + uvMetaPlane;
 }
 
 #define VIDC_TRACE_NAME_LOW(_name) AutoTracer _tracer(PRIO_TRACE_LOW, _name);
 #define VIDC_TRACE_NAME_HIGH(_name) AutoTracer _tracer(PRIO_TRACE_HIGH, _name);
 
 #define VIDC_TRACE_INT_LOW(_name, _int) \
-    if (debug_level & PRIO_TRACE_LOW) { \
-        ATRACE_INT(_name, _int);        \
-    }
+  if (debug_level & PRIO_TRACE_LOW) { \
+    ATRACE_INT(_name, _int);        \
+  }
 
 #define VIDC_TRACE_INT_HIGH(_name, _int) \
-    if (debug_level & PRIO_TRACE_HIGH) { \
-        ATRACE_INT(_name, _int);        \
-    }
+  if (debug_level & PRIO_TRACE_HIGH) { \
+    ATRACE_INT(_name, _int);        \
+  }
 
 #else // _ANDROID_
 

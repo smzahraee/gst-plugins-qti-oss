@@ -42,11 +42,11 @@ REFERENCES
 
 long long GetTimeStamp(void)
 {
-   struct timeval tv;
-   long long microsec;
-   gettimeofday(&tv, NULL);
-   microsec = (tv.tv_sec * 1000000) + (tv.tv_usec);
+  struct timeval tv;
+  long long microsec;
+  gettimeofday(&tv, NULL);
+  microsec = (tv.tv_sec * 1000000) + (tv.tv_usec);
 
-   return microsec;
+  return microsec;
 }
 

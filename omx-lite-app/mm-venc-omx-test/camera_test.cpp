@@ -39,7 +39,7 @@ int CameraTest_Initialize(int nFrameRate,
                           int nFrameHeight,
                           CameraPreviewCallback pfnPreviewCallback)
 {
-   int result = 0;
+  int result = 0;
 
 //    pCamera = new android::Camera;
 //    if (!pCamera)
@@ -50,36 +50,36 @@ int CameraTest_Initialize(int nFrameRate,
 //                         nFrameRate,
 //                         pfnPreviewCallback);
 
-   return result;
+  return result;
 }
 
 int CameraTest_Run()
 {
-   int result = 0;
+  int result = 0;
 
 //    if (pCamera)
 //       pCamera->startPreview();
 //    else
 //       return 1;
 
-   return result;
+  return result;
 }
 
 int CameraTest_ReleaseFrame(void* pPhys, void* pVirt)
 {
-   int result = 0;
+  int result = 0;
 
 //    if (pCamera)
 //       pCamera->releaseFrame(pPhys, pVirt);
 //    else
 //       return 1;
 
-   return result;
+  return result;
 }
 
 int CameraTest_Exit()
 {
-   int result = 0;
+  int result = 0;
 
 //    if (pCamera)
 //    {
@@ -88,7 +88,7 @@ int CameraTest_Exit()
 //    }
 //    pCamera = NULL;
 
-   return result;
+  return result;
 }
 
 

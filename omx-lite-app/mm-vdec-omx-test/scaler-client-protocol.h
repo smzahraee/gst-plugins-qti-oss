@@ -45,7 +45,7 @@ extern const struct wl_interface wl_viewport_interface;
 #ifndef WL_SCALER_ERROR_ENUM
 #define WL_SCALER_ERROR_ENUM
 enum wl_scaler_error {
-	WL_SCALER_ERROR_VIEWPORT_EXISTS = 0,
+  WL_SCALER_ERROR_VIEWPORT_EXISTS = 0,
 };
 #endif /* WL_SCALER_ERROR_ENUM */
 
@@ -55,39 +55,39 @@ enum wl_scaler_error {
 static inline void
 wl_scaler_set_user_data(struct wl_scaler *wl_scaler, void *user_data)
 {
-	wl_proxy_set_user_data((struct wl_proxy *) wl_scaler, user_data);
+  wl_proxy_set_user_data((struct wl_proxy *) wl_scaler, user_data);
 }
 
 static inline void *
 wl_scaler_get_user_data(struct wl_scaler *wl_scaler)
 {
-	return wl_proxy_get_user_data((struct wl_proxy *) wl_scaler);
+  return wl_proxy_get_user_data((struct wl_proxy *) wl_scaler);
 }
 
 static inline void
 wl_scaler_destroy(struct wl_scaler *wl_scaler)
 {
-	wl_proxy_marshal((struct wl_proxy *) wl_scaler,
-			 WL_SCALER_DESTROY);
+  wl_proxy_marshal((struct wl_proxy *) wl_scaler,
+      WL_SCALER_DESTROY);
 
-	wl_proxy_destroy((struct wl_proxy *) wl_scaler);
+  wl_proxy_destroy((struct wl_proxy *) wl_scaler);
 }
 
 static inline struct wl_viewport *
 wl_scaler_get_viewport(struct wl_scaler *wl_scaler, struct wl_surface *surface)
 {
-	struct wl_proxy *id;
+  struct wl_proxy *id;
 
-	id = wl_proxy_marshal_constructor((struct wl_proxy *) wl_scaler,
-			 WL_SCALER_GET_VIEWPORT, &wl_viewport_interface, NULL, surface);
+  id = wl_proxy_marshal_constructor((struct wl_proxy *) wl_scaler,
+      WL_SCALER_GET_VIEWPORT, &wl_viewport_interface, NULL, surface);
 
-	return (struct wl_viewport *) id;
+  return (struct wl_viewport *) id;
 }
 
 #ifndef WL_VIEWPORT_ERROR_ENUM
 #define WL_VIEWPORT_ERROR_ENUM
 enum wl_viewport_error {
-	WL_VIEWPORT_ERROR_BAD_VALUE = 0,
+  WL_VIEWPORT_ERROR_BAD_VALUE = 0,
 };
 #endif /* WL_VIEWPORT_ERROR_ENUM */
 
@@ -99,43 +99,43 @@ enum wl_viewport_error {
 static inline void
 wl_viewport_set_user_data(struct wl_viewport *wl_viewport, void *user_data)
 {
-	wl_proxy_set_user_data((struct wl_proxy *) wl_viewport, user_data);
+  wl_proxy_set_user_data((struct wl_proxy *) wl_viewport, user_data);
 }
 
 static inline void *
 wl_viewport_get_user_data(struct wl_viewport *wl_viewport)
 {
-	return wl_proxy_get_user_data((struct wl_proxy *) wl_viewport);
+  return wl_proxy_get_user_data((struct wl_proxy *) wl_viewport);
 }
 
 static inline void
 wl_viewport_destroy(struct wl_viewport *wl_viewport)
 {
-	wl_proxy_marshal((struct wl_proxy *) wl_viewport,
-			 WL_VIEWPORT_DESTROY);
+  wl_proxy_marshal((struct wl_proxy *) wl_viewport,
+      WL_VIEWPORT_DESTROY);
 
-	wl_proxy_destroy((struct wl_proxy *) wl_viewport);
+  wl_proxy_destroy((struct wl_proxy *) wl_viewport);
 }
 
 static inline void
 wl_viewport_set(struct wl_viewport *wl_viewport, wl_fixed_t src_x, wl_fixed_t src_y, wl_fixed_t src_width, wl_fixed_t src_height, int32_t dst_width, int32_t dst_height)
 {
-	wl_proxy_marshal((struct wl_proxy *) wl_viewport,
-			 WL_VIEWPORT_SET, src_x, src_y, src_width, src_height, dst_width, dst_height);
+  wl_proxy_marshal((struct wl_proxy *) wl_viewport,
+      WL_VIEWPORT_SET, src_x, src_y, src_width, src_height, dst_width, dst_height);
 }
 
 static inline void
 wl_viewport_set_source(struct wl_viewport *wl_viewport, wl_fixed_t x, wl_fixed_t y, wl_fixed_t width, wl_fixed_t height)
 {
-	wl_proxy_marshal((struct wl_proxy *) wl_viewport,
-			 WL_VIEWPORT_SET_SOURCE, x, y, width, height);
+  wl_proxy_marshal((struct wl_proxy *) wl_viewport,
+      WL_VIEWPORT_SET_SOURCE, x, y, width, height);
 }
 
 static inline void
 wl_viewport_set_destination(struct wl_viewport *wl_viewport, int32_t width, int32_t height)
 {
-	wl_proxy_marshal((struct wl_proxy *) wl_viewport,
-			 WL_VIEWPORT_SET_DESTINATION, width, height);
+  wl_proxy_marshal((struct wl_proxy *) wl_viewport,
+      WL_VIEWPORT_SET_DESTINATION, width, height);
 }
 
 #ifdef  __cplusplus
