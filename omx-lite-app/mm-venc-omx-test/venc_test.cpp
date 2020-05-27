@@ -84,6 +84,11 @@ REFERENCES
 #include <media/msm_media_info.h>
 #endif
 #include "OMX_Types.h"
+#ifdef USE_GBM
+#include "gbm.h"
+#include "gbm_priv.h"
+#endif
+
 typedef struct PrependSPSPPSToIDRFramesParams {
   OMX_U32 nSize;
   OMX_VERSIONTYPE nVersion;
@@ -139,6 +144,10 @@ static const int NUM_OUT_BUFFERS = 10;
 unsigned int num_in_buffers = 0;
 unsigned int num_out_buffers = 0;
 
+int g_device_fd = -1;
+#ifdef USE_GBM
+struct gbm_device *g_gbm_device = NULL;
+#endif
 //////////////////////////
 /* MPEG4 profile and level table*/
 static const unsigned int mpeg4_profile_level_table[][5]=
@@ -397,6 +406,11 @@ struct enc_ion
   int ion_device_fd;
   struct ion_allocation_data alloc_data;
   int data_fd;
+#ifdef USE_GBM
+  struct gbm_device *gbm;
+  struct gbm_bo *bo;
+  int meta_fd;
+#endif
 };
 #endif
 struct StoreMetaDataInBuffersParams {
@@ -468,7 +482,11 @@ static long long tot_bufsize = 0;
 int ebd_cnt=0, fbd_cnt=0;
 
 #ifdef USE_ION
+#ifdef USE_GBM
+static const char* PMEM_DEVICE = "/dev/dri/renderD128";
+#else
 static const char* PMEM_DEVICE = "/dev/ion";
+#endif
 #elif defined MAX_RES_720P
 static const char* PMEM_DEVICE = "/dev/pmem_adsp";
 #elif defined MAX_RES_1080P_EBI
@@ -563,11 +581,49 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize)
     return NULL;
 
 #ifdef USE_ION
-  ion_data.ion_device_fd = ion_open();
+#ifdef USE_GBM
+  struct gbm_bo *bo = NULL;
+  int bo_fd = -1, meta_fd = -1;
+  int size = nSize;
+  size = (size + 4096 - 1) & ~(4096 - 1);
+
+  D("use gbm\n");
+  ion_data.ion_device_fd = g_device_fd;
+  if(ion_data.ion_device_fd < 0)
+  {
+    E("\nERROR: gbm Device open() Failed");
+    goto error_handle;
+  }
+  ion_data.gbm = g_gbm_device;
+  if (ion_data.gbm == NULL)
+  {
+    E("gbm_create_device failed\n");
+    goto error_handle;
+  }
+  bo = gbm_bo_create(ion_data.gbm, m_sProfile.nFrameWidth, m_sProfile.nFrameHeight, GBM_FORMAT_NV12, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+  if(bo == NULL) {
+    E("Create bo failed \n");
+    goto error_handle;
+  }
+  ion_data.bo = bo;
+  bo_fd = gbm_bo_get_fd(bo);
+  if(bo_fd < 0) {
+    E("Get bo fd failed \n");
+    goto error_handle;
+  }
+  ion_data.data_fd = bo_fd;
+  gbm_perform(GBM_PERFORM_GET_METADATA_ION_FD, bo, &meta_fd);
+  if(meta_fd < 0) {
+    E("Get bo meta fd failed \n");
+    goto error_handle;
+  }
+  ion_data.meta_fd = meta_fd;
+#else
+  ion_data.ion_device_fd = g_device_fd;
   if(ion_data.ion_device_fd < 0)
   {
     E("\nERROR: ION Device open() Failed");
-    return NULL;
+    goto error_handle;
   }
   nSize = (nSize + 4095) & (~4095);
   ion_data.alloc_data.len = nSize;
@@ -577,9 +633,10 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize)
   rc = ion_alloc_fd(ion_data.ion_device_fd, ion_data.alloc_data.len, 0,
                       ion_data.alloc_data.heap_id_mask, ion_data.alloc_data.flags,
                       &ion_data.data_fd);
+#endif
   pMem->pmem_fd = ion_data.data_fd;
 #else
-  pMem->pmem_fd = open(PMEM_DEVICE, O_RDWR);
+  pMem->pmem_fd = g_device_fd;
   if ((int)(pMem->pmem_fd) < 0)
     return NULL;
   nSize = (nSize + 4095) & (~4095);
@@ -590,19 +647,24 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize)
                 MAP_SHARED, pMem->pmem_fd, pMem->offset);
   if (pvirt == (void*) MAP_FAILED)
   {
-    close(pMem->pmem_fd);
-    pMem->pmem_fd = -1;
-#ifdef USE_ION
-    close(ion_data.data_fd);
-    ion_data.data_fd =-1;
-    close(ion_data.ion_device_fd);
-    ion_data.ion_device_fd =-1;
-#endif
-    return NULL;
+    goto error_handle;
   }
   D("allocated pMem->fd = %lu pvirt=0x%p, pMem->phys=0x%lx, size = %d", pMem->pmem_fd,
        pvirt, pMem->offset, nSize);
   return pvirt;
+error_handle:
+#ifdef USE_ION
+#ifdef USE_GBM
+    if (ion_data.bo)
+      gbm_bo_destroy(ion_data.bo);
+    ion_data.bo = NULL;
+    ion_data.meta_fd = -1;
+#else
+    close(ion_data.data_fd);
+    ion_data.data_fd =-1;
+#endif
+#endif
+  return NULL;
 }
 
 int PmemFree(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, void* pvirt, int nSize)
@@ -612,13 +674,16 @@ int PmemFree(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, void* pvirt, int nSize)
 
   nSize = (nSize + 4095) & (~4095);
   munmap(pvirt, nSize);
-  close(pMem->pmem_fd);
-  pMem->pmem_fd = -1;
 #ifdef USE_ION
+#ifdef USE_GBM
+  if (ion_data.bo)
+    gbm_bo_destroy(ion_data.bo);
+  ion_data.bo = NULL;
+  ion_data.meta_fd = -1;
+#else
   close(ion_data.data_fd);
   ion_data.data_fd =-1;
-  close(ion_data.ion_device_fd);
-  ion_data.ion_device_fd =-1;
+#endif
 #endif
   return 0;
 }
@@ -2182,6 +2247,49 @@ void* Watchdog(void* data)
   return NULL;
 }
 
+void open_device ()
+{
+#ifdef USE_ION
+#ifdef USE_GBM
+  D("open device\n");
+  g_device_fd = open (PMEM_DEVICE, O_RDWR | O_CLOEXEC);
+  if(g_device_fd < 0)
+  {
+    E("\nERROR: gbm Device open() Failed");
+    return;
+  }
+  g_gbm_device = gbm_create_device(g_device_fd);
+  if (g_gbm_device == NULL)
+  {
+    close(g_device_fd);
+    g_device_fd = -1;
+    E("gbm_create_device failed\n");
+  }
+#else
+  g_device_fd = ion_open();
+  if(g_device_fd < 0)
+  {
+    E("\nERROR: ION Device open() Failed");
+  }
+#endif
+#else
+  g_device_fd = open(PMEM_DEVICE, O_RDWR);
+  if (device_fd < 0)
+    E("device open failed\n");;
+#endif
+}
+void close_device ()
+{
+  D("close device\n");
+#ifdef USE_GBM
+  if (g_gbm_device) {
+    gbm_device_destroy(g_gbm_device);
+    g_gbm_device = NULL;
+  }
+#endif
+  close(g_device_fd);
+  g_device_fd =-1;
+}
 int main(int argc, char** argv)
 {
   OMX_U8* pvirt = NULL;
@@ -2311,6 +2419,7 @@ int main(int argc, char** argv)
           (OMX_PTR)&sMetadataMode);
       CHK(result);
     }
+    open_device();
     D("allocating Input buffers");
     num_in_buffers = portDef.nBufferCountActual;
     for (i = 0; i < portDef.nBufferCountActual; i++)
@@ -2586,8 +2695,8 @@ int main(int argc, char** argv)
                m_sProfile.nFrameBytes);
       delete (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO*) m_pInBuffers[i]->pAppPrivate;
     }
+    close_device();
     close(m_nInFd);
-
     if (m_eMode == MODE_FILE_ENCODE)
     {
       fclose(m_nOutFd);
