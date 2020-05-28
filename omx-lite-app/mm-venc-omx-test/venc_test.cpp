@@ -299,8 +299,7 @@ static const unsigned int hevc_profile_level_table[][5]= {
 
 #endif
 
-#define Log2(number, power)  { OMX_U32 temp = number; power = 0; while( (0 == (temp & 0x1)) &&  power < 16) { temp >>=0x1; power++; } }
-#define FractionToQ16(q,num,den) { OMX_U32 power; Log2(den,power); q = num << (16 - power); }
+#define FloatToQ16(q, v) { (q) = (unsigned int) (65536*(double)(v)); }
 
 //////////////////////////
 // TYPES
@@ -739,7 +738,7 @@ OMX_ERRORTYPE ConfigureEncoder()
   }
 
   portdef.format.video.nBitrate = m_sProfile.nBitrate;
-  FractionToQ16(portdef.format.video.xFramerate,(int) (m_sProfile.nFramerate * 2),2);
+  FloatToQ16(portdef.format.video.xFramerate, m_sProfile.nFramerate);//nFramerate is float
   result = OMX_SetParameter(m_hHandle,
                             OMX_IndexParamPortDefinition,
                             &portdef);
@@ -1225,7 +1224,7 @@ result = OMX_SetParameter(m_hHandle,
                          OMX_IndexConfigVideoFramerate,
                          &enc_framerate);
   CHK(result);
-  FractionToQ16(enc_framerate.xEncodeFramerate,(int) (m_sProfile.nFramerate * 2),2);
+  FloatToQ16(enc_framerate.xEncodeFramerate, m_sProfile.nFramerate);
   result = OMX_SetConfig(m_hHandle,
                          OMX_IndexConfigVideoFramerate,
                          &enc_framerate);
@@ -1680,8 +1679,8 @@ void VencTest_ProcessDynamicConfigurationFile()
         if (dynamic_config.config_param == OMX_IndexConfigVideoFramerate)
         {
           m_sProfile.nFramerate = dynamic_config.config_data.f_framerate;
-          FractionToQ16(dynamic_config.config_data.framerate.xEncodeFramerate,
-                        (int)(m_sProfile.nFramerate * 2), 2);
+          FloatToQ16(dynamic_config.config_data.framerate.xEncodeFramerate,
+                        m_sProfile.nFramerate);
         }
         if (OMX_SetConfig(m_hHandle, dynamic_config.config_param,
             &dynamic_config.config_data) != OMX_ErrorNone)
@@ -2470,7 +2469,7 @@ int main(int argc, char** argv)
           "is not so good. lets just sleep some more");
 
       }
-      D("sleep for %d microsec", 1000000/m_sProfile.nFramerate);
+      D("sleep for %d microsec", (int)(1000000/m_sProfile.nFramerate));//nFramerate is float.
       sleep (1000000 / m_sProfile.nFramerate);
     }
     // FBTest_Exit();
