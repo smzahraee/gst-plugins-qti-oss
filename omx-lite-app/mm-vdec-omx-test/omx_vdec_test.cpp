@@ -218,15 +218,7 @@ static int previous_vc1_au = 0;
 #define ALLOCATE_BUFFER 1
 //#define USE_OUTPUT_BUFFER 1
 
-#ifdef _MSM8974_
 #define PMEM_DEVICE "/dev/ion"
-#elif MAX_RES_720P
-#define PMEM_DEVICE "/dev/pmem_adsp"
-#elif MAX_RES_1080P_EBI
-#define PMEM_DEVICE "/dev/pmem_adsp"
-#elif MAX_RES_1080P
-#define PMEM_DEVICE "/dev/pmem_smipool"
-#endif
 
 #ifdef USE_OUTPUT_BUFFER
 #define USE_EXTERN_PMEM_BUF
@@ -256,7 +248,6 @@ bool alloc_map_ion_memory(OMX_U32 buffer_size, struct vdec_ion *ion_info, int fl
 void free_ion_memory(struct vdec_ion *buf_ion_info);
 #endif
 
-#ifdef _MSM8974_
 typedef unsigned short int uint16;
 const uint16 CRC_INIT = 0xFFFF ;
 
@@ -332,7 +323,6 @@ uint16 crc_16_l_step_nv12 (uint16 seed, const void *buf_ptr,
   }
   return( ~crc_16 );
 }
-#endif
 
 typedef enum {
   CODEC_FORMAT_H264 = 1,
@@ -341,11 +331,9 @@ typedef enum {
   CODEC_FORMAT_VC1,
   CODEC_FORMAT_DIVX,
   CODEC_FORMAT_MPEG2,
-#ifdef _MSM8974_
   CODEC_FORMAT_VP8,
   CODEC_FORMAT_VP9,
   CODEC_FORMAT_HEVC,
-#endif
   CODEC_FORMAT_MAX
 } codec_format;
 
@@ -372,7 +360,6 @@ typedef enum {
   FILE_TYPE_START_OF_MPEG2_SPECIFIC = 50,
   FILE_TYPE_MPEG2_START_CODE = FILE_TYPE_START_OF_MPEG2_SPECIFIC,
 
-#ifdef _MSM8974_
   FILE_TYPE_START_OF_VP8_SPECIFIC = 60,
   FILE_TYPE_VP8_START_CODE = FILE_TYPE_START_OF_VP8_SPECIFIC,
   FILE_TYPE_VP8,
@@ -380,7 +367,6 @@ typedef enum {
   FILE_TYPE_START_OF_H265_SPECIFIC = 70,
   FILE_TYPE_265_NAL_SIZE_LENGTH = FILE_TYPE_START_OF_H265_SPECIFIC,
   FILE_TYPE_265_START_CODE_BASED
-#endif
 
 } file_type;
 
@@ -407,9 +393,7 @@ static int (*Read_Buffer)(OMX_BUFFERHEADERTYPE  *pBufHdr );
 int inputBufferFileFd;
 
 FILE * outputBufferFile;
-#ifdef _MSM8974_
 FILE * crcFile;
-#endif
 FILE * seqFile;
 int takeYuvLog = 0;
 int displayYuv = 0;
@@ -527,9 +511,7 @@ int ebd_cnt= 0, fbd_cnt = 0;
 int bInputEosReached = 0;
 int bOutputEosReached = 0;
 char in_filename[512];
-#ifdef _MSM8974_
 char crclogname[512];
-#endif
 char seq_file_name[512];
 unsigned char seq_enabled = 0;
 bool anti_flickering = true;
@@ -594,9 +576,7 @@ static int Read_Buffer_From_Mpeg2_Start_Code(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_RCV_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-#ifdef _MSM8974_
 static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-#endif
 static int Read_Buffer_From_VC1_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_DivX_4_5_6_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_DivX_311_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
@@ -902,9 +882,7 @@ void* fbd_thread(void* pArg)
   char value[PROPERTY_VALUE_MAX] = {0};
   OMX_U32 aspectratio_prop = 0;
   pthread_mutex_lock(&eos_lock);
-#ifdef _MSM8974_
   int stride,scanlines,stride_c,i;
-#endif
   DEBUG_PRINT("First Inside %s", __FUNCTION__);
 #ifdef _ANDROID_
   property_get("vidc.vdec.debug.aspectratio", value, "0");
@@ -1073,7 +1051,6 @@ void* fbd_thread(void* pArg)
                   bytes_written);
          }
       }
-#ifdef _MSM8974_
       if (crcFile) {
         uint16 crc_val;
         crc_val = crc_16_l_step_nv12(CRC_INIT, pBuffer->pBuffer,
@@ -1083,7 +1060,6 @@ void* fbd_thread(void* pArg)
           DEBUG_PRINT_ERROR("Failed to write CRC value into file");
         }
       }
-#endif
       if (pBuffer->nFlags & OMX_BUFFERFLAG_EXTRADATA)
       {
         OMX_OTHER_EXTRADATATYPE *pExtra;
@@ -1387,10 +1363,8 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
         break;
       }
 
-#ifdef _MSM8974_
       if (nData2 != OMX_IndexParamPortDefinition)
         break;
-#endif
       currentStatus = PORT_SETTING_CHANGE_STATE;
       if (waitForPortSettingsChanged)
       {
@@ -1524,13 +1498,11 @@ int main(int argc, char **argv)
   }
 
   strlcpy(in_filename, argv[1], strlen(argv[1])+1);
-#ifdef _MSM8974_
   {
     int slen = strlen(argv[1])+1;
     strlcpy(crclogname, argv[1], slen);
     strlcat(crclogname, ".crc", slen+4);
   }
-#endif
   if(argc > 2)
   {
     codec_format_option = (codec_format)atoi(argv[2]);
@@ -1597,11 +1569,9 @@ int main(int argc, char **argv)
     printf(" 4--> VC1\n");
     printf(" 5--> DivX\n");
     printf(" 6--> MPEG2\n");
-#ifdef _MSM8974_
     printf(" 7--> VP8\n");
     printf(" 8--> VP9\n");
     printf(" 9--> HEVC\n");
-#endif
     fflush(stdin);
     if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
       DEBUG_PRINT_ERROR("Error while reading");
@@ -1645,7 +1615,6 @@ int main(int argc, char **argv)
     {
       printf(" 3--> MPEG2 START CODE CLIP (.m2v)\n");
     }
-#ifdef _MSM8974_
     else if (codec_format_option == CODEC_FORMAT_VP8)
     {
       printf(" 61--> VP8 START CODE CLIP (.ivf)\n");
@@ -1654,17 +1623,14 @@ int main(int argc, char **argv)
     {
       printf(" 61--> VP9 START CODE CLIP (.ivf)\n");
     }
-#endif
     fflush(stdin);
     if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
       DEBUG_PRINT_ERROR("Error while reading");
     sscanf(tempbuf,"%d",&file_type_option);
-#ifdef _MSM8974_
     if ( (codec_format_option == CODEC_FORMAT_VP8) || (codec_format_option == CODEC_FORMAT_VP9) )
     {
       file_type_option = FILE_TYPE_VP8;
     }
-#endif
     fflush(stdin);
     if (codec_format_option == CODEC_FORMAT_H264 && file_type_option == 3)
     {
@@ -1811,13 +1777,11 @@ int main(int argc, char **argv)
       case CODEC_FORMAT_MPEG2:
         file_type_option = (file_type)(FILE_TYPE_START_OF_MPEG2_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
         break;
-#ifdef _MSM8974_
       case CODEC_FORMAT_VP8:
         break;
       case CODEC_FORMAT_HEVC:
         file_type_option = (file_type)(FILE_TYPE_START_OF_H265_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
         break;
-#endif
       default:
         DEBUG_PRINT_ERROR("Error: Unknown code %d", codec_format_option);
     }
@@ -2016,11 +1980,9 @@ int run_tests()
   else if(file_type_option == FILE_TYPE_RCV) {
     Read_Buffer = Read_Buffer_From_RCV_File;
   }
-#ifdef _MSM8974_
   else if(file_type_option == FILE_TYPE_VP8) {
     Read_Buffer = Read_Buffer_From_VP8_File;
   }
-#endif
   else if(file_type_option == FILE_TYPE_VC1) {
     Read_Buffer = Read_Buffer_From_VC1_File;
   }
@@ -2037,10 +1999,8 @@ int run_tests()
     case FILE_TYPE_MPEG2_START_CODE:
     case FILE_TYPE_RCV:
     case FILE_TYPE_VC1:
-#ifdef _MSM8974_
     case FILE_TYPE_VP8:
     case FILE_TYPE_265_START_CODE_BASED:
-#endif
     case FILE_TYPE_DIVX_4_5_6:
 #ifdef MAX_RES_1080P
     case FILE_TYPE_DIVX_311:
@@ -2200,7 +2160,6 @@ int Init_Decoder()
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx", 28);
   }
-#ifdef _MSM8974_
   else if (codec_format_option == CODEC_FORMAT_VP8)
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp8", 27);
@@ -2209,7 +2168,6 @@ int Init_Decoder()
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp9", 27);
   }
-#endif
   else if (codec_format_option == CODEC_FORMAT_HEVC)
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.hevc", 28);
@@ -2350,13 +2308,11 @@ int Play_Decoder()
       inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_Arbitrary;
       break;
     }
-#ifdef _MSM8974_
     case FILE_TYPE_VP8:
     {
       inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_OnlyOneCompleteFrame;
       break;
     }
-#endif
     default:
       inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_Unspecified;
   }
@@ -2446,7 +2402,6 @@ int Play_Decoder()
     stride = width;
   }
 #endif
-#ifdef _MSM8974_
   if( (codec_format_option == CODEC_FORMAT_VC1) &&
     (file_type_option == FILE_TYPE_RCV) ) {
     //parse struct_A data to get height and width information
@@ -2478,7 +2433,6 @@ int Play_Decoder()
     }
     DEBUG_PRINT(" RCV clip width = %u height = %u ",width, height);
   }
-#endif
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
@@ -2490,23 +2444,9 @@ int Play_Decoder()
   OMX_GetParameter(dec_handle,OMX_IndexParamPortDefinition, &portFmt);
   DEBUG_PRINT("Dec: New Min Buffer Count %d", portFmt.nBufferCountMin);
   CONFIG_VERSION_SIZE(videoportFmt);
-#ifdef MAX_RES_720P
-  if(color_fmt_type == 0)
-  {
-    color_fmt = OMX_COLOR_FormatYUV420SemiPlanar;
-  }
-  else
-  {
-    color_fmt = (OMX_COLOR_FORMATTYPE)
-       QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka;
-  }
-#elif _MSM8974_
+
   color_fmt = (OMX_COLOR_FORMATTYPE)
        QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
-#else
-  color_fmt = (OMX_COLOR_FORMATTYPE)
-       QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka;
-#endif
 
   while (ret == OMX_ErrorNone)
   {
@@ -2748,9 +2688,6 @@ int Play_Decoder()
 
     pInputBufHdrs[0]->nInputPortIndex = 0;
     pInputBufHdrs[0]->nOffset = 0;
-#ifndef _MSM8974_
-    pInputBufHdrs[0]->nFlags = 0;
-#endif
     ret = OMX_EmptyThisBuffer(dec_handle, pInputBufHdrs[0]);
     if (ret != OMX_ErrorNone)
     {
@@ -2764,9 +2701,7 @@ int Play_Decoder()
       DEBUG_PRINT("OMX_EmptyThisBuffer success!");
     }
     i = 1;
-#ifdef _MSM8974_
     pInputBufHdrs[0]->nFlags = 0;
-#endif
   }
   else
   {
@@ -3240,12 +3175,10 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
     fclose(outputBufferFile);
     outputBufferFile = NULL;
   }
-#ifdef _MSM8974_
   if (crcFile) {
     fclose(crcFile);
     crcFile = NULL;
   }
-#endif
   DEBUG_PRINT("[OMX Vdec Test] - after free outputfile");
 
   if(etb_queue)
@@ -3703,11 +3636,7 @@ static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr)
   unsigned int readOffset = 0, size_struct_C = 0;
   unsigned int startcode = 0;
   pBufHdr->nFilledLen = 0;
-#ifdef _MSM8974_
   pBufHdr->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
-#else
-  pBufHdr->nFlags = 0;
-#endif
 
   DEBUG_PRINT("Inside %s ", __FUNCTION__);
 
@@ -3718,20 +3647,12 @@ static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr)
   if (read(inputBufferFileFd, &size_struct_C, 4) <= 0)
     DEBUG_PRINT_ERROR("Error while reading");
 
-#ifndef _MSM8974_
-  /* reseek to beginning of sequence header */
-  lseek64(inputBufferFileFd, -8, SEEK_CUR);
-#endif
   if ((startcode & 0xFF000000) == 0xC5000000)
   {
 
     DEBUG_PRINT("Read_Buffer_From_RCV_File_Seq_Layer size_struct_C: %d", size_struct_C);
-#ifdef _MSM8974_
     readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, size_struct_C);
     lseek64(inputBufferFileFd, 24, SEEK_CUR);
-#else
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, VC1_SEQ_LAYER_SIZE_WITHOUT_STRUCTC + size_struct_C);
-#endif
   }
   else if((startcode & 0xFF000000) == 0x85000000)
   {
@@ -3740,12 +3661,8 @@ static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr)
     rcv_v1 = 1;
 
     DEBUG_PRINT("Read_Buffer_From_RCV_File_Seq_Layer size_struct_C: %d", size_struct_C);
-#ifdef _MSM8974_
     readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, size_struct_C);
     lseek64(inputBufferFileFd, 8, SEEK_CUR);
-#else
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, VC1_SEQ_LAYER_SIZE_V1_WITHOUT_STRUCTC + size_struct_C);
-#endif
 
   }
   else
@@ -4139,7 +4056,6 @@ static int Read_Buffer_From_DivX_311_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
 
   return n_offset;
 }
-#ifdef _MSM8974_
 static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
 {
   static OMX_S64 timeStampLfile = 0;
@@ -4189,7 +4105,6 @@ static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
   pBufHdr->nTimeStamp = time_stamp;
   return n_offset;
 }
-#endif
 static int open_video_file ()
 {
   int error_code = 0;
@@ -4218,7 +4133,6 @@ static int open_video_file ()
       DEBUG_PRINT("O/p file %s is opened ", outputfilename);
     }
   }
-#ifdef _MSM8974_
   /*if (!crcFile) {
       crcFile = fopen(crclogname, "ab");
       if (!crcFile) {
@@ -4226,7 +4140,6 @@ static int open_video_file ()
         error_code = -1;
       }
     }*/
-#endif
   return error_code;
 }
 
@@ -4311,9 +4224,7 @@ void overlay_set()
 #ifdef MAX_RES_1080P
   overlayp->src.format = MDP_Y_CBCR_H2V2_TILE;
 #endif
-#ifdef _MSM8974_
   overlayp->src.format = MDP_Y_CBCR_H2V2_VENUS;
-#endif
   overlayp->src_rect.x = 0;
   overlayp->src_rect.y = 0;
   overlayp->src_rect.w = width;
@@ -4441,12 +4352,7 @@ int overlay_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   vheap = (MemoryHeapBase*)pPMEMInfo->pmem_fd;
 #endif
 
-
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF) && !defined(_MSM8974_)
-  ov_front.data.memory_id = vheap->getHeapID();
-#else
   ov_front.data.memory_id = pPMEMInfo->pmem_fd;
-#endif
 
   ov_front.data.offset = pPMEMInfo->offset;
 

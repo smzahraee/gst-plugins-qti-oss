@@ -10,7 +10,6 @@ add_definitions(
     -D_GNU_SOURCE
     -DUSE_ION
     -D_LINUX_
-    -D_MSM8974_
     -DUSE_GBM
 )
 

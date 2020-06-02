@@ -80,9 +80,7 @@ REFERENCES
 #include <linux/ion.h>
 #endif
 #endif
-#ifdef _MSM8974_
 #include <media/msm_media_info.h>
-#endif
 #include "OMX_Types.h"
 #ifdef USE_GBM
 #include "gbm.h"
@@ -160,10 +158,8 @@ static const unsigned int mpeg4_profile_level_table[][5]=
   {1200,36000,4000000,OMX_VIDEO_MPEG4Level4a,OMX_VIDEO_MPEG4ProfileSimple},
   {1620,40500,8000000,OMX_VIDEO_MPEG4Level5,OMX_VIDEO_MPEG4ProfileSimple},
   {3600,108000,12000000,OMX_VIDEO_MPEG4Level5,OMX_VIDEO_MPEG4ProfileSimple},
-#ifdef _MSM8974_
   {32400,972000,20000000,OMX_VIDEO_MPEG4Level5,OMX_VIDEO_MPEG4ProfileSimple},
   {34560,1036800,20000000,OMX_VIDEO_MPEG4Level5,OMX_VIDEO_MPEG4ProfileSimple},
-#endif
   {0,0,0,0,0},
 
   {99,1485,128000,OMX_VIDEO_MPEG4Level0,OMX_VIDEO_MPEG4ProfileAdvancedSimple},
@@ -172,10 +168,8 @@ static const unsigned int mpeg4_profile_level_table[][5]=
   {396,11880,768000,OMX_VIDEO_MPEG4Level3,OMX_VIDEO_MPEG4ProfileAdvancedSimple},
   {792,23760,3000000,OMX_VIDEO_MPEG4Level4,OMX_VIDEO_MPEG4ProfileAdvancedSimple},
   {1620,48600,8000000,OMX_VIDEO_MPEG4Level5,OMX_VIDEO_MPEG4ProfileAdvancedSimple},
-#ifdef _MSM8974_
   {32400,972000,20000000,OMX_VIDEO_MPEG4Level5,OMX_VIDEO_MPEG4ProfileAdvancedSimple},
   {34560,1036800,20000000,OMX_VIDEO_MPEG4Level5,OMX_VIDEO_MPEG4ProfileAdvancedSimple},
-#endif
   {0,0,0,0,0},
 };
 
@@ -195,10 +189,8 @@ static const unsigned int h264_profile_level_table[][5]=
   {3600,108000,14000000,OMX_VIDEO_AVCLevel31,OMX_VIDEO_AVCProfileBaseline},
   {5120,216000,20000000,OMX_VIDEO_AVCLevel32,OMX_VIDEO_AVCProfileBaseline},
   {8192,245760,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileBaseline},
-#ifdef _MSM8974_
   {32400,972000,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileBaseline},
   {34560,1036800,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileBaseline},
-#endif
   {0,0,0,0,0},
 
   {99,1485,64000,OMX_VIDEO_AVCLevel1,OMX_VIDEO_AVCProfileHigh},
@@ -213,10 +205,8 @@ static const unsigned int h264_profile_level_table[][5]=
   {3600,108000,17500000,OMX_VIDEO_AVCLevel31,OMX_VIDEO_AVCProfileHigh},
   {5120,216000,25000000,OMX_VIDEO_AVCLevel32,OMX_VIDEO_AVCProfileHigh},
   {8192,245760,25000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileHigh},
-#ifdef _MSM8974_
   {32400,972000,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileHigh},
   {34560,1036800,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileHigh},
-#endif
   {0,0,0,0,0},
 
   {99,1485,64000,OMX_VIDEO_AVCLevel1,OMX_VIDEO_AVCProfileMain},
@@ -231,10 +221,8 @@ static const unsigned int h264_profile_level_table[][5]=
   {3600,108000,14000000,OMX_VIDEO_AVCLevel31,OMX_VIDEO_AVCProfileMain},
   {5120,216000,20000000,OMX_VIDEO_AVCLevel32,OMX_VIDEO_AVCProfileMain},
   {8192,245760,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileMain},
-#ifdef _MSM8974_
   {32400,972000,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileMain},
   {34560,1036800,20000000,OMX_VIDEO_AVCLevel4,OMX_VIDEO_AVCProfileMain},
-#endif
   {0,0,0,0,0}
 
 };
@@ -251,13 +239,10 @@ static const unsigned int h263_profile_level_table[][5]=
   {396,19800,4096000,OMX_VIDEO_H263Level50,OMX_VIDEO_H263ProfileBaseline},
   {810,40500,8192000,OMX_VIDEO_H263Level60,OMX_VIDEO_H263ProfileBaseline},
   {1620,81000,16384000,OMX_VIDEO_H263Level70,OMX_VIDEO_H263ProfileBaseline},
-#ifdef _MSM8974_
   {32400,972000,20000000,OMX_VIDEO_H263Level60,OMX_VIDEO_H263ProfileBaseline},
   {34560,1036800,20000000,OMX_VIDEO_H263Level70,OMX_VIDEO_H263ProfileBaseline},
-#endif
   {0,0,0,0,0}
 };
-#ifdef _MSM8974_
 static const unsigned int VP8_profile_level_table[][5]=
 {
   /*max mb per frame, max mb per sec, max bitrate, level, profile*/
@@ -312,8 +297,6 @@ static const unsigned int hevc_profile_level_table[][5]= {
   {0,0,0,0,0},
 };
 
-#endif
-
 #define FloatToQ16(q, v) { (q) = (unsigned int) (65536*(double)(v)); }
 
 //////////////////////////
@@ -328,11 +311,9 @@ struct ProfileType
   OMX_U32 nFrameWidth;
   OMX_U32 nFrameHeight;
   OMX_U32 nFrameBytes;
-#ifdef _MSM8974_
   OMX_U32 nFramestride;
   OMX_U32 nFrameScanlines;
   OMX_U32 nFrameRead;
-#endif
   OMX_U32 nBitrate;
   float nFramerate;
   char* cInFileName;
@@ -842,7 +823,6 @@ result = OMX_SetParameter(m_hHandle,
     {
       profile_tbl = (unsigned int const *)h263_profile_level_table;
     }
-  #ifdef _MSM8974_
     else if(m_sProfile.eCodec == OMX_VIDEO_CodingVP8)
     {
       profile_tbl = (unsigned int const *)VP8_profile_level_table;
@@ -851,7 +831,6 @@ result = OMX_SetParameter(m_hHandle,
     {
       profile_tbl = (unsigned int const *)hevc_profile_level_table;
     }
-  #endif
     mb_per_frame = ((m_sProfile.nFrameHeight+15)>>4)*
                  ((m_sProfile.nFrameWidth+15)>>4);
 
@@ -1487,7 +1466,6 @@ OMX_ERRORTYPE VencTest_Initialize()
                           &sCallbacks);
     CHK(result);
   }
-#ifdef _MSM8974_
   else if (m_sProfile.eCodec == OMX_VIDEO_CodingVP8)
   {
     result = OMX_GetHandle(&m_hHandle,
@@ -1505,7 +1483,6 @@ OMX_ERRORTYPE VencTest_Initialize()
     CHK(result);
 
   }
-#endif
   else
   {
     result = OMX_GetHandle(&m_hHandle,
@@ -1773,15 +1750,6 @@ void VencTest_ProcessDynamicConfigurationFile()
 OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
 {
   OMX_ERRORTYPE result = OMX_ErrorNone;
-#if defined(MAX_RES_720P) && !defined(_MSM8974_)
-  D("m_sProfile.nFrameBytes %d", m_sProfile.nFrameBytes);
-  if (read(m_nInFd,
-        pYUVBuffer->pBuffer,
-        m_sProfile.nFrameBytes) != m_sProfile.nFrameBytes)
-  {
-    return OMX_ErrorUndefined;
-  }
-#elif _MSM8974_
   int i, lscanl, lstride, cscanl, cstride, height, width;
   int bytes = 0, read_bytes = 0;
   OMX_U8 *yuv = NULL;
@@ -1848,44 +1816,12 @@ OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
     pMetaBuffer->buffer_type = CameraSource;
     D("metamode data[2] %d", pMetaHandle->data[2]);
   }
-#else
-  OMX_U32 bytestoread = m_sProfile.nFrameWidth*m_sProfile.nFrameHeight;
-  // read Y first
-  if (read(m_nInFd,
-          pYUVBuffer->pBuffer,
-          bytestoread) != bytestoread)
-    return OMX_ErrorUndefined;
-
-  // check alignment for offset to C
-  OMX_U32 offset_to_c = m_sProfile.nFrameWidth * m_sProfile.nFrameHeight;
-
-  const OMX_U32 C_2K = (1024*2),
-        MASK_2K = C_2K-1,
-        IMASK_2K = ~MASK_2K;
-
-  if (offset_to_c & MASK_2K)
-  {
-    // offset to C is not 2k aligned, adjustment is required
-    offset_to_c = (offset_to_c & IMASK_2K) + C_2K;
-  }
-
-  bytestoread = m_sProfile.nFrameWidth*m_sProfile.nFrameHeight/2;
-  // read C
-  if (read(m_nInFd,
-        pYUVBuffer->pBuffer + offset_to_c,
-        bytestoread)!= bytestoread)
-    return OMX_ErrorUndefined;
-#endif
   if (m_pDynConfFile)
     VencTest_ProcessDynamicConfigurationFile();
   D("about to call VencTest_EncodeFrame...");
   pthread_mutex_lock(&m_mutex);
   ++m_nFrameIn;
-#ifdef _MSM8974_
   pYUVBuffer->nFilledLen = m_sProfile.nFrameRead;
-#else
-  pYUVBuffer->nFilledLen = m_sProfile.nFrameBytes;
-#endif
   D("Called Buffer with Data filled length %d",pYUVBuffer->nFilledLen);
 
   result = VencTest_EncodeFrame(pYUVBuffer->pBuffer,
@@ -2114,14 +2050,12 @@ static int parse_args(int argc, char **argv)
         else if (!strcmp(optarg, "h264")) {
           m_sProfile.eCodec = OMX_VIDEO_CodingAVC;
         }
-#ifdef _MSM8974_
         else if (!strcmp(optarg, "vp8")) {
           m_sProfile.eCodec = OMX_VIDEO_CodingVP8;
         }
         else if (!strcmp(optarg, "hevc")) {
           m_sProfile.eCodec = OMX_VIDEO_CodingHEVC;
         }
-#endif
         else {
           E("Invaid encode type");
           return -1;
@@ -2214,12 +2148,10 @@ static int parse_args(int argc, char **argv)
   if (m_sProfile.nFrameWidth > 0 && m_sProfile.nFrameHeight > 0) {
     m_sProfile.nFrameBytes = m_sProfile.nFrameWidth*m_sProfile.nFrameHeight*3/2;
     m_sProfile.eLevel = OMX_VIDEO_MPEG4Level1;
-#ifdef _MSM8974_
     m_sProfile.nFramestride =  (m_sProfile.nFrameWidth + 31) & (~31);
     m_sProfile.nFrameScanlines = (m_sProfile.nFrameHeight + 31) & (~31);
     m_sProfile.nFrameBytes = ((m_sProfile.nFramestride * m_sProfile.nFrameScanlines * 3/2) + 4095) & (~4095);
     m_sProfile.nFrameRead = m_sProfile.nFramestride * m_sProfile.nFrameScanlines * 3/2;
-#endif
   }
   else {
     E ("Invalid input width or height");
@@ -2316,13 +2248,10 @@ int main(int argc, char** argv)
     m_sProfile.nFrameWidth,
     m_sProfile.nFrameHeight,
     m_sProfile.nFrameBytes);
-#ifdef _MSM8974_
   D("Frame stride=%u, scanlines=%u, read=%u",
       m_sProfile.nFramestride,
       m_sProfile.nFrameScanlines,
       m_sProfile.nFrameRead);
-#endif
-
 
   //if (m_eMode != MODE_PREVIEW && m_eMode != MODE_DISPLAY)
   //{

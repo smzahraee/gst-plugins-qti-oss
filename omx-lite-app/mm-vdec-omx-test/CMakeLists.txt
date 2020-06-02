@@ -11,7 +11,6 @@ add_definitions(
     -DUSE_ION
     -D_LINUX_
     -D_MULTI_PAYLOAD_
-    -D_MSM8974_
 )
 
 set(SOURCE_FILES
