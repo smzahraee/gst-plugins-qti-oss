@@ -1522,11 +1522,11 @@ OMX_ERRORTYPE VencTest_RegisterYUVBuffer(OMX_BUFFERHEADERTYPE** ppBufferHeader,
      E("Allocate Buffer Success %x", (*ppBufferHeader)->pBuffer);
    }
 #endif
-  D("register buffer");
-  D("Calling UseBuffer for Input port");
+  D("register buffer to OMX");
   if (m_eMetaMode) {
     OMX_S32 nFds = 1;
     OMX_S32 nInts = 3;
+    D("Calling AllocateBuffer for Input port with metamode");
     result = OMX_AllocateBuffer(m_hHandle, ppBufferHeader,
       (OMX_U32) PORT_INDEX_IN, pAppPrivate, sizeof(MetaBuffer));
     (*ppBufferHeader)->pInputPortPrivate = pBuffer;
@@ -1538,14 +1538,17 @@ OMX_ERRORTYPE VencTest_RegisterYUVBuffer(OMX_BUFFERHEADERTYPE** ppBufferHeader,
       pMetaBuffer->buffer_type = CameraSource;
       D("use metamode for Input port");
     }
-  }else if ((result = OMX_UseBuffer(m_hHandle,
+  }else{
+    D("Calling UseBuffer for Input port");
+    result = OMX_UseBuffer(m_hHandle,
                                ppBufferHeader,
                                (OMX_U32) PORT_INDEX_IN,
                                pAppPrivate,
                                m_sProfile.nFrameBytes,
-                               pBuffer)) != OMX_ErrorNone)
-  {
-    E("use buffer failed");
+                               pBuffer);
+    if (result != OMX_ErrorNone) {
+      E("use buffer failed");
+    }
   }
 
   return result;
@@ -2181,9 +2184,9 @@ void* Watchdog(void* data)
 
 void open_device ()
 {
+  D("open mem device\n");
 #ifdef USE_ION
 #ifdef USE_GBM
-  D("open device\n");
   g_device_fd = open (PMEM_DEVICE, O_RDWR | O_CLOEXEC);
   if(g_device_fd < 0)
   {
@@ -2205,6 +2208,7 @@ void open_device ()
   }
 #endif
 #else
+#error "Only support ION or ION/GBM mechanism, not support pmem any more!"
   g_device_fd = open(PMEM_DEVICE, O_RDWR);
   if (device_fd < 0)
     E("device open failed\n");;
@@ -2212,7 +2216,7 @@ void open_device ()
 }
 void close_device ()
 {
-  D("close device\n");
+  D("close mem device\n");
 #ifdef USE_GBM
   if (g_gbm_device) {
     gbm_device_destroy(g_gbm_device);
@@ -2296,7 +2300,7 @@ int main(int argc, char** argv)
     dynamic_config.config_data.rotation.nRotation = m_rotation;
     OMX_SetConfig(m_hHandle, dynamic_config.config_param, &dynamic_config.config_data);
   }
-#endif 
+#endif
 
   ////////////////////////////////////////
   // Camera + Encode

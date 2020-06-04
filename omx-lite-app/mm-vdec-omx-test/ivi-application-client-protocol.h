@@ -47,7 +47,7 @@ extern const struct wl_interface ivi_application_interface;
  * ivi_surface - application interface to surface in ivi compositor
  * @configure: suggest resize
  *
- * 
+ *
  */
 struct ivi_surface_listener {
   /**
