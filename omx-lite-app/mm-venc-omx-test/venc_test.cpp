@@ -2362,16 +2362,27 @@ int main(int argc, char** argv)
     }
     for (i = 0; i < portDef.nBufferCountActual; i++)
     {
-      OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
-      pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &ion_data_array[i]);
-
-      if(pvirt == NULL)
+      if (!m_eMetaMode)
       {
-        CHK(1);
+        OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
+        pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &ion_data_array[i]);
+
+        if(pvirt == NULL)
+        {
+          CHK(1);
+        }
+        result = VencTest_RegisterYUVBuffer(&m_pInBuffers[i],
+                                               (OMX_U8*) pvirt,
+                                               (OMX_PTR) pMem);
       }
-      result = VencTest_RegisterYUVBuffer(&m_pInBuffers[i],
-                                             (OMX_U8*) pvirt,
-                                             (OMX_PTR) pMem);
+      else
+      {
+        //For metamode, needn't allocate real frame memory before register buffer to omx il.
+        //Only before encoding that frame, need to prepare real memory and attach to "omx buf".
+        result = VencTest_RegisterYUVBuffer(&m_pInBuffers[i],
+                                               NULL,
+                                               NULL);
+      }
       CHK(result);
     }
   }
@@ -2428,7 +2439,22 @@ int main(int argc, char** argv)
     //sleep(1000);
     CHK(result);
   }
+  if (m_eMetaMode)
+  {
 
+    for (i = 0; i < num_in_buffers; i++)
+    {
+      OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
+      pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &ion_data_array[i]);
+
+      if(pvirt == NULL)
+      {
+        CHK(1);
+      }
+      m_pInBuffers[i]->pAppPrivate = pMem;
+      m_pInBuffers[i]->pInputPortPrivate = pvirt;
+    }
+  }
   if (m_eMode == MODE_FILE_ENCODE)
   {
     // encode the first frame to kick off the whole process
