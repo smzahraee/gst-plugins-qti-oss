@@ -139,13 +139,6 @@ static const int PORT_INDEX_OUT = 1;
 static const int NUM_IN_BUFFERS = 10;
 static const int NUM_OUT_BUFFERS = 10;
 
-unsigned int num_in_buffers = 0;
-unsigned int num_out_buffers = 0;
-
-int g_device_fd = -1;
-#ifdef USE_GBM
-struct gbm_device *g_gbm_device = NULL;
-#endif
 //////////////////////////
 /* MPEG4 profile and level table*/
 static const unsigned int mpeg4_profile_level_table[][5]=
@@ -439,6 +432,17 @@ OMX_HANDLETYPE m_hHandle = NULL;
 OMX_BUFFERHEADERTYPE* m_pOutBuffers[NUM_OUT_BUFFERS] = {NULL};
 OMX_BUFFERHEADERTYPE* m_pInBuffers[NUM_IN_BUFFERS] = {NULL};
 OMX_BOOL m_bInFrameFree[NUM_IN_BUFFERS];
+unsigned int m_num_in_buffers = 0;
+unsigned int m_num_out_buffers = 0;
+
+int m_device_fd = -1;
+#ifdef USE_GBM
+struct gbm_device *m_gbm_device = NULL;
+#endif
+
+#ifdef USE_ION
+struct enc_ion* m_ion_data_array = NULL;
+#endif
 
 ProfileType m_sProfile;
 
@@ -456,11 +460,11 @@ static int m_nAVCSliceMode = 0;
 static bool m_bWatchDogKicked = false;
 static int m_eMetaMode = 0;
 FILE  *m_pDynConfFile = NULL;
-static struct DynamicConfig dynamic_config;
+static struct DynamicConfig m_dynamic_config;
 
 /* Statistics Logging */
-static long long tot_bufsize = 0;
-int ebd_cnt=0, fbd_cnt=0;
+static long long m_tot_bufsize = 0;
+int m_ebd_cnt=0, m_fbd_cnt=0;
 
 #ifdef USE_ION
 #ifdef USE_GBM
@@ -478,9 +482,7 @@ static const char* PMEM_DEVICE = "/dev/pmem_smipool";
 #error PMEM_DEVICE cannot be determined.
 #endif
 
-#ifdef USE_ION
-struct enc_ion* ion_data_array = NULL;
-#endif
+
 //////////////////////////
 // MODULE FUNCTIONS
 //////////////////////////
@@ -569,13 +571,13 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
   size = (size + 4096 - 1) & ~(4096 - 1);
 
   D("use gbm\n");
-  ion_data_ptr->ion_device_fd = g_device_fd;
+  ion_data_ptr->ion_device_fd = m_device_fd;
   if(ion_data_ptr->ion_device_fd < 0)
   {
     E("\nERROR: gbm Device open() Failed");
     goto error_handle;
   }
-  ion_data_ptr->gbm = g_gbm_device;
+  ion_data_ptr->gbm = m_gbm_device;
   if (ion_data_ptr->gbm == NULL)
   {
     E("gbm_create_device failed\n");
@@ -600,7 +602,7 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
   }
   ion_data_ptr->meta_fd = meta_fd;
 #else
-  ion_data_ptr->ion_device_fd = g_device_fd;
+  ion_data_ptr->ion_device_fd = m_device_fd;
   if(ion_data_ptr->ion_device_fd < 0)
   {
     E("\nERROR: ION Device open() Failed");
@@ -617,7 +619,7 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
 #endif
   pMem->pmem_fd = ion_data_ptr->data_fd;
 #else
-  pMem->pmem_fd = g_device_fd;
+  pMem->pmem_fd = m_device_fd;
   if ((int)(pMem->pmem_fd) < 0)
     return NULL;
   nSize = (nSize + 4095) & (~4095);
@@ -1362,7 +1364,7 @@ OMX_ERRORTYPE EBD_CB(OMX_IN OMX_HANDLETYPE hComponent,
 {
   D("Got EBD callback ts=%lld", pBuffer->nTimeStamp);
 
-  for (int i = 0; i < num_in_buffers; i++)
+  for (int i = 0; i < m_num_in_buffers; i++)
   {
     // mark this buffer ready for use again
     if (m_pInBuffers[i] == pBuffer)
@@ -1406,8 +1408,8 @@ OMX_ERRORTYPE FBD_CB(OMX_OUT OMX_HANDLETYPE hComponent,
   if(pBuffer->nFilledLen !=0)
   {
     /* Counting Buffers supplied from OpneMax Encoder */
-    fbd_cnt++;
-    tot_bufsize += pBuffer->nFilledLen;
+    m_fbd_cnt++;
+    m_tot_bufsize += pBuffer->nFilledLen;
   }
   if (prevTime != 0)
   {
@@ -1442,7 +1444,7 @@ OMX_ERRORTYPE VencTest_Initialize()
   static OMX_CALLBACKTYPE sCallbacks = {EVT_CB, EBD_CB, FBD_CB};
   int i;
 
-  for (i = 0; i < num_in_buffers; i++)
+  for (i = 0; i < m_num_in_buffers; i++)
   {
     m_pInBuffers[i] = NULL;
   }
@@ -1559,7 +1561,7 @@ OMX_ERRORTYPE VencTest_EncodeFrame(void* pYUVBuff,
 {
   OMX_ERRORTYPE result = OMX_ErrorUndefined;
   D("calling OMX empty this buffer");
-  for (int i = 0; i < num_in_buffers; i++)
+  for (int i = 0; i < m_num_in_buffers; i++)
   {
     if (pYUVBuff == m_pInBuffers[i]->pBuffer)
     {
@@ -1569,7 +1571,7 @@ OMX_ERRORTYPE VencTest_EncodeFrame(void* pYUVBuff,
                                    m_pInBuffers[i]);
       /* Counting Buffers supplied to OpenMax Encoder */
       if(OMX_ErrorNone == result)
-      ebd_cnt++;
+        m_ebd_cnt++;
       CHK(result);
       break;
     }
@@ -1594,7 +1596,7 @@ OMX_ERRORTYPE VencTest_Exit(void)
                   (OMX_U32) OMX_StateLoaded,
                   NULL);
 
-  for (i = 0; i < num_in_buffers; i++)
+  for (i = 0; i < m_num_in_buffers; i++)
   {
     D("free buffer");
     if (m_pInBuffers[i]->pBuffer)
@@ -1612,7 +1614,7 @@ OMX_ERRORTYPE VencTest_Exit(void)
       CHK(result);
     }
   }
-  for (i = 0; i < num_out_buffers; i++)
+  for (i = 0; i < m_num_out_buffers; i++)
   {
     D("free buffer");
     if (m_pOutBuffers[i]->pBuffer)
@@ -1653,7 +1655,7 @@ void VencTest_ReadDynamicConfigMsg()
   char *dest = frame_n;
   bool end = false;
   int cntr, nparam = 0;
-  memset(&dynamic_config, 0, sizeof(struct DynamicConfig));
+  memset(&m_dynamic_config, 0, sizeof(struct DynamicConfig));
   do
   {
     cntr = -1;
@@ -1674,42 +1676,42 @@ void VencTest_ReadDynamicConfigMsg()
 
   if (nparam > 1)
   {
-    dynamic_config.pending = true;
-    dynamic_config.frame_num = atoi(frame_n);
-    D("dynamic config frame num: %d\n", dynamic_config.frame_num);
+    m_dynamic_config.pending = true;
+    m_dynamic_config.frame_num = atoi(frame_n);
+    D("dynamic config frame num: %d\n", m_dynamic_config.frame_num);
     if (!strcmp(config, "bitrate"))
     {
-      dynamic_config.config_param = OMX_IndexConfigVideoBitrate;
-      dynamic_config.config_data.bitrate.nPortIndex = PORT_INDEX_OUT;
-      dynamic_config.config_data.bitrate.nEncodeBitrate = strtoul(param, NULL, 10);
-      D("dynamic config bitrate: %d\n", dynamic_config.config_data.bitrate.nEncodeBitrate);
+      m_dynamic_config.config_param = OMX_IndexConfigVideoBitrate;
+      m_dynamic_config.config_data.bitrate.nPortIndex = PORT_INDEX_OUT;
+      m_dynamic_config.config_data.bitrate.nEncodeBitrate = strtoul(param, NULL, 10);
+      D("dynamic config bitrate: %d\n", m_dynamic_config.config_data.bitrate.nEncodeBitrate);
     }
     else if (!strcmp(config, "framerate"))
     {
-      dynamic_config.config_param = OMX_IndexConfigVideoFramerate;
-      dynamic_config.config_data.framerate.nPortIndex = PORT_INDEX_OUT;
-      dynamic_config.config_data.f_framerate = atof(param);
-      D("dynamic config framerate: %f\n", dynamic_config.config_data.f_framerate);
+      m_dynamic_config.config_param = OMX_IndexConfigVideoFramerate;
+      m_dynamic_config.config_data.framerate.nPortIndex = PORT_INDEX_OUT;
+      m_dynamic_config.config_data.f_framerate = atof(param);
+      D("dynamic config framerate: %f\n", m_dynamic_config.config_data.f_framerate);
     }
     else if (!strcmp(config, "iperiod"))
     {
-      dynamic_config.config_param = (OMX_INDEXTYPE)QOMX_IndexConfigVideoIntraperiod;
-      dynamic_config.config_data.intraperiod.nPortIndex = PORT_INDEX_OUT;
-      dynamic_config.config_data.intraperiod.nPFrames = strtoul(param, NULL, 10) - 1;
-      dynamic_config.config_data.intraperiod.nIDRPeriod = 1; // This value is ignored in OMX component
-      D("dynamic config intraperiod.nPFrames: %d\n", dynamic_config.config_data.intraperiod.nPFrames);
+      m_dynamic_config.config_param = (OMX_INDEXTYPE)QOMX_IndexConfigVideoIntraperiod;
+      m_dynamic_config.config_data.intraperiod.nPortIndex = PORT_INDEX_OUT;
+      m_dynamic_config.config_data.intraperiod.nPFrames = strtoul(param, NULL, 10) - 1;
+      m_dynamic_config.config_data.intraperiod.nIDRPeriod = 1; // This value is ignored in OMX component
+      D("dynamic config intraperiod.nPFrames: %d\n", m_dynamic_config.config_data.intraperiod.nPFrames);
     }
     else if (!strcmp(config, "ivoprefresh"))
     {
-      dynamic_config.config_param = OMX_IndexConfigVideoIntraVOPRefresh;
-      dynamic_config.config_data.intravoprefresh.nPortIndex = PORT_INDEX_OUT;
-      dynamic_config.config_data.intravoprefresh.IntraRefreshVOP = OMX_TRUE;
+      m_dynamic_config.config_param = OMX_IndexConfigVideoIntraVOPRefresh;
+      m_dynamic_config.config_data.intravoprefresh.nPortIndex = PORT_INDEX_OUT;
+      m_dynamic_config.config_data.intravoprefresh.IntraRefreshVOP = OMX_TRUE;
       D("dynamic config ivoprefresh\n");
     }
     else
     {
       E("UNKNOWN CONFIG PARAMETER: %s!", config);
-      dynamic_config.pending = false;
+      m_dynamic_config.pending = false;
     }
   }
   else if (feof(m_pDynConfFile))
@@ -1723,30 +1725,30 @@ void VencTest_ProcessDynamicConfigurationFile()
 {
   do
   {
-    if (dynamic_config.pending)
+    if (m_dynamic_config.pending)
     {
-      if(m_nFrameIn == dynamic_config.frame_num)
+      if(m_nFrameIn == m_dynamic_config.frame_num)
       {
-        if (dynamic_config.config_param == OMX_IndexConfigVideoFramerate)
+        if (m_dynamic_config.config_param == OMX_IndexConfigVideoFramerate)
         {
-          m_sProfile.nFramerate = dynamic_config.config_data.f_framerate;
-          FloatToQ16(dynamic_config.config_data.framerate.xEncodeFramerate,
+          m_sProfile.nFramerate = m_dynamic_config.config_data.f_framerate;
+          FloatToQ16(m_dynamic_config.config_data.framerate.xEncodeFramerate,
                         m_sProfile.nFramerate);
         }
-        if (OMX_SetConfig(m_hHandle, dynamic_config.config_param,
-            &dynamic_config.config_data) != OMX_ErrorNone)
-          E("ERROR: Setting dynamic config to OMX param[0x%x]", dynamic_config.config_param);
-        dynamic_config.pending = false;
+        if (OMX_SetConfig(m_hHandle, m_dynamic_config.config_param,
+            &m_dynamic_config.config_data) != OMX_ErrorNone)
+          E("ERROR: Setting dynamic config to OMX param[0x%x]", m_dynamic_config.config_param);
+        m_dynamic_config.pending = false;
       }
-      else if (m_nFrameIn > dynamic_config.frame_num)
+      else if (m_nFrameIn > m_dynamic_config.frame_num)
       {
-        E("WARNING: Config change requested in passed frame(%d)", dynamic_config.frame_num);
-        dynamic_config.pending = false;
+        E("WARNING: Config change requested in passed frame(%d)", m_dynamic_config.frame_num);
+        m_dynamic_config.pending = false;
       }
     }
-    if (!dynamic_config.pending)
+    if (!m_dynamic_config.pending)
       VencTest_ReadDynamicConfigMsg();
-  } while (!dynamic_config.pending && m_pDynConfFile);
+  } while (!m_dynamic_config.pending && m_pDynConfFile);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1869,7 +1871,7 @@ void PreviewCallback(int nFD,
 
     // register new camera buffers with encoder
     int i;
-    for (i = 0; i < num_in_buffers; i++)
+    for (i = 0; i < m_num_in_buffers; i++)
     {
       if (m_pInBuffers[i] != NULL &&
            m_pInBuffers[i]->pBuffer == pPhys)
@@ -1888,7 +1890,7 @@ void PreviewCallback(int nFD,
       }
     }
 
-    if (i == num_in_buffers)
+    if (i == m_num_in_buffers)
     {
       E("There are more camera buffers than we thought");
       CHK(1);
@@ -2126,7 +2128,7 @@ static int parse_args(int argc, char **argv)
         if (!m_pDynConfFile)
           E("ERROR: Cannot open dynamic config file");
         else
-          memset(&dynamic_config, 0, sizeof(struct DynamicConfig));
+          memset(&m_dynamic_config, 0, sizeof(struct DynamicConfig));
         break;
       case 'M':
         m_eMetaMode = atoi(optarg);
@@ -2187,29 +2189,29 @@ void open_device ()
   D("open mem device\n");
 #ifdef USE_ION
 #ifdef USE_GBM
-  g_device_fd = open (PMEM_DEVICE, O_RDWR | O_CLOEXEC);
-  if(g_device_fd < 0)
+  m_device_fd = open (PMEM_DEVICE, O_RDWR | O_CLOEXEC);
+  if(m_device_fd < 0)
   {
     E("\nERROR: gbm Device open() Failed");
     return;
   }
-  g_gbm_device = gbm_create_device(g_device_fd);
-  if (g_gbm_device == NULL)
+  m_gbm_device = gbm_create_device(m_device_fd);
+  if (m_gbm_device == NULL)
   {
-    close(g_device_fd);
-    g_device_fd = -1;
+    close(m_device_fd);
+    m_device_fd = -1;
     E("gbm_create_device failed\n");
   }
 #else
-  g_device_fd = ion_open();
-  if(g_device_fd < 0)
+  m_device_fd = ion_open();
+  if(m_device_fd < 0)
   {
     E("\nERROR: ION Device open() Failed");
   }
 #endif
 #else
 #error "Only support ION or ION/GBM mechanism, not support pmem any more!"
-  g_device_fd = open(PMEM_DEVICE, O_RDWR);
+  m_device_fd = open(PMEM_DEVICE, O_RDWR);
   if (device_fd < 0)
     E("device open failed\n");;
 #endif
@@ -2218,13 +2220,13 @@ void close_device ()
 {
   D("close mem device\n");
 #ifdef USE_GBM
-  if (g_gbm_device) {
-    gbm_device_destroy(g_gbm_device);
-    g_gbm_device = NULL;
+  if (m_gbm_device) {
+    gbm_device_destroy(m_gbm_device);
+    m_gbm_device = NULL;
   }
 #endif
-  close(g_device_fd);
-  g_device_fd =-1;
+  close(m_device_fd);
+  m_device_fd =-1;
 }
 int main(int argc, char** argv)
 {
@@ -2263,7 +2265,7 @@ int main(int argc, char** argv)
     // pthread_create(&wd, NULL, Watchdog, NULL);
   //}
 
-  for (int x = 0; x < num_in_buffers; x++)
+  for (int x = 0; x < m_num_in_buffers; x++)
   {
     // mark all buffers as ready to use
     m_bInFrameFree[x] = OMX_TRUE;
@@ -2295,10 +2297,10 @@ int main(int argc, char** argv)
 
 #if 1
   if (m_rotation != 0) {
-    dynamic_config.config_param = OMX_IndexConfigCommonRotate;
-    dynamic_config.config_data.rotation.nPortIndex = PORT_INDEX_OUT;
-    dynamic_config.config_data.rotation.nRotation = m_rotation;
-    OMX_SetConfig(m_hHandle, dynamic_config.config_param, &dynamic_config.config_data);
+    m_dynamic_config.config_param = OMX_IndexConfigCommonRotate;
+    m_dynamic_config.config_data.rotation.nPortIndex = PORT_INDEX_OUT;
+    m_dynamic_config.config_data.rotation.nRotation = m_rotation;
+    OMX_SetConfig(m_hHandle, m_dynamic_config.config_param, &m_dynamic_config.config_data);
   }
 #endif
 
@@ -2354,9 +2356,9 @@ int main(int argc, char** argv)
     }
     open_device();
     D("allocating Input buffers");
-    num_in_buffers = portDef.nBufferCountActual;
-    ion_data_array = (struct enc_ion *)calloc(sizeof(struct enc_ion), num_in_buffers);
-    if(ion_data_array == NULL)
+    m_num_in_buffers = portDef.nBufferCountActual;
+    m_ion_data_array = (struct enc_ion *)calloc(sizeof(struct enc_ion), m_num_in_buffers);
+    if(m_ion_data_array == NULL)
     {
       CHK(1);
     }
@@ -2365,7 +2367,7 @@ int main(int argc, char** argv)
       if (!m_eMetaMode)
       {
         OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
-        pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &ion_data_array[i]);
+        pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &m_ion_data_array[i]);
 
         if(pvirt == NULL)
         {
@@ -2404,7 +2406,7 @@ int main(int argc, char** argv)
   CHK(result);
 
   D("allocating & calling usebuffer for Output port");
-  num_out_buffers = portDef.nBufferCountActual;
+  m_num_out_buffers = portDef.nBufferCountActual;
   for (i = 0; i < portDef.nBufferCountActual; i++)
   {
     void* pBuff;
@@ -2432,7 +2434,7 @@ int main(int argc, char** argv)
 
   D("going to executing state");
   SetState(OMX_StateExecuting);
-  for (i = 0; i < num_out_buffers; i++)
+  for (i = 0; i < m_num_out_buffers; i++)
   {
     D("filling buffer %d", i);
     result = OMX_FillThisBuffer(m_hHandle, m_pOutBuffers[i]);
@@ -2442,10 +2444,10 @@ int main(int argc, char** argv)
   if (m_eMetaMode)
   {
 
-    for (i = 0; i < num_in_buffers; i++)
+    for (i = 0; i < m_num_in_buffers; i++)
     {
       OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
-      pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &ion_data_array[i]);
+      pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &m_ion_data_array[i]);
 
       if(pvirt == NULL)
       {
@@ -2468,7 +2470,7 @@ int main(int argc, char** argv)
 
     // read several frames into memory
     D("reading frames into memory");
-    for (i = 0; i < num_in_buffers; i++)
+    for (i = 0; i < m_num_in_buffers; i++)
     {
       D("[%d] address 0x%x",i, m_pInBuffers[i]->pBuffer);
 #ifdef MAX_RES_720P
@@ -2512,7 +2514,7 @@ int main(int argc, char** argv)
     D("beging playing mem-resident frames...");
     for (i = 0; m_nFramePlay == 0 || i < m_nFramePlay; i++)
     {
-      int idx = i % num_in_buffers;
+      int idx = i % m_num_in_buffers;
       if (m_bInFrameFree[idx] == OMX_FALSE)
       {
         int j;
@@ -2521,7 +2523,7 @@ int main(int argc, char** argv)
         idx = -1;
 
         // lets see if we can find another free buffer
-        for (j = 0; j < num_in_buffers; j++)
+        for (j = 0; j < m_num_in_buffers; j++)
         {
           if(m_bInFrameFree[j])
           {
@@ -2648,7 +2650,7 @@ int main(int argc, char** argv)
            m_eMode == MODE_PROFILE)
   {
     // deallocate pmem buffers
-    for (int i = 0; i < num_in_buffers; i++)
+    for (int i = 0; i < m_num_in_buffers; i++)
     {
       if(m_eMetaMode && ((MetaBuffer *)(m_pInBuffers[i]->pBuffer))->meta_handle){
         free(((MetaBuffer *)(m_pInBuffers[i]->pBuffer))->meta_handle);
@@ -2656,11 +2658,11 @@ int main(int argc, char** argv)
       }
       PmemFree((OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO*)m_pInBuffers[i]->pAppPrivate,
                m_pInBuffers[i]->pBuffer,
-               m_sProfile.nFrameBytes, &ion_data_array[i]);
+               m_sProfile.nFrameBytes, &m_ion_data_array[i]);
       delete (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO*) m_pInBuffers[i]->pAppPrivate;
     }
-    if(ion_data_array)
-      free(ion_data_array);
+    if(m_ion_data_array)
+      free(m_ion_data_array);
     close_device();
     close(m_nInFd);
     if (m_eMode == MODE_FILE_ENCODE)
@@ -2691,16 +2693,16 @@ int main(int argc, char** argv)
     enc_time_sec =enc_time_usec/1000000;
     if(0 != enc_time_sec)
     {
-      printf("Total Frame Rate: %f",ebd_cnt/enc_time_sec);
-      printf("\nEncoder Bitrate :%lf Kbps",(tot_bufsize*8)/(enc_time_sec*1000));
+      printf("Total Frame Rate: %f",m_ebd_cnt/enc_time_sec);
+      printf("\nEncoder Bitrate :%lf Kbps",(m_tot_bufsize*8)/(enc_time_sec*1000));
     }
   }
   else
   {
     printf("\n\n Encode Time is zero");
   }
-  printf("\nTotal Number of Frames :%d",ebd_cnt);
-  printf("\nNumber of dropped frames during encoding:%d\n",ebd_cnt-fbd_cnt);
+  printf("\nTotal Number of Frames :%d",m_ebd_cnt);
+  printf("\nNumber of dropped frames during encoding:%d\n",m_ebd_cnt-m_fbd_cnt);
   /* End of Time Statistics Logging */
 
   D("main has exited");
