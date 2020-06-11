@@ -1977,23 +1977,27 @@ void help()
   printf("=============================\n");
   printf("mm-venc-omx-test args... \n");
   printf("=============================\n\n");
-  printf("      -m mode (live, file)\n");
-  printf("      -t encode type (mpeg4, h263, h264, vp8, hevc)\n");
+  printf("      -m mode (live, file). Only support file now\n");
+  printf("      -t encode type (mpeg4, h263, h264, vp8, hevc). h264 and hevc are verified\n");
   printf("      -w width\n");
   printf("      -h height\n");
   printf("      -f fps\n");
-  printf("      -b bitrate\n");
+  printf("      -b bitrate. Unit is bit per second\n");
   printf("      -n number of frames to encode\n");
-  printf("      -i infile\n");
+  printf("      -i infile (Stored as NV12 format)\n");
   printf("      -o outfile\n");
-  printf("      -r rotation (90, 180, 270)\n");
+  printf("      -r rotation (90, 180, 270). Not ready\n");
   printf("      -c ratecontrol option\n");
-  printf("         (Values 0 - 4 for RC_OFF, RC_CBR_CFR, RC_CBR_VFR, RC_VBR_CFR, RC_VBR_VFR\n");
+  printf("         (Values 0 - 4 for RC_OFF, RC_CBR_CFR, RC_CBR_VFR, RC_VBR_CFR, RC_VBR_VFR)\n");
   printf("      -d dynamic control file\n");
-  printf("      -M metamode (value 0 or 1, 0 not use metamode, 1 use metamode)");
-  printf("      --scaling-width\n");
-  printf("      --scaling-higth\n");
+  printf("      -M metamode (value 0 or 1, 0 not use metamode, 1 use metamode. 0 is default value)\n");
+  printf("      --scaling-width scale_w (not ready)\n");
+  printf("      --scaling-heigth scale_h (not ready)\n");
   printf("      --help  Print this menu\n");
+  printf("=============================\n");
+  printf("Example:\n");
+  printf("program -m file -t h264 -w 1280 -h 720 -f 30 -b 5000000 -c 3 -n 300 -i jelly_nv12.yuv -o 5mbps.h264\n");
+  printf("program -m file -t hevc -w 1280 -h 720 -f 30 -b 5000000 -c 3 -n 300 -i jelly_nv12.yuv -o 5mbps.h265\n");
   printf("=============================\n\n\n");
 }
 
