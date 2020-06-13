@@ -601,6 +601,7 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
     goto error_handle;
   }
   ion_data_ptr->meta_fd = meta_fd;
+  D("gbm buffer size: app calculate size %d, gbm internal calculate size %d\n", size, bo->size);
 #else
   ion_data_ptr->ion_device_fd = m_device_fd;
   if(ion_data_ptr->ion_device_fd < 0)
@@ -632,7 +633,7 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
   {
     goto error_handle;
   }
-  D("allocated pMem->fd = %lu pvirt=0x%p, pMem->phys=0x%lx, size = %d", pMem->pmem_fd,
+  D("allocated pMem->fd = %lu pvirt=%p, pMem->phys(offset)=0x%lx, size = %d", pMem->pmem_fd,
        pvirt, pMem->offset, nSize);
   return pvirt;
 error_handle:
@@ -1566,7 +1567,7 @@ OMX_ERRORTYPE VencTest_EncodeFrame(void* pYUVBuff,
     if (pYUVBuff == m_pInBuffers[i]->pBuffer)
     {
       m_pInBuffers[i]->nTimeStamp = nTimeStamp;
-      D("Sending Buffer - %x", m_pInBuffers[i]->pBuffer);
+      D("Sending Buffer - %p", m_pInBuffers[i]->pBuffer);
       result = OMX_EmptyThisBuffer(m_hHandle,
                                    m_pInBuffers[i]);
       /* Counting Buffers supplied to OpenMax Encoder */
@@ -2594,7 +2595,7 @@ int main(int argc, char** argv)
       case MSG_ID_OUTPUT_FRAME_DONE:
         int bytes_written;
         bytes_written = fwrite(msg.data.sBitstreamData.pBuffer->pBuffer,
-            msg.data.sBitstreamData.pBuffer->nFilledLen, 1,
+            1, msg.data.sBitstreamData.pBuffer->nFilledLen,
             m_nOutFd);
         D("================ writing frame %d = %d bytes to output file",
             m_nFrameOut+1,
