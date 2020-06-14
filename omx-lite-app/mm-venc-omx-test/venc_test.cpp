@@ -238,6 +238,7 @@ static const unsigned int h263_profile_level_table[][5]=
 };
 static const unsigned int VP8_profile_level_table[][5]=
 {
+  //TODO: !!!!! Legacy code, it's strange to use H263 profile and level for VP8. Need refine code.
   /*max mb per frame, max mb per sec, max bitrate, level, profile*/
   {99,1485,64000,OMX_VIDEO_H263Level10,OMX_VIDEO_H263ProfileBaseline},
   {396,5940,128000,OMX_VIDEO_H263Level20,OMX_VIDEO_H263ProfileBaseline},
@@ -639,6 +640,13 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
   }
   D("allocated pMem->fd = %lu pvirt=%p, pMem->phys(offset)=0x%lx, size = %d", pMem->pmem_fd,
        pvirt, pMem->offset, nSize);
+
+  //Clean total frame memory content. For some non-MB-aligned encoding, like 1920x1080,
+  //the extra 1081~1088 line's content still probably affect encoded result if VPU don't do special operation for those extra line.
+  //Therefore, it's better to clean those extra lines in advance.
+  D("Clean frame buffer's total content (size %d) as 0\n", nSize);
+  memset(pvirt, 0, nSize);
+
   return pvirt;
 error_handle:
 #ifdef USE_ION
@@ -1986,22 +1994,22 @@ void help()
   printf("=============================\n");
   printf("mm-venc-omx-test args... \n");
   printf("=============================\n\n");
-  printf("      -m mode (live, file). Only support file now\n");
+  printf("      -m mode (live, file). Only support file mode now\n");
   printf("      -t encode type (mpeg4, h263, h264, vp8, hevc). h264 and hevc are verified\n");
   printf("      -w width\n");
   printf("      -h height\n");
   printf("      -f fps\n");
   printf("      -b bitrate. Unit is bit per second\n");
   printf("      -n number of frames to encode\n");
-  printf("      -i infile (Stored as NV12 format)\n");
+  printf("      -i infile (Stored as NV12 format only)\n");
   printf("      -o outfile\n");
-  printf("      -r rotation (90, 180, 270). Not ready\n");
   printf("      -c ratecontrol option\n");
   printf("         (Values 0 - 4 for RC_OFF, RC_CBR_CFR, RC_CBR_VFR, RC_VBR_CFR, RC_VBR_VFR)\n");
-  printf("      -d dynamic control file\n");
-  printf("      -M metamode (value 0 or 1, 0 not use metamode, 1 use metamode. 0 is default value)\n");
-  printf("      --scaling-width scale_w (not ready)\n");
-  printf("      --scaling-heigth scale_h (not ready)\n");
+  printf("      -M metamode (value 0 or 1, 0 not use metamode, 1 use metamode. 0 is default value if not specify -M)\n");
+  printf("      -r rotation (90, 180, 270). (Not verify)\n");
+  printf("      -d dynamic control file (Not verify)\n");
+  printf("      --scaling-width scale_w (Not verify)\n");
+  printf("      --scaling-heigth scale_h (Not verify)\n");
   printf("      --help  Print this menu\n");
   printf("=============================\n");
   printf("Example:\n");
