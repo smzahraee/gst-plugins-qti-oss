@@ -602,6 +602,10 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
   }
   ion_data_ptr->meta_fd = meta_fd;
   D("gbm buffer size: app calculate size %d, gbm internal calculate size %d\n", size, bo->size);
+  if (size != bo->size) {
+    E("\n!!!!! app calculated size isn't equal to gbm bo internal calculated size !!!!\n");
+    CHK(OMX_ErrorUndefined);
+  }
 #else
   ion_data_ptr->ion_device_fd = m_device_fd;
   if(ion_data_ptr->ion_device_fd < 0)
@@ -775,6 +779,11 @@ OMX_ERRORTYPE ConfigureEncoder()
   E("\n OMX_IndexParamPortDefinition Get Paramter on input port, 2nd pass");
   CHK(result);
   // update size accordingly
+  D("\n !!!!! input port OMX calculated size is %d, nFrameBytes %d", portdef.nBufferSize, m_sProfile.nFrameBytes);
+  if (m_sProfile.nFrameBytes != portdef.nBufferSize) {
+    E("!!! app calculated nFrameBytes %d isn't equal to OMX calculated size %d\n", m_sProfile.nFrameBytes, portdef.nBufferSize);
+    CHK(OMX_ErrorUndefined);
+  }
   m_sProfile.nFrameBytes = portdef.nBufferSize;
   portdef.nPortIndex = (OMX_U32) 1; // output
   result = OMX_GetParameter(m_hHandle,
@@ -1792,8 +1801,7 @@ OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
     read_bytes += bytes;
     yuv += cstride;
   }
-  m_sProfile.nFrameRead = VENUS_BUFFER_SIZE(COLOR_FMT_NV12, width, height);
-  E("\n\nActual read bytes: %d, NV12 buffer size: %d\n\n\n", read_bytes, m_sProfile.nFrameRead);
+  E("\n\nActual read bytes: %d from file, which will be filled into NV12 buf area size: %d\n\n\n", read_bytes, m_sProfile.nFrameRead);
   if(m_eMetaMode){
     OMX_S32 nFds = 1;
     OMX_S32 nInts = 3;
@@ -1814,7 +1822,7 @@ OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
     pMetaHandle->numInts = nInts;
     pMetaHandle->data[0] = pMem->pmem_fd;
     pMetaHandle->data[1] = 0; //offset
-    pMetaHandle->data[2] = m_sProfile.nFrameRead;
+    pMetaHandle->data[2] = m_sProfile.nFrameBytes;
     pMetaHandle->data[3] = ITUR601;
     // if (pYUVBuffer->port->port_def.format.video.eColorFormat == QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed){
      //  pMetaHandle->data[3] |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
@@ -2156,12 +2164,14 @@ static int parse_args(int argc, char **argv)
     }
   }
   if (m_sProfile.nFrameWidth > 0 && m_sProfile.nFrameHeight > 0) {
-    m_sProfile.nFrameBytes = m_sProfile.nFrameWidth*m_sProfile.nFrameHeight*3/2;
     m_sProfile.eLevel = OMX_VIDEO_MPEG4Level1;
-    m_sProfile.nFramestride =  (m_sProfile.nFrameWidth + 31) & (~31);
-    m_sProfile.nFrameScanlines = (m_sProfile.nFrameHeight + 31) & (~31);
-    m_sProfile.nFrameBytes = ((m_sProfile.nFramestride * m_sProfile.nFrameScanlines * 3/2) + 4095) & (~4095);
-    m_sProfile.nFrameRead = m_sProfile.nFramestride * m_sProfile.nFrameScanlines * 3/2;
+    //only support VENUS NV12 format
+    m_sProfile.nFramestride = VENUS_Y_STRIDE(COLOR_FMT_NV12, m_sProfile.nFrameWidth);
+    m_sProfile.nFrameScanlines = VENUS_Y_SCANLINES(COLOR_FMT_NV12, m_sProfile.nFrameHeight);
+    m_sProfile.nFrameRead = m_sProfile.nFramestride * m_sProfile.nFrameScanlines * 3 / 2;
+    m_sProfile.nFrameBytes = VENUS_BUFFER_SIZE(COLOR_FMT_NV12, m_sProfile.nFrameWidth, m_sProfile.nFrameScanlines);
+
+    D("app calculate frame buf sz %d, frame stride*scanline*3/2 sz %d\n", m_sProfile.nFrameBytes, m_sProfile.nFrameRead);
   }
   else {
     E ("Invalid input width or height");
@@ -2259,7 +2269,7 @@ int main(int argc, char** argv)
     m_sProfile.nFrameWidth,
     m_sProfile.nFrameHeight,
     m_sProfile.nFrameBytes);
-  D("Frame stride=%u, scanlines=%u, read=%u",
+  D("Frame stride=%u, scanlines=%u, read area=%u",
       m_sProfile.nFramestride,
       m_sProfile.nFrameScanlines,
       m_sProfile.nFrameRead);
