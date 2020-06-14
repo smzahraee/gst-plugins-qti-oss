@@ -1225,6 +1225,7 @@ result = OMX_SetParameter(m_hHandle,
     }
   }
 
+#if 0 //framepacking is only for stereo video
 ///////////////////FRAMEPACKING DATA///////////////////
   OMX_QCOM_FRAME_PACK_ARRANGEMENT framePackingArrangement;
   FILE *m_pConfigFile;
@@ -1283,6 +1284,7 @@ result = OMX_SetParameter(m_hHandle,
             (OMX_INDEXTYPE)OMX_QcomIndexConfigVideoFramePackingArrangement,
             (OMX_PTR) &framePackingArrangement);
   CHK(result);
+#endif
 
 //////////////////////OMX_VIDEO_PARAM_INTRAREFRESHTYPE///////////////////
 
@@ -2370,7 +2372,7 @@ int main(int argc, char** argv)
     if (m_eMetaMode) {
       StoreMetaDataInBuffersParams sMetadataMode;
       OMX_INIT_STRUCT(&sMetadataMode, StoreMetaDataInBuffersParams);
-      sMetadataMode.nPortIndex = portDef.nPortIndex;
+      sMetadataMode.nPortIndex = 0;
       sMetadataMode.bStoreMetaData = OMX_TRUE;
       result = OMX_SetParameter(m_hHandle,
           (OMX_INDEXTYPE)OMX_QcomIndexParamVideoMetaBufferMode,
