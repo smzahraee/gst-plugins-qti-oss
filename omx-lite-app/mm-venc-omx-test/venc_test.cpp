@@ -521,7 +521,8 @@ OMX_ERRORTYPE SetVendorRateControlMode(OMX_VIDEO_CONTROLRATETYPE eControlRate) {
     return OMX_ErrorUndefined;
   }
 
-  memset(ext, 0, sizeof(OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE));
+  //memset(ext, 0, sizeof(OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE));
+  OMX_INIT_STRUCT(ext, OMX_CONFIG_ANDROID_VENDOR_EXTENSIONTYPE);
   ext->nSize = size;
   ext->nParamSizeUsed = paramSizeUsed;
   result = GetVendorExtension(extensionName, ext);
@@ -745,14 +746,33 @@ OMX_ERRORTYPE ConfigureEncoder()
 {
   OMX_ERRORTYPE result = OMX_ErrorNone;
   unsigned const int *profile_tbl = (unsigned int const *)mpeg4_profile_level_table;
-  OMX_U32 mb_per_sec, mb_per_frame;
+  OMX_U32 mb_per_sec = 0, mb_per_frame = 0;
   bool profile_level_found = false;
-  OMX_U32 eProfile,eLevel;
+  OMX_U32 eProfile = 0, eLevel = 0;
+
+  //////////////////////OMX_CONFIG_FRAMERATETYPE///////////////////
+  //when bps is set as DEADVALUE, couldn't found a suitable profile/level in
+  //subsequent code and will early exit from ConfigureEncoder(). This leads to
+  //many setting are skipped. However, fps setting is important and related to
+  //default GOP structure, we need set it.
+  OMX_CONFIG_FRAMERATETYPE enc_framerate; // OMX_IndexConfigVideoFramerate
+  OMX_INIT_STRUCT(&enc_framerate, OMX_CONFIG_FRAMERATETYPE);
+  enc_framerate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+  enc_framerate.nSize = sizeof(OMX_CONFIG_FRAMERATETYPE);
+
+  result = OMX_GetConfig(m_hHandle,
+                         OMX_IndexConfigVideoFramerate,
+                         &enc_framerate);
+  CHK(result);
+  FloatToQ16(enc_framerate.xEncodeFramerate, m_sProfile.nFramerate);
+  result = OMX_SetConfig(m_hHandle,
+                         OMX_IndexConfigVideoFramerate,
+                         &enc_framerate);
+  CHK(result);
 
   OMX_PARAM_PORTDEFINITIONTYPE portdef; // OMX_IndexParamPortDefinition
-#ifdef QTI_EXT
-  OMX_QCOM_PARAM_PORTDEFINITIONTYPE qPortDefnType;
-#endif
+  OMX_INIT_STRUCT(&portdef, OMX_PARAM_PORTDEFINITIONTYPE);
+
   portdef.nPortIndex = (OMX_U32) 0; // input
   result = OMX_GetParameter(m_hHandle,
                             OMX_IndexParamPortDefinition,
@@ -808,12 +828,13 @@ OMX_ERRORTYPE ConfigureEncoder()
   CHK(result);
 
 #ifdef QTI_EXT
+  OMX_QCOM_PARAM_PORTDEFINITIONTYPE qPortDefnType;
+  OMX_INIT_STRUCT(&qPortDefnType, OMX_QCOM_PARAM_PORTDEFINITIONTYPE);
+  qPortDefnType.nPortIndex = PORT_INDEX_IN;
+  qPortDefnType.nMemRegion = OMX_QCOM_MemRegionEBI1;
+  qPortDefnType.nSize = sizeof(OMX_QCOM_PARAM_PORTDEFINITIONTYPE);
 
-qPortDefnType.nPortIndex = PORT_INDEX_IN;
-qPortDefnType.nMemRegion = OMX_QCOM_MemRegionEBI1;
-qPortDefnType.nSize = sizeof(OMX_QCOM_PARAM_PORTDEFINITIONTYPE);
-
-result = OMX_SetParameter(m_hHandle,
+  result = OMX_SetParameter(m_hHandle,
                              (OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
                              &qPortDefnType);
 
@@ -846,7 +867,7 @@ result = OMX_SetParameter(m_hHandle,
 
     mb_per_sec = mb_per_frame*(m_sProfile.nFramerate);
 
-    printf("mb_per_frame: %d, mb_per_sec: %d, m_sProfile.nBitrate: %d\n", mb_per_frame, mb_per_sec, m_sProfile.nBitrate);
+    printf("mb_per_frame: %d, mb_per_sec: %d, m_sProfile.nBitrate: %u%s\n", mb_per_frame, mb_per_sec, m_sProfile.nBitrate, m_sProfile.nBitrate==DEADVALUE ? "(it is DEADVALUE)" : "");
 
     do{
       if(mb_per_frame <= (unsigned int)profile_tbl[0])
@@ -882,6 +903,7 @@ result = OMX_SetParameter(m_hHandle,
     D("Configuring H263...");
 
     OMX_VIDEO_PARAM_H263TYPE h263;
+    OMX_INIT_STRUCT(&h263, OMX_VIDEO_PARAM_H263TYPE);
     result = OMX_GetParameter(m_hHandle,
                               OMX_IndexParamVideoH263,
                               &h263);
@@ -905,6 +927,7 @@ result = OMX_SetParameter(m_hHandle,
     D("Configuring MP4/H264...");
 
     OMX_VIDEO_PARAM_PROFILELEVELTYPE profileLevel; // OMX_IndexParamVideoProfileLevelCurrent
+    OMX_INIT_STRUCT(&profileLevel, OMX_VIDEO_PARAM_PROFILELEVELTYPE);
     profileLevel.nPortIndex = (OMX_U32) PORT_INDEX_OUT;
     profileLevel.eProfile = eProfile;
     profileLevel.eLevel =  eLevel;
@@ -924,6 +947,7 @@ result = OMX_SetParameter(m_hHandle,
     if (m_sProfile.eCodec == OMX_VIDEO_CodingMPEG4)
     {
       OMX_VIDEO_PARAM_MPEG4TYPE mp4; // OMX_IndexParamVideoMpeg4
+      OMX_INIT_STRUCT(&mp4, OMX_VIDEO_PARAM_MPEG4TYPE);
       result = OMX_GetParameter(m_hHandle,
                                 OMX_IndexParamVideoMpeg4,
                                 &mp4);
@@ -941,13 +965,12 @@ result = OMX_SetParameter(m_hHandle,
   {
 /////////////C A B A C ///A N D/////D E B L O C K I N G /////////////////
     OMX_VIDEO_PARAM_AVCTYPE avcdata;
+    OMX_INIT_STRUCT(&avcdata, OMX_VIDEO_PARAM_AVCTYPE);
     avcdata.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
     result = OMX_GetParameter(m_hHandle,
                               OMX_IndexParamVideoAvc,
                               &avcdata);
     CHK(result);
-    avcdata.nPFrames = 6;
-    avcdata.nBFrames = 0;
     avcdata.bUseHadamard = OMX_FALSE;
     avcdata.nRefFrames = 1;
     avcdata.nRefIdx10ActiveMinus1 = 1;
@@ -993,7 +1016,8 @@ result = OMX_SetParameter(m_hHandle,
     result = SetVendorRateControlMode(m_sProfile.eControlRate);
     CHK(result);
     OMX_VIDEO_PARAM_BITRATETYPE bitrate;
-    memset(&bitrate, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
+    OMX_INIT_STRUCT(&bitrate, OMX_VIDEO_PARAM_BITRATETYPE);
+    //memset(&bitrate, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
     bitrate.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
     bitrate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
     result = OMX_GetParameter(m_hHandle,
@@ -1011,7 +1035,8 @@ result = OMX_SetParameter(m_hHandle,
     D("Setting common rate control mode eControlRate %d bits %d\n",m_sProfile.eControlRate,m_sProfile.nBitrate);
     OMX_VIDEO_PARAM_BITRATETYPE bitrate;
 
-    memset(&bitrate, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
+    //memset(&bitrate, 0, sizeof(OMX_VIDEO_PARAM_BITRATETYPE));
+    OMX_INIT_STRUCT(&bitrate, OMX_VIDEO_PARAM_BITRATETYPE);
     bitrate.nSize = sizeof(OMX_VIDEO_PARAM_BITRATETYPE);
     bitrate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
     result = OMX_GetParameter(m_hHandle,
@@ -1033,7 +1058,8 @@ result = OMX_SetParameter(m_hHandle,
   // set SPS/PPS insertion for IDR frames
   ///////////////////////////////////////
   PrependSPSPPSToIDRFramesParams param;
-  memset(&param, 0, sizeof(PrependSPSPPSToIDRFramesParams));
+  //memset(&param, 0, sizeof(PrependSPSPPSToIDRFramesParams));
+  OMX_INIT_STRUCT(&param, PrependSPSPPSToIDRFramesParams);
   param.nSize = sizeof(PrependSPSPPSToIDRFramesParams);
   param.bEnable = OMX_FALSE;
   D ("\n Set SPS/PPS headers: %d", param.bEnable);
@@ -1048,7 +1074,8 @@ result = OMX_SetParameter(m_hHandle,
   // set AU delimiters for video stream
   ///////////////////////////////////////
   OMX_QCOM_VIDEO_CONFIG_AUD param_aud;
-  memset(&param_aud, 0, sizeof(OMX_QCOM_VIDEO_CONFIG_AUD));
+  //memset(&param_aud, 0, sizeof(OMX_QCOM_VIDEO_CONFIG_AUD));
+  OMX_INIT_STRUCT(&param_aud, OMX_QCOM_VIDEO_CONFIG_AUD);
   param_aud.nSize = sizeof(OMX_QCOM_VIDEO_CONFIG_AUD);
   param_aud.bEnable = OMX_FALSE;
   D ("\n et AU Delimiters = %d",param_aud.bEnable);
@@ -1059,7 +1086,7 @@ result = OMX_SetParameter(m_hHandle,
 ///////////////////I N T R A P E R I O D ///////////////////
 
   QOMX_VIDEO_INTRAPERIODTYPE intra;
-
+  OMX_INIT_STRUCT(&intra, QOMX_VIDEO_INTRAPERIODTYPE);
   intra.nPortIndex = (OMX_U32) PORT_INDEX_OUT; // output
   result = OMX_GetConfig(m_hHandle,
                       (OMX_INDEXTYPE) QOMX_IndexConfigVideoIntraperiod,
@@ -1120,6 +1147,7 @@ result = OMX_SetParameter(m_hHandle,
   }
 
   OMX_VIDEO_PARAM_ERRORCORRECTIONTYPE errorCorrection; //OMX_IndexParamVideoErrorCorrection
+  OMX_INIT_STRUCT(&errorCorrection, OMX_VIDEO_PARAM_ERRORCORRECTIONTYPE);
   errorCorrection.nPortIndex = (OMX_U32) PORT_INDEX_OUT; // output
   result = OMX_GetParameter(m_hHandle,
                             (OMX_INDEXTYPE) OMX_IndexParamVideoErrorCorrection,
@@ -1155,6 +1183,7 @@ result = OMX_SetParameter(m_hHandle,
   if (eResyncMarkerType == RESYNC_MARKER_MB){
     if (m_sProfile.eCodec == OMX_VIDEO_CodingAVC){
       OMX_VIDEO_PARAM_AVCTYPE avcdata;
+      OMX_INIT_STRUCT(&avcdata, OMX_VIDEO_PARAM_AVCTYPE);
       avcdata.nPortIndex = (OMX_U32) PORT_INDEX_OUT; // output
       result = OMX_GetParameter(m_hHandle,
                                 OMX_IndexParamVideoAvc,
@@ -1172,6 +1201,7 @@ result = OMX_SetParameter(m_hHandle,
     }
     else if(m_sProfile.eCodec == OMX_VIDEO_CodingMPEG4){
       OMX_VIDEO_PARAM_MPEG4TYPE mp4;
+      OMX_INIT_STRUCT(&mp4, OMX_VIDEO_PARAM_MPEG4TYPE);
       mp4.nPortIndex = (OMX_U32) PORT_INDEX_OUT; // output
       result = OMX_GetParameter(m_hHandle,
                                 OMX_IndexParamVideoMpeg4,
@@ -1197,6 +1227,7 @@ result = OMX_SetParameter(m_hHandle,
   if (result == OMX_ErrorNone)
   {
     OMX_VIDEO_PARAM_INTRAREFRESHTYPE ir; // OMX_IndexParamVideoIntraRefresh
+    OMX_INIT_STRUCT(&ir, OMX_VIDEO_PARAM_INTRAREFRESHTYPE);
     ir.nPortIndex = (OMX_U32) PORT_INDEX_OUT; // output
     result = OMX_GetParameter(m_hHandle,
                              OMX_IndexParamVideoIntraRefresh,
@@ -1275,22 +1306,6 @@ result = OMX_SetParameter(m_hHandle,
             (OMX_PTR) &framePackingArrangement);
   CHK(result);
 #endif
-
-//////////////////////OMX_VIDEO_PARAM_INTRAREFRESHTYPE///////////////////
-
-  OMX_CONFIG_FRAMERATETYPE enc_framerate; // OMX_IndexConfigVideoFramerate
-  enc_framerate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
-  enc_framerate.nSize = sizeof(OMX_CONFIG_FRAMERATETYPE);
-
-  result = OMX_GetConfig(m_hHandle,
-                         OMX_IndexConfigVideoFramerate,
-                         &enc_framerate);
-  CHK(result);
-  FloatToQ16(enc_framerate.xEncodeFramerate, m_sProfile.nFramerate);
-  result = OMX_SetConfig(m_hHandle,
-                         OMX_IndexConfigVideoFramerate,
-                         &enc_framerate);
-  CHK(result);
   return OMX_ErrorNone;
 }
 ////////////////////////////////////////////////////////////////////////////////
@@ -2034,9 +2049,9 @@ static int parse_args(int argc, char **argv)
     { NULL,          0,                 NULL,  0}
   };
   //default
-  m_sProfile.eControlRate = OMX_Video_ControlRateVariable;
+  m_sProfile.eControlRate = OMX_Video_ControlRateDisable;
   m_sProfile.nUserProfile = 0;
-
+  m_sProfile.nBitrate = DEADVALUE;
   while ((command = getopt_long(argc, argv, "m:t:w:h:f:b:n:c:i:o:r:d:M:", longopts,
     NULL)) != -1) {
     switch (command) {
@@ -2355,7 +2370,7 @@ int main(int argc, char** argv)
                     NULL);
 
     OMX_PARAM_PORTDEFINITIONTYPE portDef;
-
+    OMX_INIT_STRUCT(&portDef, OMX_PARAM_PORTDEFINITIONTYPE);
     portDef.nPortIndex = 0;
     result = OMX_GetParameter(m_hHandle, OMX_IndexParamPortDefinition, &portDef);
     CHK(result);
@@ -2382,6 +2397,7 @@ int main(int argc, char** argv)
       if (!m_eMetaMode)
       {
         OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
+        memset(pMem, 0, sizeof(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO));
         pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &m_ion_data_array[i]);
 
         if(pvirt == NULL)
@@ -2415,7 +2431,7 @@ int main(int argc, char** argv)
 
   int i;
   OMX_PARAM_PORTDEFINITIONTYPE portDef;
-
+  OMX_INIT_STRUCT(&portDef, OMX_PARAM_PORTDEFINITIONTYPE);
   portDef.nPortIndex = 1;
   result = OMX_GetParameter(m_hHandle, OMX_IndexParamPortDefinition, &portDef);
   CHK(result);
@@ -2462,6 +2478,7 @@ int main(int argc, char** argv)
     for (i = 0; i < m_num_in_buffers; i++)
     {
       OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
+      memset(pMem, 0, sizeof(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO));
       pvirt = (OMX_U8*)PmemMalloc(pMem, m_sProfile.nFrameBytes, &m_ion_data_array[i]);
 
       if(pvirt == NULL)
