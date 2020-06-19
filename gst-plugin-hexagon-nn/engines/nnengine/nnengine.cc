@@ -43,7 +43,7 @@ int32_t NNEngine::EngineInit(const NNSourceInfo* source_info,
   scale_width_ = (uint32_t)(in_width_ * ratio);
   scale_height_ = (uint32_t)(in_height_ * ratio);
 
-  ALOGD("%d:%d: in: %dx%d scaled: %dx%d nn: %dx%d ", __func__, __LINE__,
+  ALOGD("%s:%d: in: %dx%d scaled: %dx%d nn: %dx%d ", __func__, __LINE__,
     in_width_, in_height_, scale_width_, scale_height_,
     pad_width_, pad_height_);
 
@@ -135,14 +135,20 @@ int32_t NNEngine::PreProcess(NNFrameInfo* pFrameInfo)
 
   if (scale_width_ != in_width_ ||
       scale_height_ != in_height_) {
-    PreProcessScale(pFrameInfo->frame_data[0],
-                    pFrameInfo->frame_data[1],
-                    scale_buf_,
-                    in_width_,
-                    in_height_,
-                    scale_width_,
-                    scale_height_,
-                    in_format_);
+    int32_t res = NN_OK;
+    res = PreProcessScale(pFrameInfo->frame_data[0],
+                          pFrameInfo->frame_data[1],
+                          scale_buf_,
+                          in_width_,
+                          in_height_,
+                          pFrameInfo->stride,
+                          scale_width_,
+                          scale_height_,
+                          in_format_);
+    if (NN_OK != res) {
+      ALOGE("PreProcessScale failed due to unsupported image format");
+      return res;
+    }
 
     PreProcessColorConvertRGB(scale_buf_,
                               scale_buf_ + (scale_width_ * scale_height_),
@@ -359,22 +365,23 @@ void NNEngine::Pad(
   }
 }
 
-void NNEngine::PreProcessScale(
+int32_t NNEngine::PreProcessScale(
   uint8_t*       pSrcLuma,
   uint8_t*       pSrcChroma,
   uint8_t*       pDst,
   const uint32_t srcWidth,
   const uint32_t srcHeight,
+  const uint32_t srcStride,
   const uint32_t scaleWidth,
   const uint32_t scaleHeight,
   NNImgFormat    format)
 {
-
+  int32_t rc = NN_OK;
   if ((format == NN_FORMAT_NV12) || (format == NN_FORMAT_NV21)) {
     fcvScaleDownMNu8(pSrcLuma,
                      srcWidth,
                      srcHeight,
-                     0,
+                     srcStride,
                      pDst,
                      scaleWidth,
                      scaleHeight,
@@ -382,12 +389,16 @@ void NNEngine::PreProcessScale(
     fcvScaleDownMNu8(pSrcChroma,
                      srcWidth,
                      srcHeight/2,
-                     0,
+                     srcStride,
                      pDst + (scaleWidth*scaleHeight),
                      scaleWidth,
                      scaleHeight/2,
                      0);
+  } else {
+    ALOGE("Unsupported format %d", (int)format);
+    rc = NN_FAIL;
   }
+  return rc;
 }
 
 void NNEngine::PreProcessColorConvertRGB(
@@ -423,3 +434,23 @@ void NNEngine::PreProcessColorConvertBGR(
                            pDst,
                            0);
 }
+
+uint8_t NNEngine::ReadLabelsFiles(const std::string& file_name,
+                                  std::vector<std::string>& result) {
+  std::ifstream file(file_name);
+  if (!file) {
+    ALOGE("%s: Labels file %s not found!", __func__, file_name.c_str());
+    return NN_FAIL;
+  }
+  result.clear();
+  std::string line;
+  while (std::getline(file, line)) {
+    result.push_back(line);
+  }
+  const int padding = 16;
+  while (result.size() % padding) {
+    result.emplace_back();
+  }
+  return NN_OK;
+}
+

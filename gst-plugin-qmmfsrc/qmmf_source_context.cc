@@ -58,7 +58,7 @@ qmmf_context_debug_category (void)
 
   if (g_once_init_enter (&catgonce)) {
     gsize catdone = (gsize) _gst_debug_category_new ("qtiqmmfsrc", 0,
-        "qmmf-context object");
+        "QMMF context");
     g_once_init_leave (&catgonce, catdone);
   }
   return (GstDebugCategory *) catgonce;
@@ -106,7 +106,7 @@ struct _GstQmmfContext {
   /// Camera IR mode property.
   gint              irmode;
   /// Camera ISO exposure mode property.
-  gint              isomode;
+  gint64            isomode;
   /// Camera Noise Reduction mode property.
   guchar            nrmode;
   /// Camera Zoom region property.
@@ -125,6 +125,8 @@ struct _GstQmmfContext {
   GstStructure      *ltmdata;
   /// Noise Reduction Tuning
   GstStructure      *nrtuning;
+  /// Sharpness
+  gint              sharpness;
 };
 
 /// Global QMMF Recorder instance.
@@ -132,7 +134,7 @@ static ::qmmf::recorder::Recorder *recorder = NULL;
 
 /// Mutex and refcount for the QMMF recorder instance.
 G_LOCK_DEFINE_STATIC (recorder);
-static grefcount refcount = 0;
+static gint refcount = 0;
 
 static G_DEFINE_QUARK(QmmfBufferQDataQuark, qmmf_buffer_qdata);
 
@@ -456,31 +458,42 @@ initialize_camera_param (GstQmmfContext * context)
   if (tag_id != 0)
     meta.update(tag_id, &(context)->irmode, 1);
 
-  tag_id = get_vendor_tag_by_name("org.codeaurora.qcamera3.iso_exp_priority",
-                                  "select_priority");
+  // Here select_priority is ISOPriority whose index is 0.
+  gint select_iso_priority = 0;
+  tag_id = get_vendor_tag_by_name (
+      "org.codeaurora.qcamera3.iso_exp_priority", "select_priority");
   if (tag_id != 0)
-    meta.update(tag_id, &(context)->isomode, 1);
+    meta.update(tag_id, &select_iso_priority, 1);
+
+  tag_id = get_vendor_tag_by_name (
+      "org.codeaurora.qcamera3.iso_exp_priority", "use_iso_exp_priority");
+    if (tag_id != 0)
+      meta.update(tag_id, &(context)->isomode, 1);
 
   tag_id = get_vendor_tag_by_name("org.codeaurora.qcamera3.exposure_metering",
                                   "exposure_metering_mode");
   if (tag_id != 0)
     meta.update(tag_id, &(context)->expmetering, 1);
 
+  tag_id = get_vendor_tag_by_name ("org.codeaurora.qcamera3.sharpness",
+      "strength");
+
+  if (tag_id != 0)
+    meta.update (tag_id, &(context)->sharpness, 1);
+
   set_vendor_tags(context->defogtable, &meta);
   set_vendor_tags(context->exptable, &meta);
   set_vendor_tags(context->ltmdata, &meta);
   set_vendor_tags(context->nrtuning, &meta);
 
-  if (!context->slave) {
-    G_LOCK(recorder);
+  G_LOCK(recorder);
 
-    status = recorder->SetCameraParam(context->camera_id, meta);
+  status = recorder->SetCameraParam(context->camera_id, meta);
 
-    G_UNLOCK(recorder);
+  G_UNLOCK(recorder);
 
-    QMMFSRC_RETURN_VAL_IF_FAIL (NULL, status == 0, FALSE,
-        "QMMF Recorder SetCameraParam Failed!");
-  }
+  QMMFSRC_RETURN_VAL_IF_FAIL (NULL, status == 0, FALSE,
+      "QMMF Recorder SetCameraParam Failed!");
 
   return TRUE;
 }
@@ -499,13 +512,13 @@ qmmfsrc_gst_buffer_release (GstStructure * structure)
   std::vector<::qmmf::BufferDescriptor> buffers;
   ::qmmf::BufferDescriptor buffer;
 
-  GST_TRACE ("%s", gst_structure_to_string (structure));
+  GST_TRACE (" %s", gst_structure_to_string (structure));
 
   gst_structure_get_uint (structure, "camera", &camera_id);
   gst_structure_get_uint (structure, "session", &session_id);
 
   gst_structure_get_uint (structure, "data", &value);
-  buffer.data = GUINT_TO_POINTER (value);
+  buffer.data = GSIZE_TO_POINTER (value);
 
   gst_structure_get_int (structure, "fd", &buffer.fd);
   gst_structure_get_uint (structure, "bufid", &buffer.buf_id);
@@ -579,7 +592,7 @@ qmmfsrc_gst_buffer_new_wrapped (GstQmmfContext * context, GstPad * pad,
         GST_QMMFSRC_VIDEO_PAD (pad)->id, NULL);
 
   gst_structure_set (structure,
-      "data", G_TYPE_UINT, GPOINTER_TO_UINT (buffer->data),
+      "data", G_TYPE_ULONG, GPOINTER_TO_SIZE (buffer->data),
       "fd", G_TYPE_INT, buffer->fd,
       "bufid", G_TYPE_UINT, buffer->buf_id,
       "size", G_TYPE_UINT, buffer->size,
@@ -596,7 +609,7 @@ qmmfsrc_gst_buffer_new_wrapped (GstQmmfContext * context, GstPad * pad,
       structure, (GDestroyNotify) qmmfsrc_gst_buffer_release
   );
 
-  GST_TRACE ("%s", gst_structure_to_string (structure));
+  GST_TRACE (" %s", gst_structure_to_string (structure));
   return gstbuffer;
 }
 
@@ -618,8 +631,6 @@ void video_data_callback (GstQmmfContext * context, GstPad * pad,
   gint  stride[GST_VIDEO_MAX_PLANES] = { 0, 0, 0, 0 };
 
   GstBuffer *gstbuffer = NULL;
-  GstBufferFlags gstflags;
-
   GstDataQueueItem *item = NULL;
 
   for (idx = 0; idx < buffers.size(); ++idx) {
@@ -631,9 +642,10 @@ void video_data_callback (GstQmmfContext * context, GstPad * pad,
         recorder->ReturnTrackBuffer (context->session_id, vpad->id, buffers),
         "Failed to create GST buffer!");
 
-    gstflags = (buffer.flag & (guint)::qmmf::BufferFlags::kFlagCodecConfig) ?
-        GST_BUFFER_FLAG_HEADER : GST_BUFFER_FLAG_LIVE;
-    GST_BUFFER_FLAG_SET (gstbuffer, gstflags);
+    GST_BUFFER_FLAG_SET (gstbuffer, GST_BUFFER_FLAG_LIVE);
+
+    if (buffer.flag & (guint)::qmmf::BufferFlags::kFlagCodecConfig)
+      GST_BUFFER_FLAG_SET (gstbuffer, GST_BUFFER_FLAG_HEADER);
 
     if (meta.meta_flag &
         static_cast<uint32_t>(::qmmf::recorder::MetaParamType::kCamBufMetaData)) {
@@ -691,8 +703,6 @@ void image_data_callback (GstQmmfContext * context, GstPad * pad,
   GstQmmfSrcImagePad *ipad = GST_QMMFSRC_IMAGE_PAD (pad);
 
   GstBuffer *gstbuffer = NULL;
-  GstBufferFlags gstflags;
-
   GstDataQueueItem *item = NULL;
 
   gstbuffer = qmmfsrc_gst_buffer_new_wrapped (context, pad, &buffer);
@@ -700,9 +710,10 @@ void image_data_callback (GstQmmfContext * context, GstPad * pad,
       recorder->ReturnImageCaptureBuffer (context->camera_id, buffer);,
       "Failed to create GST buffer!");
 
-  gstflags = (buffer.flag & (guint)::qmmf::BufferFlags::kFlagCodecConfig) ?
-      GST_BUFFER_FLAG_HEADER : GST_BUFFER_FLAG_LIVE;
-  GST_BUFFER_FLAG_SET (gstbuffer, gstflags);
+  GST_BUFFER_FLAG_SET (gstbuffer, GST_BUFFER_FLAG_LIVE);
+
+  if (buffer.flag & (guint)::qmmf::BufferFlags::kFlagCodecConfig)
+    GST_BUFFER_FLAG_SET (gstbuffer, GST_BUFFER_FLAG_HEADER);
 
   GST_QMMF_CONTEXT_LOCK (context);
   // Initialize the timestamp base value for buffer synchronization.
@@ -776,11 +787,10 @@ gst_qmmf_context_new ()
       GST_ERROR ("QMMF Recorder Connect failed!");
       return NULL;
     }
-
-    g_ref_count_init (&refcount);
-  } else {
-    g_ref_count_inc (&refcount);
   }
+
+  // Increase the reference count;
+  refcount++;
 
   G_UNLOCK (recorder);
 
@@ -801,7 +811,7 @@ gst_qmmf_context_free (GstQmmfContext * context)
 {
   G_LOCK (recorder);
 
-  if (recorder != NULL && g_ref_count_dec (&refcount)) {
+  if (recorder != NULL && ((--refcount) == 0)) {
     recorder->Disconnect ();
 
     delete recorder;
@@ -952,7 +962,7 @@ gst_qmmf_context_create_stream (GstQmmfContext * context, GstPad * pad)
 
   if (GST_IS_QMMFSRC_VIDEO_PAD (pad)) {
     GstQmmfSrcVideoPad *vpad = GST_QMMFSRC_VIDEO_PAD (pad);
-    guint bitrate, qpvalue;
+    guint bitrate, qpvalue, idr_interval;
     const gchar *profile, *level;
     gint ratecontrol;
 
@@ -961,7 +971,15 @@ gst_qmmf_context_create_stream (GstQmmfContext * context, GstPad * pad)
     ::qmmf::VideoFormat format;
     switch (vpad->codec) {
       case GST_VIDEO_CODEC_NONE:
-        format = ::qmmf::VideoFormat::kYUV;
+        switch (vpad->format) {
+          case GST_VIDEO_FORMAT_NV12:
+            format = (vpad->compression == GST_VIDEO_COMPRESSION_UBWC) ?
+                ::qmmf::VideoFormat::kNV12UBWC : ::qmmf::VideoFormat::kNV12;
+            break;
+          default:
+            GST_ERROR ("Unsupported video format!");
+            return FALSE;
+        }
         break;
       case GST_VIDEO_CODEC_H264:
         format = ::qmmf::VideoFormat::kAVC;
@@ -970,7 +988,7 @@ gst_qmmf_context_create_stream (GstQmmfContext * context, GstPad * pad)
         format = ::qmmf::VideoFormat::kHEVC;
         break;
       default:
-        GST_ERROR ("Unsupported video format!");
+        GST_ERROR ("Unsupported video codec!");
         return FALSE;
     }
 
@@ -979,43 +997,43 @@ gst_qmmf_context_create_stream (GstQmmfContext * context, GstPad * pad)
     );
 
     if (format == ::qmmf::VideoFormat::kAVC) {
-      profile = gst_structure_get_string(vpad->params, "profile");
-      if (g_strcmp0(profile, "baseline") == 0) {
+      profile = gst_structure_get_string (vpad->params, "profile");
+      if (g_strcmp0 (profile, "baseline") == 0) {
         params.codec_param.avc.profile = ::qmmf::AVCProfileType::kBaseline;
-      } else if (g_strcmp0(profile, "main") == 0) {
+      } else if (g_strcmp0 (profile, "main") == 0) {
         params.codec_param.avc.profile = ::qmmf::AVCProfileType::kMain;
-      } else if (g_strcmp0(profile, "high") == 0) {
+      } else if (g_strcmp0 (profile, "high") == 0) {
         params.codec_param.avc.profile = ::qmmf::AVCProfileType::kHigh;
       }
 
-      level = gst_structure_get_string(vpad->params, "level");
-      if (g_strcmp0(level, "1") == 0) {
+      level = gst_structure_get_string (vpad->params, "level");
+      if (g_strcmp0 (level, "1") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel1;
-      } else if (g_strcmp0(level, "1.3") == 0) {
+      } else if (g_strcmp0 (level, "1.3") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel1_3;
-      } else if (g_strcmp0(level, "2") == 0) {
+      } else if (g_strcmp0 (level, "2") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel2;
-      } else if (g_strcmp0(level, "2.1") == 0) {
+      } else if (g_strcmp0 (level, "2.1") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel2_1;
-      } else if (g_strcmp0(level, "2.2") == 0) {
+      } else if (g_strcmp0 (level, "2.2") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel2_2;
-      } else if (g_strcmp0(level, "3") == 0) {
+      } else if (g_strcmp0 (level, "3") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel3;
-      } else if (g_strcmp0(level, "3.1") == 0) {
+      } else if (g_strcmp0 (level, "3.1") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel3_1;
-      } else if (g_strcmp0(level, "3.2") == 0) {
+      } else if (g_strcmp0 (level, "3.2") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel3_2;
-      } else if (g_strcmp0(level, "4") == 0) {
+      } else if (g_strcmp0 (level, "4") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel4;
-      } else if (g_strcmp0(level, "4.1") == 0) {
+      } else if (g_strcmp0 (level, "4.1") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel4_1;
-      } else if (g_strcmp0(level, "4.2") == 0) {
+      } else if (g_strcmp0 (level, "4.2") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel4_2;
-      } else if (g_strcmp0(level, "5") == 0) {
+      } else if (g_strcmp0 (level, "5") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel5;
-      } else if (g_strcmp0(level, "5.1") == 0) {
+      } else if (g_strcmp0 (level, "5.1") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel5_1;
-      } else if (g_strcmp0(level, "5.2") == 0) {
+      } else if (g_strcmp0 (level, "5.2") == 0) {
         params.codec_param.avc.level = ::qmmf::AVCLevelType::kLevel5_2;
       }
 
@@ -1052,62 +1070,65 @@ gst_qmmf_context_create_stream (GstQmmfContext * context, GstPad * pad)
           break;
       }
 
-      gst_structure_get_uint(vpad->params, "bitrate", &bitrate);
+      gst_structure_get_uint (vpad->params, "bitrate", &bitrate);
       params.codec_param.avc.bitrate = bitrate;
 
-      gst_structure_get_uint(vpad->params, "quant-i-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "quant-i-frames", &qpvalue);
       params.codec_param.avc.qp_params.init_qp.init_IQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "quant-p-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "quant-p-frames", &qpvalue);
       params.codec_param.avc.qp_params.init_qp.init_PQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "quant-b-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "quant-b-frames", &qpvalue);
       params.codec_param.avc.qp_params.init_qp.init_BQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp", &qpvalue);
       params.codec_param.avc.qp_params.qp_range.min_QP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp", &qpvalue);
       params.codec_param.avc.qp_params.qp_range.max_QP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp-i-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp-i-frames", &qpvalue);
       params.codec_param.avc.qp_params.qp_IBP_range.min_IQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp-i-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp-i-frames", &qpvalue);
       params.codec_param.avc.qp_params.qp_IBP_range.max_IQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp-p-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp-p-frames", &qpvalue);
       params.codec_param.avc.qp_params.qp_IBP_range.min_PQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp-p-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp-p-frames", &qpvalue);
       params.codec_param.avc.qp_params.qp_IBP_range.max_PQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp-b-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp-b-frames", &qpvalue);
       params.codec_param.avc.qp_params.qp_IBP_range.min_BQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp-b-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp-b-frames", &qpvalue);
       params.codec_param.avc.qp_params.qp_IBP_range.max_BQP = qpvalue;
 
       params.codec_param.avc.qp_params.enable_init_qp = true;
       params.codec_param.avc.qp_params.enable_qp_range = true;
       params.codec_param.avc.qp_params.enable_qp_IBP_range = true;
 
+      gst_structure_get_uint(vpad->params, "idr-interval", &idr_interval);
+      params.codec_param.avc.idr_interval = idr_interval;
+
     } else if (format == ::qmmf::VideoFormat::kHEVC) {
       profile = gst_structure_get_string(vpad->params, "profile");
-      if (g_strcmp0(profile, "main") == 0) {
+      if (g_strcmp0 (profile, "main") == 0) {
         params.codec_param.hevc.profile = ::qmmf::HEVCProfileType::kMain;
       }
 
-      level = gst_structure_get_string(vpad->params, "level");
-      if (g_strcmp0(level, "3") == 0) {
+      level = gst_structure_get_string (vpad->params, "level");
+      if (g_strcmp0 (level, "3") == 0) {
         params.codec_param.hevc.level = ::qmmf::HEVCLevelType::kLevel3;
-      } else if (g_strcmp0(level, "4") == 0) {
+      } else if (g_strcmp0 (level, "4") == 0) {
         params.codec_param.hevc.level = ::qmmf::HEVCLevelType::kLevel4;
-      } else if (g_strcmp0(level, "5") == 0) {
+      } else if (g_strcmp0 (level, "5") == 0) {
         params.codec_param.hevc.level = ::qmmf::HEVCLevelType::kLevel5;
-      } else if (g_strcmp0(level, "5.1") == 0) {
+      } else if (g_strcmp0 (level, "5.1") == 0) {
         params.codec_param.hevc.level = ::qmmf::HEVCLevelType::kLevel5_1;
-      } else if (g_strcmp0(level, "5.2") == 0) {
+      } else if (g_strcmp0 (level, "5.2") == 0) {
         params.codec_param.hevc.level = ::qmmf::HEVCLevelType::kLevel5_2;
       }
 
@@ -1144,45 +1165,48 @@ gst_qmmf_context_create_stream (GstQmmfContext * context, GstPad * pad)
           break;
       }
 
-      gst_structure_get_uint(vpad->params, "bitrate", &bitrate);
+      gst_structure_get_uint (vpad->params, "bitrate", &bitrate);
       params.codec_param.hevc.bitrate = bitrate;
 
-      gst_structure_get_uint(vpad->params, "quant-i-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "quant-i-frames", &qpvalue);
       params.codec_param.hevc.qp_params.init_qp.init_IQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "quant-p-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "quant-p-frames", &qpvalue);
       params.codec_param.hevc.qp_params.init_qp.init_PQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "quant-b-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "quant-b-frames", &qpvalue);
       params.codec_param.hevc.qp_params.init_qp.init_BQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp", &qpvalue);
       params.codec_param.hevc.qp_params.qp_range.min_QP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp", &qpvalue);
       params.codec_param.hevc.qp_params.qp_range.max_QP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp-i-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp-i-frames", &qpvalue);
       params.codec_param.hevc.qp_params.qp_IBP_range.min_IQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp-i-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp-i-frames", &qpvalue);
       params.codec_param.hevc.qp_params.qp_IBP_range.max_IQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp-p-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp-p-frames", &qpvalue);
       params.codec_param.hevc.qp_params.qp_IBP_range.min_PQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp-p-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp-p-frames", &qpvalue);
       params.codec_param.hevc.qp_params.qp_IBP_range.max_PQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "min-qp-b-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "min-qp-b-frames", &qpvalue);
       params.codec_param.hevc.qp_params.qp_IBP_range.min_BQP = qpvalue;
 
-      gst_structure_get_uint(vpad->params, "max-qp-b-frames", &qpvalue);
+      gst_structure_get_uint (vpad->params, "max-qp-b-frames", &qpvalue);
       params.codec_param.hevc.qp_params.qp_IBP_range.max_BQP = qpvalue;
 
       params.codec_param.hevc.qp_params.enable_init_qp = true;
       params.codec_param.hevc.qp_params.enable_qp_range = true;
       params.codec_param.hevc.qp_params.enable_qp_IBP_range = true;
+
+      gst_structure_get_uint(vpad->params, "idr-interval", &idr_interval);
+      params.codec_param.hevc.idr_interval = idr_interval;
     }
 
     track_cbs.event_cb =
@@ -1204,7 +1228,8 @@ gst_qmmf_context_create_stream (GstQmmfContext * context, GstPad * pad)
     } else if (context->slave) {
       ::qmmf::recorder::LinkedTrackInSlaveMode linked_track_slave_mode;
       linked_track_slave_mode.enable = true;
-      extraparam.Update(::qmmf::recorder::QMMF_USE_LINKED_TRACK_IN_SLAVE_MODE, linked_track_slave_mode);
+      extraparam.Update(::qmmf::recorder::QMMF_USE_LINKED_TRACK_IN_SLAVE_MODE,
+          linked_track_slave_mode);
     }
 
     G_LOCK (recorder);
@@ -1317,10 +1342,12 @@ gst_qmmf_context_start_session (GstQmmfContext * context)
 
   context->tsbase = GST_CLOCK_TIME_NONE;
 
-  success = initialize_camera_param(context);
+  if (!context->slave) {
+    success = initialize_camera_param(context);
 
-  QMMFSRC_RETURN_VAL_IF_FAIL (NULL, success, FALSE,
-      "Failed to initialize camera parameters!");
+    QMMFSRC_RETURN_VAL_IF_FAIL (NULL, success, FALSE,
+        "Failed to initialize camera parameters!");
+  }
 
   GST_TRACE ("Starting QMMF context session");
 
@@ -1609,8 +1636,15 @@ gst_qmmf_context_set_camera_param (GstQmmfContext * context, guint param_id,
     }
     case PARAM_CAMERA_ISO_MODE:
     {
+      // Here select_priority is ISOPriority whose index is 0.
+      gint select_iso_priority = 0;
       guint tag_id = get_vendor_tag_by_name (
           "org.codeaurora.qcamera3.iso_exp_priority", "select_priority");
+      if (tag_id != 0)
+        meta.update(tag_id, &select_iso_priority, 1);
+
+      tag_id = get_vendor_tag_by_name (
+          "org.codeaurora.qcamera3.iso_exp_priority", "use_iso_exp_priority");
 
       context->isomode = g_value_get_enum (value);
       meta.update(tag_id, &(context)->isomode, 1);
@@ -1785,6 +1819,16 @@ gst_qmmf_context_set_camera_param (GstQmmfContext * context, guint param_id,
       set_vendor_tags(context->nrtuning, &meta);
       break;
     }
+
+    case PARAM_CAMERA_SHARPNESS_STRENGTH:
+    {
+      guint tag_id = get_vendor_tag_by_name (
+          "org.codeaurora.qcamera3.sharpness", "strength");
+
+      context->sharpness = g_value_get_int (value);
+      meta.update(tag_id, &(context)->sharpness, 1);
+      break;
+    }
   }
 
   if (!context->slave) {
@@ -1939,6 +1983,9 @@ gst_qmmf_context_get_camera_param (GstQmmfContext * context, guint param_id,
       g_free (string);
       break;
     }
+    case PARAM_CAMERA_SHARPNESS_STRENGTH:
+      g_value_set_int (value, context->sharpness);
+      break;
   }
 }
 
@@ -1968,6 +2015,17 @@ gst_qmmf_context_update_video_param (GstPad * pad, GParamSpec * pspec,
     gfloat fps = g_value_get_double (&value);
     status = recorder->SetVideoTrackParam (session_id, track_id,
         ::qmmf::CodecParamType::kFrameRateType, &fps, sizeof (fps)
+    );
+  } else if (g_strcmp0 (pname, "idr-interval") == 0) {
+    guint idr_interval = g_value_get_uint (&value);
+    ::qmmf::VideoEncIdrInterval param;
+
+    param.num_pframes = (idr_interval == 0) ? 0 :
+        ((idr_interval * vpad->framerate) - 1);
+    param.num_bframes = 0;
+    param.idr_period = (idr_interval == 0) ? 0 : 1;
+    status = recorder->SetVideoTrackParam (session_id, track_id,
+        ::qmmf::CodecParamType::kIDRIntervalType, &param, sizeof (param)
     );
   } else {
     GST_WARNING ("Unsupported parameter '%s'!", pname);

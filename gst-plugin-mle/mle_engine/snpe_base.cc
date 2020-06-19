@@ -42,8 +42,6 @@ SNPEBase::SNPEBase(MLConfig &config) : MLEngine(config) {
 }
 
 int32_t SNPEBase::ConfigureRuntime(MLConfig &config) {
-  version_ = zdl::SNPE::SNPEFactory::getLibraryVersion();
-
   switch (config.runtime) {
     case RuntimeType::DSP: {
       if (zdl::SNPE::SNPEFactory::isRuntimeAvailable(
@@ -95,7 +93,6 @@ std::unique_ptr<zdl::SNPE::SNPE> SNPEBase::SetBuilderOptions() {
   std::unique_ptr <zdl::SNPE::SNPE> snpe;
   zdl::SNPE::SNPEBuilder snpeBuilder(snpe_params_.container.get());
   zdl::DlSystem::StringList output_layers;
-  zdl::DlSystem::StringList empty_layers;
 
   for (size_t i = 0; i < config_.output_layers.size(); i++) {
     output_layers.append(config_.output_layers[i].c_str());
@@ -367,6 +364,8 @@ void SNPEBase::PrintErrorStringAndExit() {
 
 int32_t SNPEBase::InitFramework() {
   MLE_LOGI("%s Enter", __func__);
+  version_ = zdl::SNPE::SNPEFactory::getLibraryVersion();
+  MLE_LOGI("SNPE version: %s", version_.toString().c_str());
   int32_t res = MLE_OK;
 
   snpe_params_.snpe = SetBuilderOptions();
@@ -377,9 +376,6 @@ int32_t SNPEBase::InitFramework() {
 
   if (MLE_OK == res) {
     ConfigureDimensions();
-  }
-
-  if (MLE_OK == res) {
     res = PopulateMap(BufferType::kInput);
   }
   if (MLE_OK == res) {

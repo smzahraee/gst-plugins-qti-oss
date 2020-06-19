@@ -59,6 +59,7 @@ typedef enum {
 
 typedef struct {
   uint8_t *frame_data[2];
+  uint32_t stride;
 } NNFrameInfo;
 
 typedef struct {
@@ -163,15 +164,19 @@ protected:
       const uint32_t width,
       const uint32_t height);
 
-  void PreProcessScale(
+  int32_t PreProcessScale(
       uint8_t*       pSrcLuma,
       uint8_t*       pSrcChroma,
       uint8_t*       pDst,
       const uint32_t srcWidth,
       const uint32_t srcHeight,
+      const uint32_t srcStride,
       const uint32_t scaleWidth,
       const uint32_t scaleHeight,
       NNImgFormat    format);
+
+  uint8_t ReadLabelsFiles(const std::string& file_name,
+                          std::vector<std::string>& result);
 
   static const uint8_t     kMaxOut = 4;
 

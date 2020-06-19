@@ -65,10 +65,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_video_composer_debug);
 #define GST_VIDEO_FPS_RANGE "(fraction) [ 0, 255 ]"
 
 // Caps formats.
-#define GST_VIDEO_FORMATS "{ I420, YV12, YUY2, UYVY, AYUV, BGRA, ABGR, "     \
-    "RGBx, BGRx, xRGB, xBGR, BGR, RGB, Y41B, Y42B, YVYU, Y444, NV12, NV21, " \
-    "v308, BGR16, RGB16, UYVP, A420, YUV9, YVU9, IYU1, NV16, NV61, IYU2, "   \
-    "VYUY, GRAY8 }"
+#define GST_VIDEO_FORMATS "{ BGRA, RGBA, BGR, RGB, NV12, NV21 }"
 
 static GType gst_converter_request_get_type(void);
 #define GST_TYPE_CONVERTER_REQUEST  (gst_converter_request_get_type())
@@ -203,14 +200,14 @@ gst_video_composer_rotation_to_c2d_rotate (GstVideoComposerRotate rotation)
   return GST_C2D_VIDEO_ROTATE_NONE;
 }
 
-gint
+static gint
 gst_video_composer_zorder_compare (const GstVideoComposerSinkPad * lpad,
     const GstVideoComposerSinkPad * rpad)
 {
   return lpad->zorder - rpad->zorder;
 }
 
-gint
+static gint
 gst_video_composer_index_compare (const GstVideoComposerSinkPad * pad,
     const guint * index)
 {
@@ -233,6 +230,20 @@ gst_video_composer_caps_has_feature (const GstCaps * caps,
   }
 
   return FALSE;
+}
+
+static gboolean
+gst_video_composer_caps_has_compression (const GstCaps * caps,
+    const gchar * compression)
+{
+  GstStructure *structure = NULL;
+  const gchar *string = NULL;
+
+  structure = gst_caps_get_structure (caps, 0);
+  string = gst_structure_has_field (structure, "compression") ?
+      gst_structure_get_string (structure, "compression") : NULL;
+
+  return (g_strcmp0 (string, compression) == 0) ? TRUE : FALSE;
 }
 
 static GstBufferPool *
@@ -264,13 +275,18 @@ gst_video_composer_create_pool (GstVideoComposer * vcomposer, GstCaps * caps)
   allocator = gst_fd_allocator_new ();
   gst_buffer_pool_config_set_allocator (config, allocator, NULL);
   gst_buffer_pool_config_add_option (config, GST_BUFFER_POOL_OPTION_VIDEO_META);
-  g_object_unref (allocator);
+
+  if (gst_video_composer_caps_has_compression (caps, "ubwc")) {
+    gst_buffer_pool_config_add_option (config,
+        GST_IMAGE_BUFFER_POOL_OPTION_UBWC_MODE);
+  }
 
   if (!gst_buffer_pool_set_config (pool, config)) {
     GST_WARNING_OBJECT (vcomposer, "Failed to set pool configuration!");
-    g_object_unref (pool);
-    return NULL;
+    g_clear_object (&pool);
   }
+
+  g_object_unref (allocator);
 
   return pool;
 }
@@ -280,6 +296,7 @@ gst_video_composer_set_opts (GstElement * element, GstPad * pad, gpointer data)
 {
   GstVideoComposer *vcomposer = GST_VIDEO_COMPOSER_CAST (element);
   GstVideoComposerSinkPad *sinkpad = GST_VIDEO_COMPOSER_SINKPAD (pad);
+  GstCaps *caps = gst_pad_get_current_caps (pad);
   GstStructure *options = NULL;
   guint idx = 0;
 
@@ -290,7 +307,7 @@ gst_video_composer_set_opts (GstElement * element, GstPad * pad, gpointer data)
       sinkpad->flip_h,
       GST_C2D_VIDEO_CONVERTER_OPT_FLIP_VERTICAL, G_TYPE_BOOLEAN,
       sinkpad->flip_v,
-      GST_C2D_VIDEO_CONVERTER_OPT_ROTATE_MODE, GST_TYPE_C2D_VIDEO_ROTATE_MODE,
+      GST_C2D_VIDEO_CONVERTER_OPT_ROTATION, GST_TYPE_C2D_VIDEO_ROTATION,
       gst_video_composer_rotation_to_c2d_rotate (sinkpad->rotation),
       GST_C2D_VIDEO_CONVERTER_OPT_SRC_X, G_TYPE_INT,
       sinkpad->crop.x,
@@ -312,7 +329,17 @@ gst_video_composer_set_opts (GstElement * element, GstPad * pad, gpointer data)
       sinkpad->alpha,
       NULL);
 
+
+  // Check whether the input caps have ubwc compression.
+  if (gst_video_composer_caps_has_compression (caps, "ubwc")) {
+    gst_structure_set (options,
+        GST_C2D_VIDEO_CONVERTER_OPT_UBWC_FORMAT, G_TYPE_BOOLEAN, TRUE,
+        NULL);
+  }
+
   GST_VIDEO_COMPOSER_SINKPAD_UNLOCK (sinkpad);
+
+  gst_caps_unref (caps);
 
   GST_OBJECT_LOCK (vcomposer);
   idx = g_list_index (element->sinkpads, pad);
@@ -488,7 +515,7 @@ gst_video_composer_property_rotate_cb (GObject * object,
   GST_VIDEO_COMPOSER_SINKPAD_LOCK (sinkpad);
 
   opts = gst_structure_new (GST_PAD_NAME (sinkpad),
-      GST_C2D_VIDEO_CONVERTER_OPT_ROTATE_MODE, GST_TYPE_C2D_VIDEO_ROTATE_MODE,
+      GST_C2D_VIDEO_CONVERTER_OPT_ROTATION, GST_TYPE_C2D_VIDEO_ROTATION,
       gst_video_composer_rotation_to_c2d_rotate (sinkpad->rotation),
       NULL);
 
@@ -506,13 +533,20 @@ gst_video_composer_propose_allocation (GstAggregator * aggregator,
     GstAggregatorPad * pad, GstQuery * inquery, GstQuery * outquery)
 {
   GstVideoComposer *vcomposer = GST_VIDEO_COMPOSER_CAST (aggregator);
-  guint idx = 0, n_metas = 0;
-  guint size, minbuffers, maxbuffers;
+
+  GstCaps *caps = NULL;
+  GstBufferPool *pool = NULL;
+  GstVideoInfo info;
+  guint idx = 0, n_metas = 0, size = 0;
+  gboolean needpool = FALSE;
 
   GST_DEBUG_OBJECT (vcomposer, "Pad %s:%s", GST_DEBUG_PAD_NAME (pad));
 
-  n_metas = (inquery != NULL) ?
-      gst_query_get_n_allocation_metas (inquery) : 0;
+  // No input query, nothing to do.
+  if (NULL == inquery)
+    return TRUE;
+
+  n_metas = gst_query_get_n_allocation_metas (inquery);
 
   for (idx = 0; idx < n_metas; idx++) {
     GType gtype;
@@ -523,50 +557,45 @@ gst_video_composer_propose_allocation (GstAggregator * aggregator,
     gst_query_add_allocation_meta (outquery, gtype, params);
   }
 
-  gst_query_add_allocation_meta (outquery, GST_VIDEO_META_API_TYPE, NULL);
+  // Extract caps from the query.
+  gst_query_parse_allocation (outquery, &caps, &needpool);
 
-  if (inquery != NULL) {
-    GstCaps *caps = NULL;
-    GstBufferPool *pool = NULL;
-    GstVideoInfo info;
-    gboolean needpool = FALSE;
-
-    gst_query_parse_allocation (outquery, &caps, &needpool);
-    if (NULL == caps) {
-      GST_ERROR_OBJECT (vcomposer, "Allocation has no caps specified!");
-      return FALSE;
-    }
-
-    if (!gst_video_info_from_caps (&info, caps)) {
-      GST_ERROR_OBJECT (vcomposer, "Failed to get video info from caps!");
-      return FALSE;
-    }
-
-    // Get the size and allocator params from pool and set it in query.
-    if (needpool) {
-      GstStructure *config = NULL;
-      GstAllocator *allocator = NULL;
-      GstAllocationParams params;
-
-      pool = gst_video_composer_create_pool (vcomposer, caps);
-
-      config = gst_buffer_pool_get_config (pool);
-      gst_buffer_pool_config_get_params (config, NULL, &size, &minbuffers,
-          &maxbuffers);
-
-      if (gst_buffer_pool_config_get_allocator (config, &allocator, &params))
-        gst_query_add_allocation_param (outquery, allocator, &params);
-
-      gst_structure_free (config);
-    }
-
-    // If upstream does't have a pool requirement, set only size,
-    // min buffers and max buffers in query.
-    gst_query_add_allocation_pool (outquery, needpool ? pool : NULL, size,
-        minbuffers, 0);
-    gst_object_unref (pool);
+  if (NULL == caps) {
+    GST_ERROR_OBJECT (vcomposer, "Failed to extract caps from query!");
+    return FALSE;
   }
 
+  if (!gst_video_info_from_caps (&info, caps)) {
+    GST_ERROR_OBJECT (vcomposer, "Failed to get video info!");
+    return FALSE;
+  }
+
+  // Get the size from video info.
+  size = GST_VIDEO_INFO_SIZE (&info);
+
+  if (needpool) {
+    GstStructure *structure = NULL;
+
+    pool = gst_video_composer_create_pool (vcomposer, caps);
+    structure = gst_buffer_pool_get_config (pool);
+
+    // Set caps and size in query.
+    gst_buffer_pool_config_set_params (structure, caps, size, 0, 0);
+
+    if (!gst_buffer_pool_set_config (pool, structure)) {
+      GST_ERROR_OBJECT (vcomposer, "Failed to set buffer pool configuration!");
+      gst_object_unref (pool);
+      return FALSE;
+    }
+  }
+
+  // If upstream does't have a pool requirement, set only size in query.
+  gst_query_add_allocation_pool (outquery, needpool ? pool : NULL, size, 0, 0);
+
+  if (pool != NULL)
+    gst_object_unref (pool);
+
+  gst_query_add_allocation_meta (outquery, GST_VIDEO_META_API_TYPE, NULL);
   return TRUE;
 }
 
@@ -586,8 +615,10 @@ gst_video_composer_decide_allocation (GstAggregator * aggregator,
   }
 
   // Invalidate the cached pool if there is an allocation_query.
-  if (vcomposer->outpool)
+  if (vcomposer->outpool) {
+    gst_buffer_pool_set_active (vcomposer->outpool, FALSE);
     gst_object_unref (vcomposer->outpool);
+  }
 
   // Create a new buffer pool.
   pool = gst_video_composer_create_pool (vcomposer, caps);
@@ -1029,6 +1060,7 @@ gst_video_composer_negotiated_src_caps (GstAggregator * aggregator,
     GstCaps * caps)
 {
   GstVideoComposer *vcomposer = GST_VIDEO_COMPOSER (aggregator);
+  GstStructure *options = NULL;
   GstVideoInfo info;
   gint dar_n = 0, dar_d = 0;
   gboolean success = FALSE;
@@ -1040,6 +1072,7 @@ gst_video_composer_negotiated_src_caps (GstAggregator * aggregator,
     return FALSE;
   }
 
+  // Iterate over the sink pads and set the converter input options.
   success = gst_element_foreach_sink_pad (GST_ELEMENT (vcomposer),
       gst_video_composer_set_opts, NULL);
 
@@ -1047,6 +1080,21 @@ gst_video_composer_negotiated_src_caps (GstAggregator * aggregator,
     GST_ERROR_OBJECT (vcomposer, "Failed to set converter options!");
     return FALSE;
   }
+
+  // Fill the converter output options structure.
+  if (NULL == (options = gst_structure_new_empty ("qtivtransform"))) {
+    GST_ERROR_OBJECT (vcomposer, "Failed to create options structure!");
+    return FALSE;
+  }
+
+  // Check whether the output caps have ubwc compression.
+  if (gst_video_composer_caps_has_compression (caps, "ubwc")) {
+    gst_structure_set (options,
+        GST_C2D_VIDEO_CONVERTER_OPT_UBWC_FORMAT, G_TYPE_BOOLEAN, TRUE,
+        NULL);
+  }
+
+  gst_c2d_video_converter_set_output_opts (vcomposer->c2dconvert, options);
 
   if (!gst_util_fraction_multiply (info.width, info.height,
           info.par_n, info.par_d, &dar_n, &dar_d)) {
@@ -1301,7 +1349,10 @@ gst_video_composer_request_pad (GstElement * element, GstPadTemplate * templ,
   g_signal_connect (pad, "notify::crop",
       G_CALLBACK (gst_video_composer_property_crop_cb),
       vcomposer);
-  g_signal_connect (pad, "notify::destination",
+  g_signal_connect (pad, "notify::position",
+      G_CALLBACK (gst_video_composer_property_destination_cb),
+      vcomposer);
+  g_signal_connect (pad, "notify::dimensions",
       G_CALLBACK (gst_video_composer_property_destination_cb),
       vcomposer);
   g_signal_connect (pad, "notify::alpha",

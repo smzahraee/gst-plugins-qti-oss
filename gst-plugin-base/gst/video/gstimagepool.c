@@ -39,6 +39,7 @@
 #include <gbm_priv.h>
 #include <linux/ion.h>
 #include <linux/msm_ion.h>
+#include <media/msm_media_info.h>
 
 
 #define GST_IS_GBM_MEMORY_TYPE(type) \
@@ -47,7 +48,7 @@
 #define GST_IS_ION_MEMORY_TYPE(type) \
     (type == g_quark_from_static_string (GST_IMAGE_BUFFER_POOL_TYPE_ION))
 
-#define DEFAULT_ION_ALIGNMENT 4096
+#define DEFAULT_PAGE_ALIGNMENT 4096
 
 GST_DEBUG_CATEGORY_STATIC (gst_image_pool_debug);
 #define GST_CAT_DEFAULT gst_image_pool_debug
@@ -56,6 +57,7 @@ struct _GstImageBufferPoolPrivate
 {
   GstVideoInfo        info;
   gboolean            addmeta;
+  gboolean            isubwc;
 
   GstAllocator        *allocator;
   GstAllocationParams params;
@@ -95,26 +97,6 @@ gst_video_format_to_gbm_format (GstVideoFormat format)
       return GBM_FORMAT_NV12;
     case GST_VIDEO_FORMAT_NV21:
       return GBM_FORMAT_NV21_ZSL;
-#if G_BYTE_ORDER == G_BIG_ENDIAN
-    case GST_VIDEO_FORMAT_xRGB:
-      return GBM_FORMAT_XRGB8888;
-    case GST_VIDEO_FORMAT_ARGB:
-      return GBM_FORMAT_ARGB8888;
-    case GST_VIDEO_FORMAT_xBGR:
-      return GBM_FORMAT_XBGR8888;
-    case GST_VIDEO_FORMAT_RGBx:
-      return GBM_FORMAT_RGBX8888;
-    case GST_VIDEO_FORMAT_ABGR:
-      return GBM_FORMAT_ABGR8888;
-    case GST_VIDEO_FORMAT_RGBA:
-      return GBM_FORMAT_RGBA8888;
-    case GST_VIDEO_FORMAT_RGB:
-      return GBM_FORMAT_RGB888;
-    case GST_VIDEO_FORMAT_BGR16:
-      return GBM_FORMAT_BGR565;
-    case GST_VIDEO_FORMAT_RGB16:
-      return GBM_FORMAT_RGB565;
-#else
     case GST_VIDEO_FORMAT_BGRx:
       return GBM_FORMAT_XRGB8888;
     case GST_VIDEO_FORMAT_BGRA:
@@ -133,7 +115,6 @@ gst_video_format_to_gbm_format (GstVideoFormat format)
       return GBM_FORMAT_RGB565;
     case GST_VIDEO_FORMAT_RGB16:
       return GBM_FORMAT_BGR565;
-#endif
     default:
       GST_ERROR ("Unsupported format %s!", gst_video_format_to_string (format));
   }
@@ -187,7 +168,7 @@ open_gbm_device (GstImageBufferPool * vpool)
     return FALSE;
   }
 
-  // Load C2D library symbols.
+  // Load GBM library symbols.
   success &= load_symbol ((gpointer*)&priv->gbm_create_device, priv->gbmhandle,
       "gbm_create_device");
   success &= load_symbol ((gpointer*)&priv->gbm_device_destroy, priv->gbmhandle,
@@ -241,12 +222,12 @@ gbm_device_alloc (GstImageBufferPool * vpool)
   GstImageBufferPoolPrivate *priv = vpool->priv;
 
   struct gbm_bo *bo;
-  gint format, usage, fd;
+  gint fd, format, usage = 0;
 
   format = gst_video_format_to_gbm_format (GST_VIDEO_INFO_FORMAT (&priv->info));
   g_return_val_if_fail (format >= 0, NULL);
 
-  usage = GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT;
+  usage |= priv->isubwc ? GBM_BO_USAGE_UBWC_ALIGNED_QTI : 0;
 
   bo = priv->gbm_bo_create (priv->gbmdevice, GST_VIDEO_INFO_WIDTH (&priv->info),
        GST_VIDEO_INFO_HEIGHT (&priv->info), format, usage);
@@ -325,7 +306,7 @@ ion_device_alloc (GstImageBufferPool * vpool)
 
   alloc_data.len = GST_VIDEO_INFO_SIZE (&priv->info);
 #ifndef TARGET_ION_ABI_VERSION
-  alloc_data.align = DEFAULT_ION_ALIGNMENT;
+  alloc_data.align = DEFAULT_PAGE_ALIGNMENT;
 #endif
   alloc_data.heap_id_mask = ION_HEAP(ION_SYSTEM_HEAP_ID);
   alloc_data.flags = 0;
@@ -349,7 +330,7 @@ ion_device_alloc (GstImageBufferPool * vpool)
   fd = fd_data.fd;
 
   g_hash_table_insert (priv->datamap, GINT_TO_POINTER (fd),
-      GINT_TO_POINTER (alloc_data.handle));
+      GSIZE_TO_POINTER (alloc_data.handle));
 #else
   fd = alloc_data.fd;
 #endif
@@ -367,7 +348,7 @@ ion_device_free (GstImageBufferPool * vpool, gint fd)
   GST_DEBUG_OBJECT (vpool, "Closing ION memory FD %d", fd);
 
 #ifndef TARGET_ION_ABI_VERSION
-  ion_user_handle_t handle = GPOINTER_TO_INT (
+  ion_user_handle_t handle = GPOINTER_TO_SIZE (
       g_hash_table_lookup (vpool->priv->datamap, GINT_TO_POINTER (fd)));
 
   if (ioctl (vpool->priv->devfd, ION_IOC_FREE, &handle) < 0) {
@@ -426,11 +407,19 @@ gst_image_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
   }
 
   if (!gst_buffer_pool_config_get_allocator (config, &allocator, &params)) {
-    GST_ERROR_OBJECT (vpool, "Allocator missing from configuration");
+    GST_ERROR_OBJECT (vpool, "Allocator missing from configuration!");
     return FALSE;
-  } else if (!GST_IS_FD_ALLOCATOR (allocator)) {
-    GST_ERROR_OBJECT (vpool, "Allocator %p is not FD backed!", allocator);
-    return FALSE;
+  } else if (NULL == allocator) {
+    // No allocator set in configuration, create default FD allocator.
+    if (NULL == (allocator = gst_fd_allocator_new ())) {
+      GST_ERROR_OBJECT (vpool, "Failed to create FD allocator!");
+      return FALSE;
+    }
+  }
+
+  if (!GST_IS_FD_ALLOCATOR (allocator)) {
+     GST_ERROR_OBJECT (vpool, "Allocator %p is not FD backed!", allocator);
+     return FALSE;
   }
 
   GST_DEBUG_OBJECT (pool, "Video dimensions %dx%d, caps %" GST_PTR_FORMAT,
@@ -440,26 +429,45 @@ gst_image_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
   info.size = MAX (size, info.size);
   priv->info = info;
 
+  // Check wthether we should allocate ubwc buffers.
+  priv->isubwc = gst_buffer_pool_config_has_option (config,
+      GST_IMAGE_BUFFER_POOL_OPTION_UBWC_MODE);
+
   // GBM library has its own alignment for the allocated buffers so update
   // the size, stride and offset for the buffer planes in the video info.
   if (GST_IS_GBM_MEMORY_TYPE (vpool->priv->memtype)) {
     struct gbm_buf_info bufinfo = { 0, };
-    guint stride, scanline;
+    guint stride, scanline, usage = 0;
 
     bufinfo.width = GST_VIDEO_INFO_WIDTH (&priv->info);
     bufinfo.height = GST_VIDEO_INFO_HEIGHT (&priv->info);
     bufinfo.format = gst_video_format_to_gbm_format (
         GST_VIDEO_INFO_FORMAT (&priv->info));
 
+    usage |= priv->isubwc ? GBM_BO_USAGE_UBWC_ALIGNED_QTI : 0;
+
     priv->gbm_perform (GBM_PERFORM_GET_BUFFER_SIZE_DIMENSIONS, &bufinfo,
-        GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT, &stride, &scanline, &size);
+        usage, &stride, &scanline, &size);
 
     GST_VIDEO_INFO_PLANE_STRIDE (&priv->info, 0) = stride;
     GST_VIDEO_INFO_PLANE_OFFSET (&priv->info, 0) = 0;
 
+    // Check for a second plane and fill its stride and offset.
     if (GST_VIDEO_INFO_N_PLANES (&priv->info) >= 2) {
       GST_VIDEO_INFO_PLANE_STRIDE (&priv->info, 1) = stride;
       GST_VIDEO_INFO_PLANE_OFFSET (&priv->info, 1) = stride * scanline;
+
+      // For UBWC formats there is very specific UV plane offset.
+      if (priv->isubwc && (bufinfo.format = GBM_FORMAT_NV12)) {
+        guint metastride, metascanline;
+
+        metastride = VENUS_Y_META_STRIDE (COLOR_FMT_NV12_UBWC, bufinfo.width);
+        metascanline = VENUS_Y_META_SCANLINES (COLOR_FMT_NV12_UBWC, bufinfo.height);
+
+        GST_VIDEO_INFO_PLANE_OFFSET (&priv->info, 1) =
+            MSM_MEDIA_ALIGN (stride * scanline, DEFAULT_PAGE_ALIGNMENT) +
+            MSM_MEDIA_ALIGN (metastride * metascanline, DEFAULT_PAGE_ALIGNMENT);
+      }
     }
 
     priv->info.size = MAX (size, priv->info.size);

@@ -37,9 +37,9 @@
 G_BEGIN_DECLS
 
 #define QMMFSRC_COMMON_VIDEO_CAPS \
-    "width = (int) [ 16, " MAX_WIDTH " ], "   \
-    "height = (int) [ 16," MAX_HEIGHT " ], "  \
-    "framerate = (fraction) [ 0/1, 30/1 ]"
+    "width = (int) [ 16, " GST_VIDEO_MAX_WIDTH " ], "       \
+    "height = (int) [ 16," GST_VIDEO_MAX_HEIGHT " ], "      \
+    "framerate = (fraction) [ 0/1, " GST_VIDEO_MAX_FPS " ]"
 
 #define QMMFSRC_VIDEO_H264_PROFILES \
     "baseline, main, high"
@@ -115,6 +115,11 @@ typedef enum {
   GST_VIDEO_CODEC_H265,
 } GstVideoCodec;
 
+typedef enum {
+  GST_VIDEO_COMPRESSION_NONE,
+  GST_VIDEO_COMPRESSION_UBWC,
+} GstVideoCompression;
+
 enum
 {
   GST_VIDEO_CONTROL_RATE_DISABLE,
@@ -139,32 +144,34 @@ struct _GstQmmfSrcVideoPad {
   GstSegment        segment;
 
   /// Global mutex lock.
-  GMutex            lock;
+  GMutex              lock;
   /// Index of the video pad.
-  guint             index;
+  guint               index;
   /// QMMF Recorder master track index, set by the pad capabilities.
-  gint              srcidx;
+  gint                srcidx;
 
   /// ID of the QMMF Recorder track which belongs to this pad.
-  guint             id;
+  guint               id;
   /// QMMF Recorder track width, set by the pad capabilities.
-  gint              width;
+  gint                width;
   /// QMMF Recorder track height, set by the pad capabilities.
-  gint              height;
+  gint                height;
   /// QMMF Recorder track framerate, set by the pad capabilities.
-  gdouble           framerate;
+  gdouble             framerate;
   /// GStreamer video pad output buffers format.
-  GstVideoFormat    format;
+  GstVideoFormat      format;
   /// Whether the GStreamer stream is uncompressed or compressed and its type.
-  GstVideoCodec     codec;
+  GstVideoCodec       codec;
+  /// Video format compression (none or ubwc).
+  GstVideoCompression compression;
   /// Agnostic structure containing codec specific parameters.
-  GstStructure     *params;
+  GstStructure        *params;
 
   /// QMMF Recorder track buffers duration, calculated from framerate.
-  GstClockTime      duration;
+  GstClockTime        duration;
 
   /// Queue for GStreamer buffers wrappers around QMMF Recorder buffers.
-  GstDataQueue     *buffers;
+  GstDataQueue        *buffers;
 };
 
 struct _GstQmmfSrcVideoPadClass {

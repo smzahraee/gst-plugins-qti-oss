@@ -89,10 +89,10 @@ FAIL:
 
 int32_t MLEngine::AllocateInternalBuffers() {
   if (do_rescale_) {
-  posix_memalign(reinterpret_cast<void**>(&buffers_.scale_buf),
-                                  128,
-                                  ((scale_width_ *
-                                        scale_height_ * 3) / 2));
+    posix_memalign(reinterpret_cast<void**>(&buffers_.scale_buf),
+                                    128,
+                                    ((scale_width_ *
+                                          scale_height_ * 3) / 2));
     if (nullptr == buffers_.scale_buf) {
       MLE_LOGE("%s: Scale buf allocation failed", __func__);
       return MLE_FAIL;
@@ -178,17 +178,18 @@ void MLEngine::Pad(
   }
 }
 
-void MLEngine::PreProcessScale(
+int32_t MLEngine::PreProcessScale(
   uint8_t*       pSrcLuma,
   uint8_t*       pSrcChroma,
   uint8_t*       pDst,
   const uint32_t srcWidth,
   const uint32_t srcHeight,
+  const uint32_t srcStride,
   const uint32_t scaleWidth,
   const uint32_t scaleHeight,
   MLEImageFormat format)
 {
-
+  int32_t rc = MLE_OK;
   if ((format == mle_format_nv12) || (format == mle_format_nv21)) {
     uint8_t *src_buffer_y = pSrcLuma;
     uint8_t *src_buffer_uv = pSrcChroma;
@@ -197,7 +198,6 @@ void MLEngine::PreProcessScale(
     uint32_t height = srcHeight;
     uint32_t src_y_offset  = 0;
     uint32_t src_uv_offset = 0;
-    uint32_t stride = srcWidth;
 
     if (config_.preprocess_mode == PreprocessingMode::kKeepARCrop) {
       double in_ar = 0, out_ar = 0;
@@ -229,13 +229,13 @@ void MLEngine::PreProcessScale(
       src_buffer_y = reinterpret_cast<uint8_t *>
                         ((intptr_t)src_buffer_y + src_y_offset);
       src_buffer_uv = reinterpret_cast<uint8_t *>
-                          ((intptr_t)src_buffer_uv + src_uv_offset);
+                        ((intptr_t)src_buffer_uv + src_uv_offset);
     }
 
     fcvScaleDownMNu8(src_buffer_y,
                      width,
                      height,
-                     stride,
+                     srcStride,
                      pDst,
                      scaleWidth,
                      scaleHeight,
@@ -243,14 +243,16 @@ void MLEngine::PreProcessScale(
     fcvScaleDownMNu8(src_buffer_uv,
                      width,
                      height/2,
-                     stride,
+                     srcStride,
                      pDst + (scaleWidth * scaleHeight),
                      scaleWidth,
                      scaleHeight / 2,
                      0);
   } else {
     MLE_LOGE("Unsupported format %d", (int)format);
+    rc = MLE_IMG_FORMAT_NOT_SUPPORTED;
   }
+  return rc;
 }
 
 void MLEngine::PreProcessColorConvertRGB(
@@ -347,12 +349,26 @@ int32_t MLEngine::Init(const MLEInputParams* source_info) {
   if (config_.preprocess_mode == PreprocessingMode::kKeepARPad) {
     float ratio = (engine_input_params_.width & ~0x1) * 1.0 /
                   fmax(source_params_.width, source_params_.height);
-    scale_width_ = (uint32_t)(source_params_.width * ratio);
-    scale_height_ = (uint32_t)(source_params_.height * ratio);
+    scale_width_ = (uint32_t)(source_params_.width * ratio) & ~0x1;
+    scale_height_ = (uint32_t)(source_params_.height * ratio) & ~0x1;
   } else {
     scale_width_ = engine_input_params_.width;
     scale_height_ = engine_input_params_.height;
+
+    if (scale_width_ % 2 != 0 ||
+        scale_height_ % 2 != 0) {
+      MLE_LOGE("Error: Odd dimensions aren't supported for preprocess mode %d",
+               (int)config_.preprocess_mode);
+      return MLE_FAIL;
+    }
   }
+
+  MLE_LOGI("%s scale width %d scale height %d model width %d height %d",
+           __func__,
+           scale_width_,
+           scale_height_,
+           engine_input_params_.width,
+           engine_input_params_.height);
 
   // Allocate internal buffers
   if (source_params_.width != engine_input_params_.width ||
@@ -447,14 +463,19 @@ int32_t MLEngine::PreProcess(const struct SourceFrame* frame_info) {
   }
 
   if (do_rescale_) {
-    PreProcessScale(frame_info->frame_data[0],
-                    frame_info->frame_data[1],
-                    buffers_.scale_buf,
-                    source_params_.width,
-                    source_params_.height,
-                    scale_width_,
-                    scale_height_,
-                    source_params_.format);
+    res = PreProcessScale(frame_info->frame_data[0],
+                          frame_info->frame_data[1],
+                          buffers_.scale_buf,
+                          source_params_.width,
+                          source_params_.height,
+                          frame_info->stride,
+                          scale_width_,
+                          scale_height_,
+                          source_params_.format);
+    if (MLE_OK != res) {
+      MLE_LOGE("PreProcessScale failed due to unsupported image format");
+      return res;
+    }
     PreProcessColorConvertRGB(buffers_.scale_buf,
                             buffers_.scale_buf + scale_width_ * scale_height_,
                             rgb_buf,

@@ -27,7 +27,6 @@
 * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <json/json.h>
 #include <cstring>
 #include <fstream>
 #ifdef HAVE_CONFIG_H
@@ -36,7 +35,7 @@
 
 #include "mle_snpe.h"
 #include "mle_engine/snpe_base.h"
-#include "mle_engine/snpe_complex.h"
+#include "mle_engine/snpe_detection.h"
 #include "mle_engine/snpe_single_ssd.h"
 #include "mle_engine/snpe_segmentation.h"
 
@@ -229,6 +228,7 @@ gst_mle_snpe_finalize(GObject * object)
 
   if (mle->engine) {
     mle->engine->Deinit();
+    delete (mle->engine);
     mle->engine = nullptr;
   }
   if (mle->output_layers) {
@@ -280,34 +280,99 @@ static gboolean
 gst_mle_snpe_parse_config(gchar *config_location,
                           mle::MLConfig &configuration) {
   gboolean rc = FALSE;
-  std::ifstream in(config_location, std::ios::in | std::ios::binary);
-  if (in) {
-    Json::Reader reader;
-    Json::Value val;
-    if (reader.parse(in, val)) {
-      configuration.input_format =
-          (mle::InputFormat)val.get("InputFormat", 3).asInt();
-      configuration.blue_mean = val.get("BlueMean", 0).asFloat();
-      configuration.blue_sigma = val.get("BlueSigma", 255).asFloat();
-      configuration.green_mean = val.get("GreenMean", 0).asFloat();
-      configuration.green_sigma = val.get("GreenSigma", 255).asFloat();
-      configuration.red_mean = val.get("RedMean", 0).asFloat();
-      configuration.red_sigma = val.get("RedSigma", 255).asFloat();
-      configuration.use_norm = val.get("UseNorm", false).asBool();
-      configuration.preprocess_mode =
-          (mle::PreprocessingMode)val.get("PreProcessing", 1).asInt();
-      configuration.conf_threshold = val.get("ConfThreshold", 0.0).asFloat();
-      configuration.model_file = val.get("MODEL_FILENAME", "").asString();
-      configuration.labels_file = val.get("LABELS_FILENAME", "").asString();
-      for (size_t i = 0; i < val["OutputLayers"].size(); i++) {
-        configuration.output_layers.push_back(
-                                    val["OutputLayers"][i].asString());
-      }
-      configuration.runtime = (mle::RuntimeType)val.get("Runtime", 0).asInt();
-      rc = TRUE;
+  GstStructure *structure = NULL;
+
+  GValue gvalue = G_VALUE_INIT;
+  g_value_init (&gvalue, GST_TYPE_STRUCTURE);
+
+  if (g_file_test (config_location, G_FILE_TEST_IS_REGULAR)) {
+    gchar *contents = NULL;
+    GError *error = NULL;
+
+    if (!g_file_get_contents (config_location, &contents, NULL, &error)) {
+      GST_WARNING ("Failed to get config file contents, error: %s!",
+          GST_STR_NULL (error->message));
+      g_clear_error (&error);
+      return FALSE;
     }
-    in.close();
+
+    // Remove trailing space and replace new lines with a coma delimeter.
+    contents = g_strstrip (contents);
+    contents = g_strdelimit (contents, "\n", ',');
+
+    rc = gst_value_deserialize (&gvalue, contents);
+    g_free (contents);
+
+    if (!rc) {
+      GST_WARNING ("Failed to deserialize config file contents!");
+      return rc;
+    }
+  } else if (!gst_value_deserialize (&gvalue, config_location)) {
+    GST_WARNING ("Failed to deserialize the config!");
+    return FALSE;
   }
+
+  structure = GST_STRUCTURE (g_value_dup_boxed (&gvalue));
+  g_value_unset (&gvalue);
+
+  gint value = 0;
+  gdouble dvalue = 0.0;
+  gboolean bvalue = false;
+
+  if (gst_structure_get_int (structure, "input_format", &value))
+    configuration.input_format = (mle::InputFormat)value;
+
+  if (gst_structure_get_double (structure, "BlueMean", &dvalue))
+    configuration.blue_mean = dvalue;
+
+  if (gst_structure_get_double (structure, "BlueSigma", &dvalue))
+   configuration.blue_sigma = dvalue;
+
+  if (gst_structure_get_double (structure, "GreenMean", &dvalue))
+    configuration.green_mean = dvalue;
+
+  if (gst_structure_get_double (structure, "GreenSigma", &dvalue))
+    configuration.green_sigma = dvalue;
+
+  if (gst_structure_get_double (structure, "RedMean", &dvalue))
+    configuration.red_mean = dvalue;
+
+  if (gst_structure_get_double (structure, "RedSigma", &dvalue))
+    configuration.red_sigma = dvalue;
+
+  if (gst_structure_get_boolean (structure, "UseNorm", &bvalue))
+    configuration.use_norm = dvalue;
+
+  if (gst_structure_get_int (structure, "preprocess_type", &value))
+    configuration.preprocess_mode = (mle::PreprocessingMode)value;
+
+  if (gst_structure_get_double (structure, "confidence_threshold", &dvalue))
+    configuration.conf_threshold = dvalue;
+
+  if (gst_structure_get_int (structure, "num_threads", &value))
+    configuration.number_of_threads = value;
+
+  if (gst_structure_get_int (structure, "runtime", &value))
+    configuration.runtime = (mle::RuntimeType)value;
+
+
+  configuration.model_file = gst_structure_get_string (structure, "model");
+  configuration.labels_file = gst_structure_get_string (structure, "labels");
+
+  const GValue *gtempvalue =
+      gst_structure_get_value (structure, "output_layers");
+  if (gtempvalue != NULL && G_VALUE_HOLDS (gtempvalue, GST_TYPE_ARRAY)) {
+    guint num = 0;
+
+    for (num = 0; num < gst_value_array_get_size (gtempvalue); num++) {
+      const GValue *val = gst_value_array_get_value (gtempvalue, num);
+      std::string str = g_value_get_string (val);
+      configuration.output_layers.push_back(str);
+    }
+  }
+
+  gst_structure_free (structure);
+
   return rc;
 }
 
@@ -376,7 +441,7 @@ gst_mle_create_engine(GstMLESNPE *mle) {
   configuration.conf_threshold = DEFAULT_PROP_MLE_CONF_THRESHOLD;
   configuration.io_type = mle::NetworkIO::kUserBuffer;
 
-  // Set configuration values from json config file
+  // Set configuration values from config file
   if (mle->config_location) {
     parse = gst_mle_snpe_parse_config(mle->config_location, configuration);
     if (FALSE == parse) {
@@ -419,6 +484,10 @@ gst_mle_create_engine(GstMLESNPE *mle) {
     configuration.preprocess_mode =
         (mle::PreprocessingMode)mle->preprocessing_type;
   }
+
+  if (gst_mle_check_is_set(mle->property_mask, PROP_SNPE_OUTPUT_LAYERS)) {
+    configuration.output_layers.clear();
+  }
   gst_mle_parse_snpe_layers(mle->output_layers, configuration.output_layers);
 
   gst_mle_print_config(mle, configuration, mle->postprocessing);
@@ -430,7 +499,7 @@ gst_mle_create_engine(GstMLESNPE *mle) {
       rc = FALSE;
     }
   } else if (!g_strcmp0(mle->postprocessing, "detection")) {
-      mle->engine = new mle::SNPEComplex(configuration);
+      mle->engine = new mle::SNPEDetection(configuration);
       if (nullptr == mle->engine) {
         GST_ERROR_OBJECT (mle, "Failed to create SNPE instance.");
         rc = FALSE;
@@ -489,10 +558,13 @@ gst_mle_snpe_set_info(GstVideoFilter *filter, GstCaps *in,
     if ((gint)mle->source_info.width != GST_VIDEO_INFO_WIDTH(ininfo) ||
         (gint)mle->source_info.height != GST_VIDEO_INFO_HEIGHT(ininfo) ||
         mle->source_info.format != gst_mle_get_video_format(video_format)) {
+      GST_DEBUG_OBJECT(mle, "Reinitializing due to source change.");
       mle->engine->Deinit();
+      delete (mle->engine);
       mle->engine = nullptr;
       mle->is_init = FALSE;
     } else {
+      GST_DEBUG_OBJECT(mle, "Already initialized.");
       return TRUE;
     }
   }
@@ -517,6 +589,8 @@ gst_mle_snpe_set_info(GstVideoFilter *filter, GstCaps *in,
   gint ret = mle->engine->Init(&mle->source_info);
   if (ret) {
     GST_ERROR_OBJECT (mle, "MLE init failed.");
+    delete (mle->engine);
+    mle->engine = nullptr;
     rc = FALSE;
   } else {
     GST_DEBUG_OBJECT (mle, "MLE instance created addr %p", mle->engine);
@@ -533,6 +607,7 @@ static GstFlowReturn gst_mle_snpe_transform_frame_ip(GstVideoFilter * filter,
 
   mle->source_frame.frame_data[0] = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA (frame, 0);
   mle->source_frame.frame_data[1] = (uint8_t*)GST_VIDEO_FRAME_PLANE_DATA (frame, 1);
+  mle->source_frame.stride = GST_VIDEO_FRAME_PLANE_STRIDE(frame, 0);
 
   gint ret = mle->engine->Process(&mle->source_frame, frame->buffer);
   if (ret) {
@@ -560,7 +635,7 @@ gst_mle_snpe_class_init (GstMLESNPEClass * klass)
       g_param_spec_string(
           "config",
           "Path to config file",
-          "Path to JSON file. Eg.: /data/misc/camera/mle_snpe_config.json",
+          "Path to config file. Eg.: /data/misc/camera/mle_snpe.config",
           NULL,
           static_cast<GParamFlags>(G_PARAM_READWRITE |
                                    G_PARAM_STATIC_STRINGS )));
