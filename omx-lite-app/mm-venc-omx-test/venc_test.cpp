@@ -122,8 +122,8 @@ typedef struct PrependSPSPPSToIDRFramesParams {
                             __FUNCTION__, __LINE__,                   \
                             ## __VA_ARGS__)
 #else
-#define D(fmt, ...)
-#define E(fmt, ...)
+#define D(fmt, ...) do{}while(0)
+#define E(fmt, ...) do{}while(0)
 #endif
 
 #endif
@@ -777,24 +777,24 @@ OMX_ERRORTYPE ConfigureEncoder()
   result = OMX_GetParameter(m_hHandle,
                             OMX_IndexParamPortDefinition,
                             &portdef);
-  E("\n OMX_IndexParamPortDefinition Get Paramter on input port");
+  D("\n OMX_IndexParamPortDefinition Get Paramter on input port");
   CHK(result);
   portdef.format.video.nFrameWidth = m_sProfile.nFrameWidth;
   portdef.format.video.nFrameHeight = m_sProfile.nFrameHeight;
   portdef.format.video.eColorFormat = (OMX_COLOR_FORMATTYPE) QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
 
-  E ("\n Height %lu width %lu bit rate %lu",portdef.format.video.nFrameHeight
+  D ("\n Height %lu width %lu bit rate %lu",portdef.format.video.nFrameHeight
      ,portdef.format.video.nFrameWidth,portdef.format.video.nBitrate);
   result = OMX_SetParameter(m_hHandle,
                             OMX_IndexParamPortDefinition,
                             &portdef);
-  E("\n OMX_IndexParamPortDefinition Set Paramter on input port");
+  D("\n OMX_IndexParamPortDefinition Set Paramter on input port");
   CHK(result);
   // once more to get proper buffer size
   result = OMX_GetParameter(m_hHandle,
                             OMX_IndexParamPortDefinition,
                             &portdef);
-  E("\n OMX_IndexParamPortDefinition Get Paramter on input port, 2nd pass");
+  D("\n OMX_IndexParamPortDefinition Get Paramter on input port, 2nd pass");
   CHK(result);
   // update size accordingly
   D("\n !!!!! input port OMX calculated size is %d, nFrameBytes %d", portdef.nBufferSize, m_sProfile.nFrameBytes);
@@ -807,7 +807,7 @@ OMX_ERRORTYPE ConfigureEncoder()
   result = OMX_GetParameter(m_hHandle,
                             OMX_IndexParamPortDefinition,
                             &portdef);
-  E("\n OMX_IndexParamPortDefinition Get Paramter on output port");
+  D("\n OMX_IndexParamPortDefinition Get Paramter on output port");
   CHK(result);
 
   if (m_scaling_width == 0 || m_scaling_height == 0) {
@@ -824,7 +824,7 @@ OMX_ERRORTYPE ConfigureEncoder()
   result = OMX_SetParameter(m_hHandle,
                             OMX_IndexParamPortDefinition,
                             &portdef);
-  E("\n OMX_IndexParamPortDefinition Set Paramter on output port");
+  D("\n OMX_IndexParamPortDefinition Set Paramter on output port");
   CHK(result);
 
 #ifdef QTI_EXT
@@ -934,13 +934,13 @@ OMX_ERRORTYPE ConfigureEncoder()
     result = OMX_SetParameter(m_hHandle,
                               OMX_IndexParamVideoProfileLevelCurrent,
                               &profileLevel);
-    E("\n OMX_IndexParamVideoProfileLevelCurrent Set Paramter port");
+    D("\n OMX_IndexParamVideoProfileLevelCurrent Set Paramter port");
     CHK(result);
     //profileLevel.eLevel = (OMX_U32) m_sProfile.eLevel;
     result = OMX_GetParameter(m_hHandle,
                               OMX_IndexParamVideoProfileLevelCurrent,
                               &profileLevel);
-    E("\n OMX_IndexParamVideoProfileLevelCurrent Get Paramter port");
+    D("\n OMX_IndexParamVideoProfileLevelCurrent Get Paramter port");
     D ("\n Profile = %lu level = %lu",profileLevel.eProfile,profileLevel.eLevel);
     CHK(result);
 
@@ -1052,7 +1052,7 @@ OMX_ERRORTYPE ConfigureEncoder()
 
   }
   /////////////////////////bitrate////////////////////////////////
-  E("\n OMX_IndexParamVideoBitrate Set Paramter port");
+  D("\n OMX_IndexParamVideoBitrate Set Paramter port");
   CHK(result);
   ///////////////////////////////////////
   // set SPS/PPS insertion for IDR frames
@@ -1078,7 +1078,7 @@ OMX_ERRORTYPE ConfigureEncoder()
   OMX_INIT_STRUCT(&param_aud, OMX_QCOM_VIDEO_CONFIG_AUD);
   param_aud.nSize = sizeof(OMX_QCOM_VIDEO_CONFIG_AUD);
   param_aud.bEnable = OMX_FALSE;
-  D ("\n et AU Delimiters = %d",param_aud.bEnable);
+  D ("\n Set AU Delimiters = %d",param_aud.bEnable);
   result = OMX_SetParameter(m_hHandle,
            (OMX_INDEXTYPE)OMX_QcomIndexParamAUDelimiter,
            (OMX_PTR)&param_aud);
@@ -2258,6 +2258,7 @@ void close_device ()
   close(m_device_fd);
   m_device_fd =-1;
 }
+
 int main(int argc, char** argv)
 {
   OMX_U8* pvirt = NULL;
