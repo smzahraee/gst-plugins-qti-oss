@@ -1492,8 +1492,12 @@ int main(int argc, char **argv)
 
   if (argc < 2)
   {
-    DEBUG_PRINT_ERROR("To use it: ./mm-vdec-omx-test <clip location> ");
-    DEBUG_PRINT_ERROR("Command line argument is also available");
+    printf("Usage example(only verified h264 and h265):\n");
+    printf("For h264: %s xxx.h264 1 4 2 1 0 0 0\n", argv[0]);
+    printf("For h265: %s xxx.h265 9 4 2 1 0 0 0\n", argv[0]);
+    printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
+    printf("Also could try: %s <input_file>\n", argv[0]);
+    printf("It will show prompt, and help you input parameters interactively.\n\n");
     return -1;
   }
 
