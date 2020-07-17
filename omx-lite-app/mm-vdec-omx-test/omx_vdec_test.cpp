@@ -530,6 +530,7 @@ int sent_disabled = 0;
 int waitForPortSettingsChanged = 1;
 test_status currentStatus = GOOD_STATE;
 struct timeval t_start = {0, 0}, t_end = {0, 0};
+struct timeval t_main = {0, 0};
 
 //* OMX Spec Version supported by the wrappers. Version = 1.1 */
 const OMX_U32 CURRENT_OMX_SPEC_VERSION = 0x00000101;
@@ -936,6 +937,8 @@ void* fbd_thread(void* pArg)
       if (!fbd_cnt)
       {
         gettimeofday(&t_start, NULL);
+        int time_1st_cost_us = (t_start.tv_sec - t_main.tv_sec) * 1000000 + (t_start.tv_usec - t_main.tv_usec);
+        printf("====>The first decoder output frame costs %d.%06d sec.\n",time_1st_cost_us/1000000,time_1st_cost_us%1000000);
       }
       fbd_cnt++;
       DEBUG_PRINT("%s: fbd_cnt(%d) Buf(%p) Timestamp(%lld)",
@@ -1844,6 +1847,7 @@ int main(int argc, char **argv)
 
   printf("Input values: inputfilename[%s]\n", in_filename);
   printf("*******************************************************\n");
+  gettimeofday(&t_main, NULL);
   pthread_cond_init(&cond, 0);
   pthread_cond_init(&eos_cond, 0);
   pthread_mutex_init(&eos_lock, 0);
