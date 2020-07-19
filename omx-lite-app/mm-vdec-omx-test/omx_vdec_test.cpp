@@ -1504,11 +1504,11 @@ int main(int argc, char **argv)
     return -1;
   }
 
-  strlcpy(in_filename, argv[1], strlen(argv[1])+1);
+  strlcpy(in_filename, argv[1], sizeof(in_filename));
   {
     int slen = strlen(argv[1])+1;
-    strlcpy(crclogname, argv[1], slen);
-    strlcat(crclogname, ".crc", slen+4);
+    strlcpy(crclogname, argv[1], sizeof(crclogname));
+    strlcat(crclogname, ".crc", sizeof(crclogname));
   }
   if(argc > 2)
   {
@@ -1520,7 +1520,7 @@ int main(int argc, char **argv)
     {
       if (strlen(argv[next_arg]) > 2)
       {
-        strlcpy(seq_file_name, argv[next_arg],strlen(argv[next_arg]) + 1);
+        strlcpy(seq_file_name, argv[next_arg], sizeof(seq_file_name));
         next_arg = argc;
       }
       else
@@ -2141,49 +2141,48 @@ int Init_Decoder()
 
   if (codec_format_option == CODEC_FORMAT_H264)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.avc", 27);
-    //strlcpy(vdecCompNames, "OMX.SEC.qcom.video.decoder.avc", 31);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.avc", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_MP4)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg4", 29);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg4", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_H263)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.h263", 28);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.h263", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_VC1)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vc1", 27);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vc1", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_MPEG2)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg2", 29);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg2", sizeof(vdecCompNames));
   }
   else if (file_type_option == FILE_TYPE_RCV)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.wmv", 27);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.wmv", sizeof(vdecCompNames));
   }
   else if (file_type_option == FILE_TYPE_DIVX_4_5_6)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx", 28);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_VP8)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp8", 27);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp8", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_VP9)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp9", 27);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp9", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_HEVC)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.hevc", 28);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.hevc", sizeof(vdecCompNames));
   }
 #ifdef MAX_RES_1080P
   else if (file_type_option == FILE_TYPE_DIVX_311)
   {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx311", 31);
+    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx311", sizeof(vdecCompNames));
   }
 #endif
   else
@@ -4129,7 +4128,7 @@ static int open_video_file ()
   }
 
   if (takeYuvLog) {
-    strlcpy(outputfilename, "yuvframes.yuv", 14);
+    strlcpy(outputfilename, "yuvframes.yuv", sizeof(outputfilename));
     outputBufferFile = fopen (outputfilename, "wb");
     if (outputBufferFile == NULL)
     {
