@@ -34,7 +34,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdio>
 #include <pthread.h>
 #include <sys/mman.h>
-#include <media/msm_media_info.h>
+#include <vidc/media/msm_media_info.h>
 
 enum {
   PRIO_ERROR=0x1,
