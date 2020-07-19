@@ -80,7 +80,7 @@ REFERENCES
 #include <linux/ion.h>
 #endif
 #endif
-#include <media/msm_media_info.h>
+#include <vidc/media/msm_media_info.h>
 #include "OMX_Types.h"
 #ifdef USE_GBM
 #include "gbm.h"

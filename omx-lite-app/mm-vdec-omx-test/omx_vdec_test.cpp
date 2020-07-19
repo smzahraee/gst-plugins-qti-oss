@@ -59,7 +59,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdlib.h>
 #include <unistd.h>
 #include <math.h>
-#include <media/msm_media_info.h>
+#include <vidc/media/msm_media_info.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/mman.h>

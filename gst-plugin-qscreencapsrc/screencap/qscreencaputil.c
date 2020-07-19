@@ -48,7 +48,7 @@
 #include <dlfcn.h>
 #include <unistd.h> // for close
 #include "qscreencaputil.h"
-#include "media/msm_media_info.h"
+#include "vidc/media/msm_media_info.h"
 #include <gst/video/video.h>
 #include <gst/ionbuf/gstionbuf_meta.h>
 
