@@ -44,16 +44,18 @@ G_DEFINE_TYPE(GstQmmfSrcVideoPad, qmmfsrc_video_pad, GST_TYPE_PAD);
 GST_DEBUG_CATEGORY_STATIC (qmmfsrc_video_pad_debug);
 #define GST_CAT_DEFAULT qmmfsrc_video_pad_debug
 
-#define DEFAULT_VIDEO_STREAM_WIDTH   640
-#define DEFAULT_VIDEO_STREAM_HEIGHT  480
-#define DEFAULT_VIDEO_STREAM_FPS_NUM 30
-#define DEFAULT_VIDEO_STREAM_FPS_DEN 1
-#define DEFAULT_VIDEO_H264_PROFILE   "high"
-#define DEFAULT_VIDEO_H265_PROFILE   "main"
-#define DEFAULT_VIDEO_H264_LEVEL     "5.1"
-#define DEFAULT_VIDEO_H265_LEVEL     "5.1"
-#define DEFAULT_VIDEO_FORMAT         "NV12"
-#define DEFAULT_VIDEO_COMPRESSION    "none"
+#define DEFAULT_VIDEO_STREAM_WIDTH    640
+#define DEFAULT_VIDEO_STREAM_HEIGHT   480
+#define DEFAULT_VIDEO_STREAM_FPS_NUM  30
+#define DEFAULT_VIDEO_STREAM_FPS_DEN  1
+#define DEFAULT_VIDEO_H264_PROFILE    "high"
+#define DEFAULT_VIDEO_H265_PROFILE    "main"
+#define DEFAULT_VIDEO_H264_LEVEL      "5.1"
+#define DEFAULT_VIDEO_H265_LEVEL      "5.1"
+#define DEFAULT_VIDEO_RAW_FORMAT      "NV12"
+#define DEFAULT_VIDEO_RAW_COMPRESSION "none"
+#define DEFAULT_VIDEO_BAYER_FORMAT    "bggr"
+#define DEFAULT_VIDEO_BAYER_BPP       "10"
 
 #define DEFAULT_PROP_SOURCE_INDEX    (-1)
 #define DEFAULT_PROP_FRAMERATE       30.0
@@ -272,6 +274,31 @@ video_pad_update_params (GstPad * pad, GstStructure * structure)
     vpad->codec = GST_VIDEO_CODEC_NONE;
     vpad->format = gst_video_format_from_string (
         gst_structure_get_string (structure, "format"));
+  } else if (gst_structure_has_name (structure, "video/x-bayer")) {
+    const gchar *format = gst_structure_get_string (structure, "format");
+    const gchar *bpp = gst_structure_get_string (structure, "bpp");
+
+    vpad->codec = GST_VIDEO_CODEC_NONE;
+
+    if (g_strcmp0 (bpp, "8") == 0)
+      vpad->bpp = 8;
+    else if (g_strcmp0 (bpp, "10") == 0)
+      vpad->bpp = 10;
+    else if (g_strcmp0 (bpp, "12") == 0)
+      vpad->bpp = 12;
+    else if (g_strcmp0 (bpp, "16") == 0)
+      vpad->bpp = 16;
+
+    if (g_strcmp0 (format, "bggr") == 0)
+      vpad->format = GST_BAYER_FORMAT_BGGR;
+    else if (g_strcmp0 (format, "rggb") == 0)
+      vpad->format = GST_BAYER_FORMAT_RGGB;
+    else if (g_strcmp0 (format, "gbrg") == 0)
+      vpad->format = GST_BAYER_FORMAT_GBRG;
+    else if (g_strcmp0 (format, "grbg") == 0)
+      vpad->format = GST_BAYER_FORMAT_GRBG;
+    else if (g_strcmp0 (format, "mono") == 0)
+      vpad->format = GST_BAYER_FORMAT_MONO;
   } else {
     const gchar *profile, *level;
 
@@ -392,12 +419,24 @@ qmmfsrc_video_pad_fixate_caps (GstPad * pad)
 
   if (gst_structure_has_field (structure, "format")) {
     const gchar *format = gst_structure_get_string (structure, "format");
+    gboolean isbayer = gst_structure_has_name (structure, "video/x-bayer");
 
     if (!format) {
       gst_structure_fixate_field_string (structure, "format",
-          DEFAULT_VIDEO_FORMAT);
+          isbayer ? DEFAULT_VIDEO_BAYER_FORMAT : DEFAULT_VIDEO_RAW_FORMAT);
       GST_DEBUG_OBJECT (pad, "Format not set, using default value: %s",
-          DEFAULT_VIDEO_FORMAT);
+          isbayer ? DEFAULT_VIDEO_BAYER_FORMAT : DEFAULT_VIDEO_RAW_FORMAT);
+    }
+  }
+
+  if (gst_structure_has_field (structure, "bpp")) {
+    const gchar *bpp = gst_structure_get_string (structure, "bpp");
+
+    if (!bpp) {
+      gst_structure_fixate_field_string (structure, "bpp",
+          DEFAULT_VIDEO_BAYER_BPP);
+      GST_DEBUG_OBJECT (pad, "BPP not set, using default value: %s",
+          DEFAULT_VIDEO_BAYER_BPP);
     }
   }
 
@@ -407,9 +446,9 @@ qmmfsrc_video_pad_fixate_caps (GstPad * pad)
 
     if (!compression) {
       gst_structure_fixate_field_string (structure, "compression",
-            DEFAULT_VIDEO_COMPRESSION);
-      GST_DEBUG_OBJECT (pad, "Format layout not set, using default value: %s",
-            DEFAULT_VIDEO_COMPRESSION);
+            DEFAULT_VIDEO_RAW_COMPRESSION);
+      GST_DEBUG_OBJECT (pad, "Compression not set, using default value: %s",
+            DEFAULT_VIDEO_RAW_COMPRESSION);
     }
   }
 
@@ -476,10 +515,18 @@ video_pad_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec *pspec)
 {
   GstQmmfSrcVideoPad *pad = GST_QMMFSRC_VIDEO_PAD (object);
+  GstElement *parent = gst_pad_get_parent_element (GST_PAD (pad));
   const gchar *propname = g_param_spec_get_name (pspec);
-  GstState state = GST_STATE (pad);
 
-  if (!QMMFSRC_IS_PROPERTY_MUTABLE_IN_CURRENT_STATE(pspec, state)) {
+  // Extract the state from the pad parent or in case there is no parent
+  // use default value as parameters are being set upon object construction.
+  GstState state = parent ? GST_STATE (parent) : GST_STATE_VOID_PENDING;
+
+  // Decrease the pad parent reference count as it is not needed any more.
+  if (parent != NULL)
+    gst_object_unref (parent);
+
+  if (!QMMFSRC_IS_PROPERTY_MUTABLE_IN_CURRENT_STATE (pspec, state)) {
     GST_WARNING_OBJECT (pad, "Property '%s' change not supported in %s state!",
         propname, gst_element_state_get_name (state));
     return;
