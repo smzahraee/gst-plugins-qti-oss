@@ -337,7 +337,7 @@ gst_qscreencap_src_qscreencap_catch (GstQScreenCapSrc * qscreencapsrc)
   meta->qwlbuf.busy = TRUE;
   wl_display_flush (qdisplay->display);
 
-  GST_DEBUG_OBJECT (qscreencapsrc, "commit gstbuf %p  end",qscreencap);
+  GST_INFO_OBJECT (qscreencapsrc, "commit gstbuf %p end", qscreencap);
 
 
   return qscreencap;
