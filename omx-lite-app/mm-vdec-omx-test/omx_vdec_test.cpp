@@ -531,6 +531,7 @@ int waitForPortSettingsChanged = 1;
 test_status currentStatus = GOOD_STATE;
 struct timeval t_start = {0, 0}, t_end = {0, 0};
 struct timeval t_main = {0, 0};
+int kpi_mode = 0;
 
 //* OMX Spec Version supported by the wrappers. Version = 1.1 */
 const OMX_U32 CURRENT_OMX_SPEC_VERSION = 0x00000101;
@@ -625,6 +626,17 @@ static bool align_pmem_buffers(int pmem_fd, OMX_U32 buffer_size,
 #endif
 void getFreePmem();
 static int overlay_vsync_ctrl(int enable);
+
+int kpi_place_marker(const char* str)
+{
+  int fd = open("/sys/kernel/debug/bootkpi/kpi_values", O_WRONLY);
+  if(fd >= 0) {
+    int ret = write(fd, str, strlen(str));
+    close(fd);
+    return ret;
+  }
+  return -1;
+}
 
 static  int clip2(int x)
 {
@@ -936,6 +948,9 @@ void* fbd_thread(void* pArg)
     {
       if (!fbd_cnt)
       {
+        if (kpi_mode == 1) {
+          kpi_place_marker("M - Video Decoding 1st frame decoded");
+        }
         gettimeofday(&t_start, NULL);
         int time_1st_cost_us = (t_start.tv_sec - t_main.tv_sec) * 1000000 + (t_start.tv_usec - t_main.tv_usec);
         printf("====>The first decoder output frame costs %d.%06d sec.\n",time_1st_cost_us/1000000,time_1st_cost_us%1000000);
@@ -1493,6 +1508,7 @@ int main(int argc, char **argv)
   crop_rect.nHeight = height;
 
 
+#define KPI_INDICATOR_STR "+kpi+"
   if (argc < 2)
   {
     printf("Usage example(only verified h264 and h265):\n");
@@ -1501,15 +1517,37 @@ int main(int argc, char **argv)
     printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
     printf("Also could try: %s <input_file>\n", argv[0]);
     printf("It will show prompt, and help you input parameters interactively.\n\n");
+    printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
+    printf("kpi example: %s %s/data/xxx.h264 1 4 0 1 0 0 0\n\n", argv[0], KPI_INDICATOR_STR);
     return -1;
   }
 
-  strlcpy(in_filename, argv[1], sizeof(in_filename));
   {
-    int slen = strlen(argv[1])+1;
-    strlcpy(crclogname, argv[1], sizeof(crclogname));
+    FILE* file = NULL;
+    char* infilename_argptr = NULL;
+    if (0 == strncmp(argv[1], KPI_INDICATOR_STR, strlen(KPI_INDICATOR_STR))) {
+      kpi_mode = 1;
+      infilename_argptr = &(argv[1][strlen(KPI_INDICATOR_STR)]);
+      if (infilename_argptr[0] == '\0') {
+        printf("Missing real input file in cmd line for kpi mode!\n");
+        return -1;
+      }
+    }else{
+      infilename_argptr = argv[1];
+    }
+    strlcpy(in_filename, infilename_argptr, sizeof(in_filename));
+    file = fopen(in_filename, "rb");
+    if (file == NULL) {
+      printf("Could not open input file %s !\n", in_filename);
+      return -1;
+    }else{
+      //Here, just confirm input file exist. Later, will open it formally.
+      fclose(file);
+    }
+    strlcpy(crclogname, infilename_argptr, sizeof(crclogname));
     strlcat(crclogname, ".crc", sizeof(crclogname));
   }
+
   if(argc > 2)
   {
     codec_format_option = (codec_format)atoi(argv[2]);
@@ -1848,6 +1886,9 @@ int main(int argc, char **argv)
   printf("Input values: inputfilename[%s]\n", in_filename);
   printf("*******************************************************\n");
   gettimeofday(&t_main, NULL);
+  if (kpi_mode == 1) {
+    kpi_place_marker("M - Video Decoding begin preparing");
+  }
   pthread_cond_init(&cond, 0);
   pthread_cond_init(&eos_cond, 0);
   pthread_mutex_init(&eos_lock, 0);
