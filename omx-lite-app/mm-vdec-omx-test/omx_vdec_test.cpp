@@ -2236,6 +2236,7 @@ int Init_Decoder()
                     (OMX_STRING)vdecCompNames, NULL, &call_back);
   if (FAILED(omxresult)) {
     DEBUG_PRINT_ERROR("Failed to Load the component:%s", vdecCompNames);
+    printf("Failed to Load the component:%s, OMX_GetHandle() ret 0x%08x\n", vdecCompNames, omxresult);
     return -1;
   }
   else
