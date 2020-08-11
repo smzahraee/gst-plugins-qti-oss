@@ -132,8 +132,8 @@ extern "C" {
 }
 #define WL_DISPLAY
 #include <inttypes.h>
-#include <linux/msm_mdp.h>
 #ifdef FB_DISPLAY
+#include <linux/msm_mdp.h>
 #include <linux/fb.h>
 #elif defined WL_DISPLAY
 #include <poll.h>
