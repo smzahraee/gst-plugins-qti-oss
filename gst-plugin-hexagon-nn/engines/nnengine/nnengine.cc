@@ -28,7 +28,6 @@
 */
 
 #include <fstream>
-#include <dlfcn.h>
 #include <math.h>
 
 #include "nnengine.h"
@@ -58,23 +57,14 @@ int32_t NNEngine::EngineInit(const NNSourceInfo* source_info,
     return NN_FAIL;
   }
 
-  void *libptr = dlopen(model_lib_.c_str(), RTLD_LAZY);
-  if (!libptr) {
-    ALOGE("%s: Error loading library : %s %s\n", __func__,
-        model_lib_.c_str(), dlerror());
-    return -1;
-  }
+  nn_driver_ = std::make_shared<NNDriverHVX>();
 
-  void (*init_graph)(int nn_id);
-  *(void **)&(init_graph) = dlsym(libptr, "init_graph");
-
-  int ret = nn_driver_.Init(&nn_input_buf_, pad_width_, pad_height_,
-      num_outputs_, out_sizes, init_graph);
-
-  dlclose(libptr);
-
+  std::string lib = std::string(NNENGINE_LIB_DIR) + "/" + model_lib_;
+  int ret = nn_driver_->Init(&nn_input_buf_, pad_width_, pad_height_,
+      num_outputs_, out_sizes, lib);
   if (ret) {
     ALOGE(" NNDriver Init failed");
+    nn_driver_ = nullptr;
     return NN_FAIL;
   }
 
@@ -109,7 +99,8 @@ int32_t NNEngine::EngineDeInit()
     scale_buf_ = nullptr;
   }
 
-  nn_driver_.DeInit();
+  nn_driver_->DeInit();
+  nn_driver_ = nullptr;
 
   return NN_OK;
 }
@@ -207,7 +198,7 @@ int32_t NNEngine::Process(
     // Inference
     {
       Timer t("Inference time");
-      int ret = nn_driver_.Process(nn_input_buf_, outputs_);
+      int ret = nn_driver_->Process(nn_input_buf_, outputs_);
       if (ret) {
         ALOGE(" Inference failed");
         return NN_FAIL;
@@ -270,7 +261,7 @@ int32_t NNEngine::ProcessOnline(
   // Inference
   {
     Timer t("Inference time");
-    int ret = nn_driver_.Process(nn_input_buf_, outputs_);
+    int ret = nn_driver_->Process(nn_input_buf_, outputs_);
     if (ret) {
       ALOGE(" Inference failed");
       return NN_FAIL;
@@ -313,7 +304,7 @@ int32_t NNEngine::ProcessPerFrame(
       // Inference
       {
         Timer t("Inference time");
-        int ret = nn_driver_.Process(nn_input_buf_, outputs_);
+        int ret = nn_driver_->Process(nn_input_buf_, outputs_);
         if (ret) {
           ALOGE(" Inference failed");
         }

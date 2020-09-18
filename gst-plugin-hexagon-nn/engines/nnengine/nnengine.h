@@ -90,7 +90,7 @@ public:
 
   ~Timer () {
     uint64_t end = GetMicroSeconds();
-    ALOGD("%s: %llu us", str.c_str(), end - begin);
+    ALOGD("%s: %" G_GINT64_FORMAT " us", str.c_str(), end - begin);
   }
 };
 
@@ -194,7 +194,7 @@ protected:
   uint8_t*                 rgb_buf_;
   uint8_t*                 scale_buf_;
   uint8_t*                 nn_input_buf_;
-  NNDriver                 nn_driver_;
+  std::shared_ptr<NNDriver> nn_driver_;
   void *                   outputs_[kMaxOut];
 
   static const uint32_t     kTimeOut = 1000;

@@ -54,18 +54,18 @@ GST_DEBUG_CATEGORY_STATIC (qmmfsrc_debug);
 #define DEFAULT_PROP_CAMERA_SHDR_MODE                 FALSE
 #define DEFAULT_PROP_CAMERA_EIS_MODE                  FALSE
 #define DEFAULT_PROP_CAMERA_EFFECT_MODE               EFFECT_MODE_OFF
-#define DEFAULT_PROP_CAMERA_SCENE_MODE                SCENE_MODE_DISABLED
+#define DEFAULT_PROP_CAMERA_SCENE_MODE                SCENE_MODE_FACE_PRIORITY
 #define DEFAULT_PROP_CAMERA_ANTIBANDING               ANTIBANDING_MODE_AUTO
 #define DEFAULT_PROP_CAMERA_AE_COMPENSATION           0
 #define DEFAULT_PROP_CAMERA_AE_METERING_MODE          AE_METERING_MODE_AVERAGE
 #define DEFAULT_PROP_CAMERA_AE_MODE                   AE_MODE_ON
 #define DEFAULT_PROP_CAMERA_AE_LOCK                   FALSE
 #define DEFAULT_PROP_CAMERA_EXPOSURE_TABLE            NULL
-#define DEFAULT_PROP_CAMERA_EXPOSURE_TIME             33333333
+#define DEFAULT_PROP_CAMERA_EXPOSURE_TIME             0
 #define DEFAULT_PROP_CAMERA_WHITE_BALANCE_MODE        WHITE_BALANCE_MODE_AUTO
 #define DEFAULT_PROP_CAMERA_WHITE_BALANCE_LOCK        FALSE
 #define DEFAULT_PROP_CAMERA_MANUAL_WB_SETTINGS        NULL
-#define DEFAULT_PROP_CAMERA_AF_MODE                   AF_MODE_AUTO
+#define DEFAULT_PROP_CAMERA_AF_MODE                   AF_MODE_OFF
 #define DEFAULT_PROP_CAMERA_IR_MODE                   IR_MODE_OFF
 #define DEFAULT_PROP_CAMERA_NOISE_REDUCTION           NOISE_REDUCTION_FAST
 #define DEFAULT_PROP_CAMERA_ISO_MODE                  ISO_MODE_AUTO
@@ -412,7 +412,7 @@ qmmfsrc_delete_session (GstQmmfSrc * qmmfsrc)
     pad = GST_PAD (g_hash_table_lookup (qmmfsrc->srcpads,
         (qmmfsrc->imgindexes)->data));
 
-    success = gst_qmmf_context_delete_stream (qmmfsrc->context, pad);
+    success = gst_qmmf_context_delete_image_stream (qmmfsrc->context, pad);
     QMMFSRC_RETURN_VAL_IF_FAIL (qmmfsrc, success, FALSE,
         "Image stream deletion failed!");
   }
@@ -421,7 +421,7 @@ qmmfsrc_delete_session (GstQmmfSrc * qmmfsrc)
     key = list->data;
     pad = GST_PAD (g_hash_table_lookup (qmmfsrc->srcpads, key));
 
-    success = gst_qmmf_context_delete_stream (qmmfsrc->context, pad);
+    success = gst_qmmf_context_delete_video_stream (qmmfsrc->context, pad);
     QMMFSRC_RETURN_VAL_IF_FAIL (qmmfsrc, success, FALSE,
         "Video stream deletion failed!");
   }

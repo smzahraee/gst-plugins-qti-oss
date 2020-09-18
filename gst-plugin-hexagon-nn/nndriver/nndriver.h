@@ -39,33 +39,53 @@
 
 class NNDriver {
 public:
+  virtual int32_t Init(
+      uint8_t**   input_buf,
+      int32_t     width,
+      int32_t     height,
+      int32_t     num_outputs,
+      int32_t*    out_sizes,
+      std::string &lib_name) = 0;
 
-  NNDriver() : graph_id_(0),
-               out_sizes_{},
-               nn_out_bufs_{},
-               nn_in_buf_{} {};
+  virtual int32_t Process(
+      uint8_t*  in_buffer,
+      void**    outs) = 0;
+
+  virtual void DeInit() = 0;
+};
+
+class NNDriverHVX : public NNDriver {
+public:
+
+  NNDriverHVX() : handle_(-1),
+                  graph_id_(0),
+                  out_sizes_{},
+                  nn_out_bufs_{},
+                  nn_in_buf_{} {};
 
   int32_t Init(
-      uint8_t** input_buf,
-      int32_t   width,
-      int32_t   height,
-      int32_t   num_outputs,
-      int32_t*  out_sizes,
-      void      (*init_graph)(int32_t nn_id));
+      uint8_t**   input_buf,
+      int32_t     width,
+      int32_t     height,
+      int32_t     num_outputs,
+      int32_t*    out_sizes,
+      std::string &lib_name) override;
 
   int32_t Process(
       uint8_t*  in_buffer,
-      void**    outs);
+      void**    outs) override;
 
-  void DeInit();
+  void DeInit() override;
 
 private:
 
-  uint32_t GraphSetup(void  (*init_graph)(int32_t nn_id));
+  uint32_t GraphSetup(std::string &lib_name);
 
   static const int32_t       kMaxOut          = 4;
   static const uint32_t      kIonHeapIdSystem = 25;
+  static const char          kURI[];
 
+  remote_handle64            handle_;
   uint32_t                   graph_id_;
   int32_t                    width_;
   int32_t                    height_;
