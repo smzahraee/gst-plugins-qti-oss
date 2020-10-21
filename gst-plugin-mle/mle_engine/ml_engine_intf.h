@@ -32,6 +32,7 @@
 #include <vector>
 #include <string>
 #include <time.h>
+#include <fastcv/fastcv.h>
 #include <ml-meta/ml_meta.h>
 #include "common_utils.h"
 
@@ -87,6 +88,22 @@ enum class PreprocessingMode {
   kMax
 };
 
+enum class PreprocessingAccel {
+  lowPower = 0,
+  cpuPerf,
+  cpuOffload,
+  performance
+};
+
+enum class DelegateType {
+  nnapi = 0,
+  nnapi_npu,
+  hexagon_nn,
+  gpu,
+  xnnpack,
+  cpu
+};
+
 struct PreprocessingOffsets {
   PreprocessingOffsets(): x_offset(0),
                           y_offset(0),
@@ -124,6 +141,7 @@ struct MLConfig {
 
   //Aspect ratio maintenance
   PreprocessingMode preprocess_mode;
+  PreprocessingAccel preprocess_accel;
 
   // normalization
   float blue_mean;
@@ -144,7 +162,7 @@ struct MLConfig {
 
   //tflite specific
   uint32_t number_of_threads;
-  std::string delegate;
+  DelegateType delegate;
 
   //snpe layers
   std::vector<std::string> output_layers;
@@ -170,6 +188,9 @@ class MLEngine {
                         size_t& found_label_count);
   virtual int32_t AllocateInternalBuffers();
   virtual void FreeInternalBuffers();
+  void PreProcessAccelerator();
+  static bool fastcv_mode_is_set_;
+
  protected:
 
   void DumpFrame(const uint8_t* buffer, const uint32_t& width,
