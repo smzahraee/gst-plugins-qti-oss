@@ -1070,19 +1070,6 @@ OMX_ERRORTYPE ConfigureEncoder()
   if (result != OMX_ErrorNone) {
     return result;
   }
-  ///////////////////////////////////////
-  // set AU delimiters for video stream
-  ///////////////////////////////////////
-  OMX_QCOM_VIDEO_CONFIG_AUD param_aud;
-  //memset(&param_aud, 0, sizeof(OMX_QCOM_VIDEO_CONFIG_AUD));
-  OMX_INIT_STRUCT(&param_aud, OMX_QCOM_VIDEO_CONFIG_AUD);
-  param_aud.nSize = sizeof(OMX_QCOM_VIDEO_CONFIG_AUD);
-  param_aud.bEnable = OMX_FALSE;
-  D ("\n Set AU Delimiters = %d",param_aud.bEnable);
-  result = OMX_SetParameter(m_hHandle,
-           (OMX_INDEXTYPE)OMX_QcomIndexParamAUDelimiter,
-           (OMX_PTR)&param_aud);
-  CHK(result);
 ///////////////////I N T R A P E R I O D ///////////////////
 
   QOMX_VIDEO_INTRAPERIODTYPE intra;
