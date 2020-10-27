@@ -55,7 +55,7 @@ TfLiteDelegatePtrMap TFLBase::GetDelegates() {
     case DelegateType::nnapi:
     {
       MLE_LOGI("%s: Using NNAPI delegate", __func__);
-      uint32_t delegate_preferences_dsp = 00100000;
+      uint32_t delegate_preferences_dsp = 0x100000;
 
       tflite::StatefulNnApiDelegate::Options options;
 
@@ -78,7 +78,7 @@ TfLiteDelegatePtrMap TFLBase::GetDelegates() {
     case DelegateType::nnapi_npu:
     {
       MLE_LOGI("%s: Using NNAPI-NPU delegate", __func__);
-      uint32_t delegate_preferences_npu = 00300000;
+      uint32_t delegate_preferences_npu = 0x300000;
 
       tflite::StatefulNnApiDelegate::Options options;
 
