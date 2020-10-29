@@ -648,6 +648,11 @@ void* fbd_thread(void* pArg)
           DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
         else
           sem_post(&fbd_sem);
+        /* The pBuffer has pushed to fbd queuue, shouldn't be
+         * used in the following context. Because the buffer maybe
+         * old buffer before port reconfigures.
+         */
+        pBuffer = NULL;
         pPrevBuff = NULL;
       }
       if (free_op_buf_cnt == portFmt.nBufferCountActual)
