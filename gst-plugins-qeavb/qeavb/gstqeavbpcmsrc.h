@@ -68,6 +68,7 @@ struct _GstQeavbPcmSrc
   eavb_ioctl_stream_info_t stream_info;
   eavb_ioctl_stream_config_t cfg_data;
   gboolean started;
+  GMutex lock;
 };
 
 struct _GstQeavbPcmSrcClass
