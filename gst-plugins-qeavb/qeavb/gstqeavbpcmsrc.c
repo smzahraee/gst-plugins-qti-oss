@@ -278,7 +278,13 @@ gst_qeavb_pcm_src_start (GstBaseSrc * basesrc)
     goto error;
   }
 
-  err = qeavb_create_stream_remote(qeavbpcmsrc->eavb_fd, qeavbpcmsrc->config_file, &(qeavbpcmsrc->hdr));
+  err = qeavb_read_config_file(&(qeavbpcmsrc->cfg_data), qeavbpcmsrc->config_file);
+  if (0 == err) {
+    err = qeavb_create_stream(qeavbpcmsrc->eavb_fd, &(qeavbpcmsrc->cfg_data), &(qeavbpcmsrc->hdr));
+  }
+  else {
+    err = qeavb_create_stream_remote(qeavbpcmsrc->eavb_fd, qeavbpcmsrc->config_file, &(qeavbpcmsrc->hdr));
+  }
   if (0 != err) {
     GST_ERROR_OBJECT (qeavbpcmsrc,"create stream error %d, exit!", err);
     goto error;
