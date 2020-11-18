@@ -88,7 +88,6 @@ typedef enum { false = 0, true = 1 } bool;
 
 #include "eavb_shared.h"
 
-#define DEFAULT_CONFIG_FILE "/etc/xdg/listen.ini"
 #define MAX_QEAVB_PCM_SIZE 1500
 #define DEFALUT_SLEEP_US 10000
 #define RETRY_COUNT 100000
