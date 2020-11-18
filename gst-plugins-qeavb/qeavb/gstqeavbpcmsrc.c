@@ -33,6 +33,8 @@
 GST_DEBUG_CATEGORY_STATIC (qeavbpcmsrc_debug);
 #define GST_CAT_DEFAULT (qeavbpcmsrc_debug)
 
+#define DEFAULT_PCM_CONFIG_FILE "/etc/xdg/listenerPCM.ini"
+
 enum
 {
   PROP_0,
@@ -90,7 +92,7 @@ gst_qeavb_pcm_src_class_init (GstQeavbPcmSrcClass * klass)
   g_object_class_install_property (object_class, PROP_CONFIG_FILE,
       g_param_spec_string ("config-file", "Config File Name",
           "Config file name to config eavb",
-          DEFAULT_CONFIG_FILE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          DEFAULT_PCM_CONFIG_FILE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
   gst_element_class_set_static_metadata (element_class,
       "Audio PCM Transport Source",
@@ -112,7 +114,7 @@ gst_qeavb_pcm_src_init (GstQeavbPcmSrc * qeavbpcmsrc)
   gst_base_src_set_format (GST_BASE_SRC (qeavbpcmsrc), GST_FORMAT_TIME);
   gst_base_src_set_blocksize (GST_BASE_SRC (qeavbpcmsrc), MAX_QEAVB_PCM_SIZE);
 
-  qeavbpcmsrc->config_file = g_strdup (DEFAULT_CONFIG_FILE);
+  qeavbpcmsrc->config_file = g_strdup (DEFAULT_PCM_CONFIG_FILE);
   qeavbpcmsrc->eavb_addr = NULL;
   qeavbpcmsrc->eavb_fd = -1;
   qeavbpcmsrc->started = FALSE;

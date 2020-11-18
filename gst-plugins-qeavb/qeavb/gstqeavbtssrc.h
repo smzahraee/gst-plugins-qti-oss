@@ -28,25 +28,59 @@
  *
  */
 
+#ifndef __GST_QEAVB_TS_SRC_H__
+#define __GST_QEAVB_TS_SRC_H__
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
 #include <gst/gst.h>
+#include <gst/base/gstpushsrc.h>
+#include <gst/audio/audio.h>
 
-#include "gstqeavbpcmsrc.h"
+#include "gstqeavbcommon.h"
 
-static gboolean
-plugin_init (GstPlugin * plugin)
+G_BEGIN_DECLS
+
+#define GST_TYPE_QEAVB_TS_SRC (gst_qeavb_ts_src_get_type())
+#define GST_QEAVB_TS_SRC(obj) \
+  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_QEAVB_TS_SRC,GstQeavbTsSrc))
+#define GST_QEAVB_TS_SRC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_QEAVB_TS_SRC,GstQeavbTsSrcClass))
+#define GST_IS_QEAVB_TS_SRC(obj) \
+  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_QEAVB_TS_SRC))
+#define GST_IS_QEAVB_TS_SRC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_QEAVB_TS_SRC))
+
+typedef struct _GstQeavbTsSrc GstQeavbTsSrc;
+typedef struct _GstQeavbTsSrcClass GstQeavbTsSrcClass;
+
+struct _GstQeavbTsSrc
 {
-  if (!gst_qeavb_pcm_src_plugin_init (plugin))
-    return FALSE;
-  if (!gst_qeavb_ts_src_plugin_init (plugin))
-    return FALSE;
+  GstPushSrc parent;
 
-  return TRUE;
-}
+  void* eavb_addr;
+  gchar * config_file;
 
-GST_PLUGIN_DEFINE (GST_VERSION_MAJOR, GST_VERSION_MINOR,
-    qeavb, "QTI Audio/Video Transport Protocol (AVTP) plugin",
-    plugin_init, VERSION, "BSD", "gstreamer qeavb plugin", "unknown package origin");
+  int eavb_fd;
+  eavb_ioctl_hdr_t hdr;
+  eavb_ioctl_stream_info_t stream_info;
+  eavb_ioctl_stream_config_t cfg_data;
+  gboolean started;
+  GMutex lock;
+};
+
+struct _GstQeavbTsSrcClass
+{
+  GstPushSrcClass parent_class;
+};
+
+GType gst_qeavb_ts_src_get_type (void);
+
+gboolean gst_qeavb_ts_src_plugin_init (GstPlugin * plugin);
+
+
+G_END_DECLS
+
+#endif /* __GST_QEAVB_TS_SRC_H__ */
