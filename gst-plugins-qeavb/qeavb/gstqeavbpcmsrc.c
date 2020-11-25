@@ -173,6 +173,8 @@ gst_qeavb_pcm_src_fixate (GstBaseSrc * bsrc, GstCaps * caps)
   GstQeavbPcmSrc *src = GST_QEAVB_PCM_SRC (bsrc);
   GstStructure *structure;
   gint channels, rate;
+  unsigned char endianness = src->stream_info.endianness;
+  int bit_depth = src->stream_info.pcm_bit_depth;
 
   caps = gst_caps_make_writable (caps);
 
@@ -186,14 +188,34 @@ gst_qeavb_pcm_src_fixate (GstBaseSrc * bsrc, GstCaps * caps)
     rate = GST_AUDIO_DEF_RATE;
 
   gst_structure_fixate_field_nearest_int (structure, "rate", rate);
-
-  gst_structure_fixate_field_string (structure, "format", GST_AUDIO_DEF_FORMAT);
+  GST_DEBUG_OBJECT (bsrc, "rate %d", rate);
+  GST_DEBUG_OBJECT (bsrc, "endianness %d, bit_depth %d", endianness, bit_depth);
+  if(bit_depth == 16) {
+    if (endianness)
+      gst_structure_fixate_field_string (structure, "format", "S16LE");
+    else
+      gst_structure_fixate_field_string (structure, "format", "S16BE");
+  } else if (bit_depth == 32) {
+    if (endianness)
+      gst_structure_fixate_field_string (structure, "format", "S32LE");
+    else
+      gst_structure_fixate_field_string (structure, "format", "S32BE");
+  } else if (bit_depth == 24) {
+    if (endianness)
+      gst_structure_fixate_field_string (structure, "format", "S24LE");
+    else
+      gst_structure_fixate_field_string (structure, "format", "S24BE");
+  } else if (bit_depth == 8) {
+    gst_structure_fixate_field_string (structure, "format", "S8");
+  } else {
+    gst_structure_fixate_field_string (structure, "format", GST_AUDIO_DEF_FORMAT);
+  }
 
   gst_structure_fixate_field_string (structure, "layout", "interleaved");
 
   /* fixate to mono unless downstream requires stereo, for backwards compat */
   gst_structure_fixate_field_nearest_int (structure, "channels", src->stream_info.num_pcm_channels);
-
+  GST_DEBUG_OBJECT (bsrc, "pcm channels %d", src->stream_info.num_pcm_channels);
   if (gst_structure_get_int (structure, "channels", &channels) && channels > 2) {
     if (!gst_structure_has_field_typed (structure, "channel-mask",
             GST_TYPE_BITMASK))
@@ -302,7 +324,8 @@ gst_qeavb_pcm_src_start (GstBaseSrc * basesrc)
     GST_ERROR_OBJECT (qeavbpcmsrc,"get stream info error %d, exit!", err);
     goto error;
   }
-
+  GST_DEBUG_OBJECT (qeavbpcmsrc, "QEAVB PCM source stream info pcm_bit_depth %d, num_pcm_channels %d, sample_rate %d, endianness %d", qeavbpcmsrc->stream_info.pcm_bit_depth,
+                    qeavbpcmsrc->stream_info.num_pcm_channels, qeavbpcmsrc->stream_info.sample_rate, qeavbpcmsrc->stream_info.endianness);
   // mmap
   qeavbpcmsrc->eavb_addr = mmap(NULL, qeavbpcmsrc->stream_info.max_buffer_size * qeavbpcmsrc->stream_info.pkts_per_wake, PROT_READ | PROT_WRITE, MAP_SHARED, qeavbpcmsrc->eavb_fd, 0);
   GST_DEBUG_OBJECT (qeavbpcmsrc, "QEAVB PCM source started");
