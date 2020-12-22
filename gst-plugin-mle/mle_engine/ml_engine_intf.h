@@ -31,10 +31,13 @@
 
 #include <vector>
 #include <string>
+#include <mutex>
 #include <time.h>
+#include <adreno/c2d2.h>
+#include <gst/video/c2d-video-converter.h>
+#include <gst/video/gstimagepool.h>
 #include <fastcv/fastcv.h>
 #include <ml-meta/ml_meta.h>
-#include "common_utils.h"
 
 namespace mle {
 
@@ -89,10 +92,18 @@ enum class PreprocessingMode {
 };
 
 enum class PreprocessingAccel {
-  lowPower = 0,
-  cpuPerf,
-  cpuOffload,
-  performance
+  cpu = 0,
+  dsp,
+  gpu
+};
+
+enum class DelegateType {
+  nnapi = 0,
+  nnapi_npu,
+  hexagon_nn,
+  gpu,
+  xnnpack,
+  cpu
 };
 
 struct PreprocessingOffsets {
@@ -115,11 +126,6 @@ struct MLEInputParams {
   uint32_t width;
   uint32_t height;
   MLEImageFormat format;
-};
-
-struct SourceFrame {
-  uint8_t *frame_data[2];
-  uint32_t stride;
 };
 
 struct MLConfig {
@@ -153,7 +159,7 @@ struct MLConfig {
 
   //tflite specific
   uint32_t number_of_threads;
-  std::string delegate;
+  DelegateType delegate;
 
   //snpe layers
   std::vector<std::string> output_layers;
@@ -165,9 +171,8 @@ class MLEngine {
   virtual ~MLEngine(){};
   int32_t Init(const MLEInputParams* source_info);
   virtual void Deinit();
-  int32_t PreProcess(const struct SourceFrame* frame_info);
-  int32_t Process(struct SourceFrame* frame_info,
-                          GstBuffer* buffer);
+  int32_t PreProcess(GstVideoFrame *frame);
+  int32_t Process(GstVideoFrame *frame);
  private:
   virtual int32_t LoadModel(std::string& model_path) = 0;
   virtual int32_t InitFramework() = 0;
@@ -177,12 +182,14 @@ class MLEngine {
   int32_t ReadLabelsFile(const std::string& file_name,
                         std::vector<std::string>& result,
                         size_t& found_label_count);
-  virtual int32_t AllocateInternalBuffers();
-  virtual void FreeInternalBuffers();
   void PreProcessAccelerator();
   static bool fastcv_mode_is_set_;
+  static std::mutex fastcv_process_lock_;
 
  protected:
+
+  virtual int32_t AllocateInternalBuffers();
+  virtual void FreeInternalBuffers();
 
   void DumpFrame(const uint8_t* buffer, const uint32_t& width,
       const uint32_t& height, const uint32_t& size, const std::string& suffix);
@@ -235,36 +242,11 @@ class MLEngine {
   bool need_labels_;
   std::vector<std::string> labels_;
   size_t label_count_;
-
-};
-
-class Timer {
-  std::string str;
-  uint64_t begin;
-
-public:
-
-  Timer (std::string s) : str(s) {
-    begin = GetMicroSeconds();
-  }
-
-  ~Timer () {
-    uint64_t end = GetMicroSeconds();
-    MLE_LOGD("%s: %llu us", str.c_str(),
-        static_cast<long long unsigned>(end - begin));
-  }
-
-  uint64_t GetMicroSeconds()
-{
-  timespec time;
-
-  clock_gettime(CLOCK_MONOTONIC, &time);
-
-  uint64_t microSeconds = (static_cast<uint32_t>(time.tv_sec) * 1000000ULL) +
-                          (static_cast<uint32_t>(time.tv_nsec)) / 1000;
-
-  return microSeconds;
-}
+  GstC2dVideoConverter *c2dconvert_;
+  GstBufferPool *outpool_;
+  static bool use_c2d_preprocess_;
+  GstVideoFrame *scale_buf_outframe_;
+  GstBuffer *gst_scale_buf_;
 };
 
 }; // namespace mle

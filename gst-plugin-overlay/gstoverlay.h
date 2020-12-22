@@ -34,9 +34,9 @@
 #include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/gstvideofilter.h>
-#include <qmmf-sdk/qmmf_overlay.h>
+#include <overlay-lib/overlay.h>
 
-using namespace qmmf::overlay;
+using namespace overlay;
 
 G_BEGIN_DECLS
 

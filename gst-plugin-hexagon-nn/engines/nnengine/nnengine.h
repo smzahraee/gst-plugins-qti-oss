@@ -41,6 +41,7 @@
 #include <fastcv/fastcv.h>
 
 #include "nndriver.h"
+#include "engines/common_utils.h"
 
 #define DEEP_LAP_PATH_LEN 512
 
@@ -90,7 +91,7 @@ public:
 
   ~Timer () {
     uint64_t end = GetMicroSeconds();
-    ALOGD("%s: %" G_GINT64_FORMAT " us", str.c_str(), end - begin);
+    NN_LOGV("%s: %" G_GINT64_FORMAT " us", str.c_str(), end - begin);
   }
 };
 
@@ -119,6 +120,7 @@ protected:
                rgb_buf_(nullptr),
                scale_buf_(nullptr),
                nn_input_buf_(nullptr) {
+    std::lock_guard<std::mutex> lock(fastcv_process_lock_);
     if (!fastcv_mode_is_set_) {
       fcvSetOperationMode(FASTCV_OP_PERFORMANCE);
       fastcv_mode_is_set_ = true;
@@ -209,7 +211,7 @@ protected:
  private:
 
   static bool fastcv_mode_is_set_;
-
+  static std::mutex fastcv_process_lock_;
 };
 
 #endif // NNEGINE_H

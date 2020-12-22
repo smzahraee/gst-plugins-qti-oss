@@ -58,7 +58,6 @@ struct _GstMLETFLite {
   GstVideoFilter      parent;
 
   mle::MLEInputParams source_info;
-  mle::SourceFrame source_frame;
   mle::MLEngine* engine;
   gboolean is_init;
   guint property_mask;
@@ -67,8 +66,8 @@ struct _GstMLETFLite {
   gchar *model_filename;
   gchar *labels_filename;
   gchar *postprocessing;
-  gchar *delegate;
   guint preprocess_accel;
+  guint delegate;
   guint preprocessing_type;
   guint input_format;
   gfloat blue_mean;
