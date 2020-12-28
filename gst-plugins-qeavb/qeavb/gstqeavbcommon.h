@@ -153,7 +153,7 @@ int qeavb_connect_stream(int eavb_fd, eavb_ioctl_hdr_t* hdr);
 int qeavb_disconnect_stream(int eavb_fd, eavb_ioctl_hdr_t* hdr);
 int qeavb_receive_data(int eavb_fd, eavb_ioctl_hdr_t* hdr, eavb_ioctl_buf_data_t* buff);
 int qeavb_receive_done(int eavb_fd, eavb_ioctl_hdr_t* hdr, eavb_ioctl_buf_data_t* data);
-
+int kpi_place_marker(const char* str);
 
 #endif /* __GST_QEAVB_COMMON_H__ */
 

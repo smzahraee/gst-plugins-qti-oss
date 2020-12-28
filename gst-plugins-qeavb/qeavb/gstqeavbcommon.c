@@ -828,3 +828,13 @@ error:
   return err;
 }
 
+int kpi_place_marker(const char* str)
+{
+  int fd = open("/dev/mpm", O_WRONLY);
+  if(fd >= 0) {
+    int ret = write(fd, str, strlen(str));
+    close(fd);
+    return ret;
+  }
+  return -1;
+}
