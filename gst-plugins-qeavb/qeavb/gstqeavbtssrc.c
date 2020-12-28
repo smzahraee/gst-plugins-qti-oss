@@ -111,6 +111,7 @@ gst_qeavb_ts_src_init (GstQeavbTsSrc * qeavbtssrc)
   qeavbtssrc->config_file = g_strdup (DEFAULT_TS_CONFIG_FILE);
   qeavbtssrc->eavb_addr = NULL;
   qeavbtssrc->eavb_fd = -1;
+  qeavbtssrc->is_first_tspacket = TRUE;
   qeavbtssrc->started = FALSE;
   memset(&(qeavbtssrc->hdr), 0, sizeof(eavb_ioctl_hdr_t));
   memset(&(qeavbtssrc->stream_info), 0, sizeof(eavb_ioctl_stream_info_t));
@@ -235,6 +236,7 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
   int err = 0;
   GstQeavbTsSrc *qeavbtssrc = GST_QEAVB_TS_SRC (basesrc);
 
+  GST_INFO_OBJECT(qeavbtssrc,"qeavb ts src start");
   qeavbtssrc->eavb_fd = open("/dev/virt-eavb", O_RDWR);
   if (qeavbtssrc->eavb_fd == -1) {
     GST_ERROR_OBJECT (qeavbtssrc,"open eavb fd error, exit!");
@@ -333,6 +335,11 @@ retry:
     recv_len = qeavb_receive_data(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
     GST_DEBUG_OBJECT (qeavbtssrc, "receive data len %d", recv_len);
     if (recv_len > 0) {
+      if (qeavbtssrc->is_first_tspacket) {
+        kpi_place_marker("M - qeavbtssrc receive the first packet");
+        GST_INFO_OBJECT(qeavbtssrc,"receive the first ts packet");
+        qeavbtssrc->is_first_tspacket = FALSE;
+      }
       gst_buffer_fill (buffer, 0, qavb_buffer.pbuf, recv_len);
       gst_buffer_set_size (buffer, recv_len);
     } else {
