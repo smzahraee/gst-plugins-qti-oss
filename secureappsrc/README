@@ -15,6 +15,24 @@ non-secure demo only support h264 decoding now.
 ./secureappsrc 2 video.raw.hevc
 ./secureappsrc 3 video.raw.vp9
 
+The demo secureappsrc2 is used for verifying the secure video playback in secure memory by supporting new input buffer
+sharing mechanism. The secure input buffers are allocated in GST-OMX, which is different with the previous secureappsrc.
+
+Now the demo only supports the special clips. In the clips, there are a four bytes header before every frame data.
+If disable the macro SECURE_PLAYBACK in file secureappsrc2.c, the demo will be changed to non-secure version. The
+non-secure demo only support h264 decoding now.
+
+./secureappsrc2 [OPTION]... [FILE]...
+
+[OPTION]
+1. h264
+2. hevc
+3. vp9
+
+./secureappsrc2 1 video.raw.h264
+./secureappsrc2 2 video.raw.hevc
+./secureappsrc2 3 video.raw.vp9
+
 Some definitions in the project have been replaced by self-defined ones.
 Please make sure the alignment of some definitions:
 secure_handle <-> QSEECom_handle (in QSEEComAPI.h)
