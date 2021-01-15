@@ -34,10 +34,12 @@ GST_DEBUG_CATEGORY_STATIC (qeavbtssrc_debug);
 #define GST_CAT_DEFAULT (qeavbtssrc_debug)
 
 #define DEFAULT_TS_CONFIG_FILE "/etc/xdg/listenerMPEG2TS.ini"
+#define DEFAULT_TSSRC_IS_LIVE FALSE
 enum
 {
   PROP_0,
   PROP_CONFIG_FILE,
+  PROP_IS_LIVE,
 };
 
 static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE ("src",
@@ -88,6 +90,10 @@ gst_qeavb_ts_src_class_init (GstQeavbTsSrcClass * klass)
           "Config file name to config eavb",
           DEFAULT_TS_CONFIG_FILE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
+  g_object_class_install_property (object_class, PROP_IS_LIVE,
+      g_param_spec_boolean ("is-live", "Is Live",
+          "Whether to act as a live source", DEFAULT_TSSRC_IS_LIVE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   gst_element_class_set_static_metadata (element_class,
       "TS Transport Source",
       "Src/Network", "Receive ts from the network",
@@ -104,8 +110,8 @@ gst_qeavb_ts_src_class_init (GstQeavbTsSrcClass * klass)
 static void
 gst_qeavb_ts_src_init (GstQeavbTsSrc * qeavbtssrc)
 {
-  gst_base_src_set_live (GST_BASE_SRC (qeavbtssrc), TRUE);
-  gst_base_src_set_format (GST_BASE_SRC (qeavbtssrc), GST_FORMAT_TIME);
+  gst_base_src_set_live (GST_BASE_SRC (qeavbtssrc), DEFAULT_TSSRC_IS_LIVE);
+  gst_base_src_set_format (GST_BASE_SRC (qeavbtssrc), DEFAULT_TSSRC_IS_LIVE ? GST_FORMAT_TIME : GST_FORMAT_BYTES);
   gst_base_src_set_blocksize (GST_BASE_SRC (qeavbtssrc), QEAVB_TS_DEFAULT_BLOCKSIZE);
 
   qeavbtssrc->config_file = g_strdup (DEFAULT_TS_CONFIG_FILE);
@@ -133,13 +139,18 @@ gst_qeavb_ts_src_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
   GstQeavbTsSrc *qeavbtssrc = GST_QEAVB_TS_SRC (object);
-
+  gboolean is_live = FALSE;
   GST_DEBUG_OBJECT (qeavbtssrc, "prop_id %u", prop_id);
 
   switch (prop_id) {
     case PROP_CONFIG_FILE:
       g_free (qeavbtssrc->config_file);
       qeavbtssrc->config_file = g_value_dup_string (value);
+      break;
+    case PROP_IS_LIVE:
+      is_live = g_value_get_boolean (value);
+      gst_base_src_set_live (GST_BASE_SRC (qeavbtssrc), is_live);
+      gst_base_src_set_format (GST_BASE_SRC (qeavbtssrc), is_live ? GST_FORMAT_TIME : GST_FORMAT_BYTES);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -158,6 +169,9 @@ gst_qeavb_ts_src_get_property (GObject * object, guint prop_id,
   switch (prop_id) {
     case PROP_CONFIG_FILE:
       g_value_set_string (value, qeavbtssrc->config_file);
+      break;
+    case PROP_IS_LIVE:
+      g_value_set_boolean (value, gst_base_src_is_live (GST_BASE_SRC (qeavbtssrc)));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
