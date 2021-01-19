@@ -181,6 +181,7 @@ public:
 private:
     int32_t getBufferFD (const std::shared_ptr<QC2Buffer> &buffer);
     int32_t getBufferMetaFD (const std::shared_ptr<QC2Buffer> &buffer);
+    uint32_t getBufferCapacity (const std::shared_ptr<QC2Buffer> &buffer);
     uint32_t getBufferSize (const std::shared_ptr<QC2Buffer> &buffer);
     uint32_t getBufferOffset (const std::shared_ptr<QC2Buffer> &buffer);
 
@@ -217,25 +218,52 @@ void CodecCallback::onOutputBufferAvailable (
     BufferDescriptor outBuf;
 
     if (buffer) {
+        outBuf.fd = getBufferFD(buffer);
+        outBuf.size = getBufferSize(buffer);
+        outBuf.capacity = getBufferCapacity(buffer);
+        outBuf.offset = getBufferOffset(buffer);
+        outBuf.timestamp = timestamp;
+        outBuf.index = index;
+        outBuf.flag = toWrapperFlag(flag);
+
         if (buffer->isGraphic()) {
-
-            outBuf.fd = getBufferFD(buffer);
             outBuf.meta_fd = getBufferMetaFD(buffer);
-            outBuf.size = getBufferSize(buffer);
-            outBuf.capacity = getBufferSize(buffer);
-            outBuf.offset = getBufferOffset(buffer);
-            outBuf.timestamp = buffer->timestamp();
-            outBuf.index = index;
-            outBuf.flag = toWrapperFlag(flag);
-
             if (mMapBufferToCpu) {
-                std::unique_ptr<QC2Buffer::Mapping> map = buffer->graphic().map();
-                outBuf.data = map->baseRW();
+                auto& g = buffer->graphic();
+                auto map = g.mapReadOnly();
+                outBuf.data = (guint8 *)map->base();
             }
             else {
                 outBuf.data = NULL;
             }
+            mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
+        } else if (buffer->isLinear()) {
+            /* Check for codec data */
+            auto& infos = buffer->infos();
+            for (auto& info : infos) {
+                if (info && info->coreIndex().coreIndex() ==
+                    C2StreamInitDataInfo::output::CORE_INDEX) {
+                    BufferDescriptor codecConfigBuf;
+                    auto csd = (C2StreamInitDataInfo::output*)info.get();
 
+                    LOG_INFO("get codec config data, size: %d", csd->flexCount());
+                    codecConfigBuf.data = csd->m.value;
+                    codecConfigBuf.size = csd->flexCount();
+                    codecConfigBuf.timestamp = 0;
+                    codecConfigBuf.fd = -1;
+                    codecConfigBuf.meta_fd = -1;
+                    codecConfigBuf.capacity = 0;
+                    codecConfigBuf.offset = 0;
+                    codecConfigBuf.index = 0;
+                    codecConfigBuf.flag = FLAG_TYPE_CODEC_CONFIG;
+                    mCallback(mHandle, EVENT_OUTPUTS_DONE, &codecConfigBuf);
+                }
+            }
+
+            /* Always map output buffer for linear output */
+            auto& l = buffer->linear();
+            auto map = l.mapReadOnly();
+            outBuf.data = (guint8 *)map->base();
             mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
         }
     }
@@ -306,6 +334,20 @@ int32_t CodecCallback::getBufferMetaFD(const std::shared_ptr<QC2Buffer> &buffer)
 }
 
 
+uint32_t CodecCallback::getBufferCapacity (const std::shared_ptr<QC2Buffer> &buffer) {
+
+    uint32_t capacity = 0;
+
+    if (buffer->isGraphic()) {
+        capacity = buffer->graphic().allocSize();
+    }
+    else if (buffer->isLinear()) {
+        capacity = buffer->linear().capacity();
+    }
+
+    return capacity;
+}
+
 uint32_t CodecCallback::getBufferSize (const std::shared_ptr<QC2Buffer> &buffer) {
 
     uint32_t size = 0;
@@ -314,7 +356,7 @@ uint32_t CodecCallback::getBufferSize (const std::shared_ptr<QC2Buffer> &buffer)
         size = buffer->graphic().allocSize();
     }
     else if (buffer->isLinear()) {
-        size = buffer->linear().capacity();
+        size = buffer->linear().size();
     }
 
     return size;
@@ -485,14 +527,14 @@ gboolean c2component_queue(void* const comp, BufferDescriptor* buffer) {
         C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
 
         c2Status = comp_wrapper->queue(
-            (guint8* const*)buffer->data,
+            buffer->data,
             buffer->size,
             toC2Flag(buffer->flag),
             buffer->index, 
-            buffer->timestamp);
+            buffer->timestamp,
+            toC2BufferPoolType(buffer->pool_type));
         if (c2Status == C2_OK) {
             ret = TRUE;
-
         } else {
             LOG_ERROR("Failed to queue work (%d)", c2Status);
         }
@@ -736,6 +778,8 @@ gboolean c2component_set_pool_property (void* comp, BUFFER_POOL_TYPE poolType, g
         } else {
             LOG_ERROR("Failed(%d) to set pool property", c2Status);
         }
+    } else {
+        LOG_ERROR("Fail to set pool property. comp is NULL");
     }
 
     return ret;
@@ -787,7 +831,6 @@ gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config,
         g_hash_table_iter_init (&iter, config);
 
         while (g_hash_table_iter_next (&iter, &key, &value)) {
-
             auto iter = sConfigFunctionMap.find((const char*)key);
             if (iter != sConfigFunctionMap.end()) {
                 auto param = (*iter->second)(value);
