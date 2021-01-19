@@ -97,14 +97,15 @@ typedef enum {
 
 typedef struct {
     guint8* data;
-    guint32  fd;
-    guint32 meta_fd;
+    gint32 fd;
+    gint32 meta_fd;
     guint32 size;
     guint32 capacity;       ///< Total allocation size
     guint32 offset;
     guint64 timestamp;
     guint64 index;
     FLAG_TYPE flag;
+    BUFFER_POOL_TYPE pool_type;
 } BufferDescriptor;
 
 typedef struct {

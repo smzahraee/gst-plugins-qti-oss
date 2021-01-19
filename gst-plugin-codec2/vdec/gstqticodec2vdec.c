@@ -907,6 +907,7 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
     gst_buffer_map (buf, &mapinfo, GST_MAP_READ);
     inBuf.data = mapinfo.data;
     inBuf.size = mapinfo.size;
+    inBuf.pool_type = BUFFER_POOL_BASIC_LINEAR;
 
     gst_buffer_unmap (buf, &mapinfo);
 
