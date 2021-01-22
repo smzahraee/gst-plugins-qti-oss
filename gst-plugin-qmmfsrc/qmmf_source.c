@@ -133,6 +133,7 @@ static GstStaticPadTemplate qmmfsrc_video_src_template =
 #if defined(GST_VIDEO_H265_ENABLE)
             QMMFSRC_VIDEO_H265_CAPS "; "
 #endif
+            QMMFSRC_VIDEO_JPEG_CAPS "; "
             QMMFSRC_VIDEO_RAW_CAPS(
                 "{ NV12 }") "; "
             QMMFSRC_VIDEO_RAW_CAPS_WITH_FEATURES(
@@ -288,6 +289,8 @@ qmmfsrc_request_pad (GstElement * element, GstPadTemplate * templ,
   g_signal_connect (srcpad, "notify::framerate",
       G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
   g_signal_connect (srcpad, "notify::idr-interval",
+      G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
+  g_signal_connect (srcpad, "notify::crop",
       G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
 
   return srcpad;
