@@ -33,6 +33,8 @@
 
 namespace mle {
 
+static const uint32_t kOutBytesPerPixel = 4;
+
 static const int TotalKeypointNum   = 17;
 static const int MaxKeypointNameLen = 20;
 
@@ -219,6 +221,11 @@ private:
   PosePPConfig                pose_pp_config_;
   PoseResult                  pose_results_[PoseMaxNumDetect];
   int                         pose_count_;
+
+  // output variables for output buffer
+  uint32_t kHeatMapSize;
+  uint32_t kOffsetSize;
+  uint32_t kDisplacementSize;
 
   // Output buffers to store dequantized values
   float* pRawHeatmaps;

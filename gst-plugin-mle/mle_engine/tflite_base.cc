@@ -436,6 +436,11 @@ int32_t TFLBase::ValidateModelInfo() {
     for (uint32_t i = 0; i < tflite_params_.num_outputs; ++i) {
       int output = tflite_params_.interpreter->outputs()[i];
 
+      TfLiteIntArray* output_dims =
+              tflite_params_.interpreter->tensor(output)->dims;
+      uint32_t featureHeight = output_dims->data[1];
+      uint32_t featureWidth = output_dims->data[2];
+
       // Check for output tensor type
       TfLiteType output_type = tflite_params_.interpreter->tensor(output)->type;
       switch (output_type) {
@@ -449,11 +454,12 @@ int32_t TFLBase::ValidateModelInfo() {
           return MLE_FAIL;
           break;
       }
-      MLE_LOGI("%s: Output tensor: type %d", __func__, output_type);
-
+      MLE_LOGI("%s: Output tensor %u: Height: %d, Width: %d", __func__, i,
+                  featureHeight, featureWidth);
+      MLE_LOGI("%s: Output tensor %u: type %d", __func__, i, output_type);
       // Output node quantization values
-      MLE_LOGI("%s: Output tensor: quantization scale %f, zero_point %d",
-                  __func__,
+      MLE_LOGI("%s: Output tensor %u: quantization scale %f, zero_point %d",
+                  __func__, i,
                   tflite_params_.interpreter->tensor(output)->params.scale,
                   tflite_params_.interpreter->tensor(output)->params.zero_point);
     }

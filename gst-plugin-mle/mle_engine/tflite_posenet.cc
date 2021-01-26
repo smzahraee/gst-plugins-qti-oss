@@ -48,23 +48,21 @@ static char PoseChain[32][MaxKeypointNameLen] =
   "rightHip", "rightKnee", "rightKnee", "rightAnkle"
 };
 
-  //TODO query this information from model
-  static const uint32_t       kNumOutputs       = 3;
-  static const uint32_t       kOutBytesPerPixel = 4;
-  static const uint32_t       kHeatMapSize      = 41 * 31 * 17;
-  static const uint32_t       kOffsetSize       = 41 * 31 * 34;
-  static const uint32_t       kDisplacementSize = 41 * 31 * 64;
-
-  static const float          output_0_value = 0.0470588244497776;
-  static const float          output_1_value = 0.3921568691730499;
-  static const float          output_2_value = 1.3875764608383179;
-
 TFLPoseNet::TFLPoseNet(MLConfig &config) : TFLBase(config) {
   pRawHeatmaps = nullptr;
   pRawOffsets = nullptr;
   pRawDisplacements = nullptr;
   need_labels_ = false;
   pose_count_ = 0;
+
+  // Change the following values as per your application requirements
+  pose_pp_config_.outputStride          = 16;
+  pose_pp_config_.maxPoseDetections     = PoseMaxNumDetect;
+  pose_pp_config_.minPoseScore          = 0.10f;
+  pose_pp_config_.heatmapScoreThreshold = 0.35f;
+  pose_pp_config_.nmsRadius             = 20;
+  pose_pp_config_.numKeypoint           = TotalKeypointNum;
+  pose_pp_config_.localMaximumRadius    = 1;
 }
 TFLPoseNet::~TFLPoseNet() {}
 
@@ -75,6 +73,20 @@ int32_t TFLPoseNet::AllocateInternalBuffers() {
     MLE_LOGE("%s: Failed AllocateInternalBuffers", __func__);
     return MLE_FAIL;
   }
+
+  int output = tflite_params_.interpreter->outputs()[0];
+  TfLiteIntArray* output_dims = tflite_params_.interpreter->tensor(output)->dims;
+  pose_pp_config_.featureHeight = output_dims->data[1];
+  pose_pp_config_.featureWidth  = output_dims->data[2];
+
+  kHeatMapSize = pose_pp_config_.featureHeight *
+                    pose_pp_config_.featureWidth * TotalKeypointNum;
+  kOffsetSize = kHeatMapSize * 2;
+  kDisplacementSize = pose_pp_config_.featureHeight *
+                          pose_pp_config_.featureWidth * 64;
+
+  MLE_LOGI("%s: feature height: %d", __func__, pose_pp_config_.featureHeight);
+  MLE_LOGI("%s: feature width: %d", __func__, pose_pp_config_.featureWidth);
 
   // Allocate buffers for dequantization
   posix_memalign(reinterpret_cast<void**>(&pRawHeatmaps), 128,
@@ -120,39 +132,64 @@ int32_t TFLPoseNet::PostProcess(GstBuffer* buffer) {
   ParentChildTurple parentChildTurples[TotalKeypointNum - 1];
 
   // Get outputs from model
-  uint8_t* pRawHeatmaps_temp =
-      tflite_params_.interpreter->typed_output_tensor<uint8_t>(0);
-  uint8_t* pRawOffsets_temp =
-      tflite_params_.interpreter->typed_output_tensor<uint8_t>(1);
-  uint8_t* pRawDisplacements_temp =
-      tflite_params_.interpreter->typed_output_tensor<uint8_t>(2);
-
   // Dequantization of model outputs is needed,
   // because the postprocessing operates on float values
-  for (uint32_t i = 0; i < kHeatMapSize; i++) {
-    pRawHeatmaps[i] =
-        static_cast<float>(pRawHeatmaps_temp[i] - 128) * output_0_value;
+  if (config_.input_format == InputFormat::kRgbFloat ||
+      config_.input_format == InputFormat::kBgrFloat) {
+    float *pRawHeatmaps_temp =
+        tflite_params_.interpreter->typed_output_tensor<float>(0);
+    float *pRawOffsets_temp =
+        tflite_params_.interpreter->typed_output_tensor<float>(1);
+    float* pRawDisplacements_temp =
+        tflite_params_.interpreter->typed_output_tensor<float>(2);
+
+    for (uint32_t i = 0; i < kHeatMapSize; i++) {
+        pRawHeatmaps[i] = static_cast<float>(pRawHeatmaps_temp[i]);
+    }
+    for (uint32_t i = 0; i < kOffsetSize; i++) {
+      pRawOffsets[i] = static_cast<float>(pRawOffsets_temp[i]);
+    }
+
+    for (uint32_t i = 0; i < kDisplacementSize; i++) {
+      pRawDisplacements[i] = static_cast<float>(pRawDisplacements_temp[i]);
+    }
   }
-  for (uint32_t i = 0; i < kOffsetSize; i++) {
-    pRawOffsets[i] =
+  else {
+    uint8_t* pRawHeatmaps_temp =
+             tflite_params_.interpreter->typed_output_tensor<uint8_t>(0);
+    uint8_t* pRawOffsets_temp =
+             tflite_params_.interpreter->typed_output_tensor<uint8_t>(1);
+    uint8_t* pRawDisplacements_temp =
+             tflite_params_.interpreter->typed_output_tensor<uint8_t>(2);
+
+    // check number of output layers
+    if (tflite_params_.num_outputs < 3) {
+      MLE_LOGE("%s: Not support output layer", __func__);
+      return MLE_FAIL;
+    }
+
+    // get quantization value for heatmap, offset, displacement
+    float output_0_value = tflite_params_.interpreter->tensor(
+                           tflite_params_.interpreter->outputs()[0])->params.scale;
+    float output_1_value = tflite_params_.interpreter->tensor(
+                           tflite_params_.interpreter->outputs()[1])->params.scale;
+    float output_2_value = tflite_params_.interpreter->tensor(
+                           tflite_params_.interpreter->outputs()[2])->params.scale;
+
+    for (uint32_t i = 0; i < kHeatMapSize; i++) {
+        pRawHeatmaps[i] =
+            static_cast<float>(pRawHeatmaps_temp[i] - 128) * output_0_value;
+    }
+    for (uint32_t i = 0; i < kOffsetSize; i++) {
+      pRawOffsets[i] =
         static_cast<float>(pRawOffsets_temp[i] - 128) * output_1_value;
-  }
+    }
 
-  for (uint32_t i = 0; i < kDisplacementSize; i++) {
-    pRawDisplacements[i] =
+    for (uint32_t i = 0; i < kDisplacementSize; i++) {
+      pRawDisplacements[i] =
         static_cast<float>(pRawDisplacements_temp[i] - 117) * output_2_value;
+    }
   }
-
-  // Change the following values as per your application requirements
-  pose_pp_config_.outputStride          = 16;
-  pose_pp_config_.maxPoseDetections     = PoseMaxNumDetect;
-  pose_pp_config_.minPoseScore          = 0.10f;
-  pose_pp_config_.heatmapScoreThreshold = 0.35f;
-  pose_pp_config_.nmsRadius             = 20;
-  pose_pp_config_.featureHeight         = 31;
-  pose_pp_config_.featureWidth          = 41;
-  pose_pp_config_.numKeypoint           = 17;
-  pose_pp_config_.localMaximumRadius    = 1;
 
   int squaredNmsRadius             = pow(pose_pp_config_.nmsRadius, 2);
   float candidatePoseInstanceScore = 0.0f;
