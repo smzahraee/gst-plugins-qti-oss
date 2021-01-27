@@ -132,6 +132,7 @@ AC_SUBST(GST_PLUGIN_LDFLAGS)
 
 AC_CONFIG_FILES(
 Makefile 
+common/Makefile
 vdec/Makefile
 venc/Makefile
 wrapper/Makefile
