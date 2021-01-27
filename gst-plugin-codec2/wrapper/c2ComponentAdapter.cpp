@@ -63,6 +63,7 @@ C2ComponentAdapter::~C2ComponentAdapter() {
     mIntf = nullptr;
     mListener = nullptr;
     mCallback = nullptr;
+    mInPendingBuffer.clear();
     mOutPendingBuffer.clear();
     mLinearPool = nullptr;
     mGraphicPool = nullptr;
@@ -193,6 +194,38 @@ c2_status_t C2ComponentAdapter::waitForProgressOrStateChange(
     return C2_OK;
 }
 
+std::shared_ptr<QC2Buffer> C2ComponentAdapter::alloc(C2BlockPool::local_id_t type) {
+    QC2Status err = QC2_OK;
+    std::shared_ptr<QC2Buffer> buf;
+
+    /* TODO: add support for linear buffer */
+    if (type == C2BlockPool::BASIC_GRAPHIC) {
+        if (mGraphicPool) {
+            err = mGraphicPool->allocate(&buf);
+            if (err != QC2_OK || buf == nullptr) {
+                LOG_ERROR("Graphic pool failed to allocate input buffer");
+                return NULL;
+            }
+            else {
+                /* ref the buffer and store it. When the fd is queued,
+                 * we can find the QC2buffer with the input fd
+                 * */
+                uint32_t fd = buf->graphic().fd();
+                mInPendingBuffer[fd] = buf;
+                LOG_MESSAGE("allocated QC2Buffer, fd: %d", fd);
+            }
+        } else {
+            LOG_ERROR("Graphic pool is not created");
+            return NULL;
+        }
+    } else {
+        LOG_ERROR("Unsupported pool type: %d", type);
+        return NULL;
+    }
+
+    return buf;
+}
+
 c2_status_t C2ComponentAdapter::queue (
     uint8_t* inputBuffer,
     size_t inputBufferSize,
@@ -247,6 +280,64 @@ c2_status_t C2ComponentAdapter::queue (
 
     std::unique_lock<std::mutex> ul(mLock);
     mNumPendingWorks ++;
+
+    return result;
+}
+
+c2_status_t C2ComponentAdapter::queue (
+    uint32_t fd,
+    C2FrameData::flags_t inputFrameFlag,
+    uint64_t frame_index,
+    uint64_t timestamp,
+    C2BlockPool::local_id_t poolType) {
+
+    LOG_MESSAGE("Component(%p) work queued, fd: %d, Frame index : %lu, Timestamp : %lu",
+        this, fd, frame_index, timestamp);
+
+    c2_status_t result = C2_NO_INIT;
+    std::list<std::unique_ptr<C2Work>> workList;
+    std::unique_ptr<C2Work> work = std::make_unique<C2Work>();
+
+    work->input.flags = inputFrameFlag;
+    work->input.ordinal.timestamp = timestamp;
+    work->input.ordinal.frameIndex = frame_index;
+    bool isEOSFrame = inputFrameFlag & C2FrameData::FLAG_END_OF_STREAM;
+
+    work->input.buffers.clear();
+    if (fd) {
+        std::map<uint64_t, std::shared_ptr<QC2Buffer>>::iterator it;
+
+        /* Find the buffer with fd */
+        it = mInPendingBuffer.find(fd);
+        if (it != mInPendingBuffer.end()) {
+            std::shared_ptr<QC2Buffer> buf = it->second;
+            work->input.buffers.emplace_back(buf->getSharedBuffer());
+            result = C2_OK;
+        } else {
+            LOG_ERROR("Buffer fd(%lu) not found", fd);
+        }
+    }
+
+    if (result == C2_OK) {
+        work->worklets.clear();
+        work->worklets.emplace_back(new C2Worklet);
+        workList.push_back(std::move(work));
+
+        if (!isEOSFrame) {
+            waitForProgressOrStateChange(MAX_PENDING_WORK, 0);
+        }
+        else {
+            LOG_MESSAGE("EOS reached");
+        }
+
+        result = mComp->queue_nb(&workList);
+        if (result != C2_OK) {
+            LOG_ERROR("Failed to queue work");
+        }
+
+        std::unique_lock<std::mutex> ul(mLock);
+        mNumPendingWorks ++;
+    }
 
     return result;
 }
