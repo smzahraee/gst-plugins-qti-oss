@@ -1,4 +1,4 @@
-ALWAYS_SUBDIRS = wrapper vdec venc
+ALWAYS_SUBDIRS = wrapper common vdec venc
 
 SUBDIRS = $(ALWAYS_SUBDIRS)
 

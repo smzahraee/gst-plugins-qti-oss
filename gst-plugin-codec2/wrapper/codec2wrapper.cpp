@@ -516,6 +516,42 @@ gboolean c2component_setListener(void* const comp, void* cb_context, listener_cb
     return ret;
 }
 
+gboolean c2component_alloc(void* const comp, BufferDescriptor* buffer, BUFFER_POOL_TYPE poolType) {
+
+    LOG_MESSAGE("Comp %p allocate buffer type: %d", comp, poolType);
+
+    gboolean ret = FALSE;
+    C2BlockPool::local_id_t type = toC2BufferPoolType(poolType);
+    std::shared_ptr<QC2Buffer> buf = NULL;
+
+    if (comp) {
+        C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
+
+        /* When callling into alloc(), it's assuming that the allocation
+         * parms(resolution/size, format) are already passed into allocator.
+         * This can be done by calling c2component_set_pool_property() */
+        buf = comp_wrapper->alloc(type);
+
+        if (buf != NULL) {
+            if (poolType == BUFFER_POOL_BASIC_GRAPHIC) {
+                auto& g = buf->graphic();
+                buffer->fd = g.fd();
+                buffer->capacity = g.allocSize();
+
+                ret = TRUE;
+            } else {
+                LOG_ERROR("Unsupported pool type: %d", poolType);
+            }
+        } else {
+            LOG_ERROR("Failed to alloc buffer");
+        }
+    } else {
+        LOG_ERROR("Component is null");
+    }
+
+    return ret;
+}
+
 gboolean c2component_queue(void* const comp, BufferDescriptor* buffer) {
 
     LOG_MESSAGE("Queueing work");
@@ -526,13 +562,24 @@ gboolean c2component_queue(void* const comp, BufferDescriptor* buffer) {
     if (comp) {
         C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
 
-        c2Status = comp_wrapper->queue(
-            buffer->data,
-            buffer->size,
-            toC2Flag(buffer->flag),
-            buffer->index, 
-            buffer->timestamp,
-            toC2BufferPoolType(buffer->pool_type));
+        /* check if input buffer contains fd/va and decide if we need to
+         * allocate a new C2 buffer or not */
+        if (buffer->fd > 0) {
+          c2Status = comp_wrapper->queue(
+              buffer->fd,
+              toC2Flag(buffer->flag),
+              buffer->index,
+              buffer->timestamp,
+              toC2BufferPoolType(buffer->pool_type));
+        } else {
+          c2Status = comp_wrapper->queue(
+              buffer->data,
+              buffer->size,
+              toC2Flag(buffer->flag),
+              buffer->index,
+              buffer->timestamp,
+              toC2BufferPoolType(buffer->pool_type));
+        }
         if (c2Status == C2_OK) {
             ret = TRUE;
         } else {

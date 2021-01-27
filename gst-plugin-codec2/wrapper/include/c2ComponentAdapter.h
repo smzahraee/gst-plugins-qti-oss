@@ -65,9 +65,20 @@ public:
     ~C2ComponentAdapter();
 
     /* Methods implementing C2Component */
+    std::shared_ptr<QC2Buffer> alloc(C2BlockPool::local_id_t type);
+
+    /* Queue buffer with va (copy) */
     c2_status_t queue (
         uint8_t* inputBuffer,
         size_t inputBufferSize,
+        C2FrameData::flags_t inputFrameFlag,
+        uint64_t frame_index,
+        uint64_t timestamp,
+        C2BlockPool::local_id_t poolType);
+
+    /* Queue buffer with fd (zero-copy) */
+    c2_status_t queue (
+        uint32_t fd,
         C2FrameData::flags_t inputFrameFlag,
         uint64_t frame_index,
         uint64_t timestamp,
@@ -116,6 +127,7 @@ private:
 
     std::shared_ptr<QC2LinearBufferPool> mLinearPool;
     std::shared_ptr<QC2GraphicBufferPool> mGraphicPool;
+    std::map<uint64_t, std::shared_ptr<QC2Buffer>> mInPendingBuffer;
     std::map<uint64_t, std::shared_ptr<QC2Buffer>> mOutPendingBuffer;
 
     uint32_t mNumPendingWorks;

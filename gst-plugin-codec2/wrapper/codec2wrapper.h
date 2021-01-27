@@ -147,6 +147,7 @@ gboolean c2componentStore_delete (void* comp_store);
 // Component API
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 gboolean c2component_setListener (void* const comp, void* cb_context, listener_cb callback, BLOCK_MODE_TYPE block);
+gboolean c2component_alloc(void* const comp, BufferDescriptor* buffer, BUFFER_POOL_TYPE poolType);
 gboolean c2component_queue(void* const comp, BufferDescriptor* buffer);
 gboolean c2component_flush (void* const comp, FLUSH_MODE_TYPE mode, void* const flushedWork);
 gboolean c2component_drain (void* const comp, DRAIN_MODE_TYPE mode);
