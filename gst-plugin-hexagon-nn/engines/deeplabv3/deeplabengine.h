@@ -31,6 +31,7 @@
 #define DEEPLABENGINE_H
 
 #include "nnengine.h"
+#include "engines/common_utils.h"
 
 class DeepLabv3Engine : public NNEngine {
 public:
