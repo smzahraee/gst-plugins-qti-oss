@@ -3048,7 +3048,7 @@ static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_hand
                           nPortIndex, &pPlatformList[bufCnt], bufSize, pvirt);
   }
 #else
-  struct vdec_ion vdecion;
+  struct vdec_ion vdecion = {0};
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
                 malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
   if(*pBufHdrs == NULL){
