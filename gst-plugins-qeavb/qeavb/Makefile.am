@@ -13,10 +13,11 @@ libgstqeavb_la_CFLAGS = \
 libgstqeavb_la_LIBADD = \
 							 $(GST_PLUGINS_BASE_LIBS) \
 							 $(GST_BASE_LIBS) \
-							 $(GST_LIBS)
+							 $(GST_LIBS) \
+							 -leavbfe
 libgstqeavb_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 libgstqeavb_la_LIBTOOLFLAGS = --tag=disable-static
 
 # headers we need but don't want installed
 noinst_HEADERS = \
-				 gstqeavbpcmsrc.h gstqeavbcommon.h eavb_shared.h gstqeavbtssrc.h
+				 gstqeavbpcmsrc.h gstqeavbcommon.h gstqeavbtssrc.h

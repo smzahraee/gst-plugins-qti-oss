@@ -203,15 +203,9 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
     return FALSE;
   }
 
-  err = qeavb_read_config_file(&(qeavbtssrc->cfg_data), qeavbtssrc->config_file);
-  if (0 == err) {
-    err = qeavb_create_stream(qeavbtssrc->eavb_fd, &(qeavbtssrc->cfg_data), &(qeavbtssrc->hdr));
-  }
-  else {
-    err = qeavb_create_stream_remote(qeavbtssrc->eavb_fd, qeavbtssrc->config_file, &(qeavbtssrc->hdr));
-  }
+  err = qeavb_create_stream_remote(qeavbtssrc->eavb_fd, qeavbtssrc->config_file, &(qeavbtssrc->hdr));
   if (0 != err) {
-    GST_ERROR_OBJECT (qeavbtssrc,"create stream error %d, exit!", err);
+    GST_ERROR_OBJECT (qeavbtssrc,"create stream remote error %d, exit!", err);
     goto error_close;
   }
 
