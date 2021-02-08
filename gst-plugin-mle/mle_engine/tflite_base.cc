@@ -42,6 +42,7 @@
 #include <tensorflow/lite/kernels/register.h>
 #include <tensorflow/core/public/version.h>
 #include "tflite_base.h"
+#include "common_utils.h"
 
 namespace mle {
 
@@ -221,14 +222,6 @@ int32_t TFLBase::InitFramework() {
   // Allocate the tensors
   if (tflite_params_.interpreter->AllocateTensors() != kTfLiteOk) {
     MLE_LOGE("%s: Failed to allocate tensors!", __func__);
-    if (nullptr != buffers_.scale_buf) {
-      free(buffers_.scale_buf);
-      buffers_.scale_buf = nullptr;
-    }
-    if (nullptr != buffers_.rgb_buf) {
-      free(buffers_.rgb_buf);
-      buffers_.rgb_buf = nullptr;
-    }
     return MLE_FAIL;
   }
 
@@ -261,13 +254,15 @@ void* TFLBase::GetInputBuffer() {
 }
 
 int32_t TFLBase::ExecuteModel() {
-  MLE_LOGI("%s: Execution begin!", __func__);
+  MLE_LOGI("%s: Enter", __func__);
+
   // Execute the network
   if (tflite_params_.interpreter->Invoke() != kTfLiteOk) {
     MLE_LOGE("%s: Failed to invoke!", __func__);
     return MLE_FAIL;
   }
-  MLE_LOGI("%s: Execution completed!", __func__);
+
+  MLE_LOGI("%s: Exit", __func__);
   return MLE_OK;
 }
 

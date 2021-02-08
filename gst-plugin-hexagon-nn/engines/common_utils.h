@@ -29,49 +29,36 @@
 
 #pragma once
 
-#include <fstream>
-#include <vector>
-#include <string>
-#include <cstdio>
-#include <memory>
-#include <map>
+#ifndef GST_DISABLE_GST_DEBUG
+#include <gst/gst.h>
 
-#include <tensorflow/lite/interpreter.h>
-#include <tensorflow/lite/model.h>
+#define GST_CAT_DEFAULT ensure_debug_category()
+static GstDebugCategory *
+ensure_debug_category (void)
+{
+  static gsize category = 0;
 
-#include "ml_engine_intf.h"
+  if (g_once_init_enter (&category)) {
+    gsize cat_done;
 
-namespace mle {
+    cat_done = (gsize) _gst_debug_category_new("qtihexagonnn", 0,
+        "QTI HexagonNN plugin");
 
-using TfLiteDelegatePtr = tflite::Interpreter::TfLiteDelegatePtr;
-using TfLiteDelegatePtrMap = std::map<std::string, TfLiteDelegatePtr>;
+    g_once_init_leave (&category, cat_done);
+  }
 
-struct TFLiteEngineParams {
-  std::unique_ptr<tflite::FlatBufferModel> model;
-  std::unique_ptr<tflite::Interpreter> interpreter;
-  uint32_t num_inputs;
-  uint32_t num_outputs;
-  uint32_t num_predictions;
-};
+  return (GstDebugCategory *) category;
+}
 
-class TFLBase : public MLEngine {
- public:
-  TFLBase(MLConfig &config);
-  ~TFLBase() {};
-
- private:
-  int32_t LoadModel(std::string& model_path);
-  int32_t InitFramework();
-  int32_t ExecuteModel();
-  int32_t ValidateModelInfo();
-  void* GetInputBuffer();
-  int32_t PostProcessMultiOutput(GstBuffer* buffer);
-  int32_t PostProcess(GstBuffer* buffer);
-  TfLiteDelegatePtrMap GetDelegates();
-
-
- protected:
-  TFLiteEngineParams tflite_params_;
-};
-
-}; // namespace mle
+#define NN_LOGE(...) GST_ERROR(__VA_ARGS__)
+#define NN_LOGI(...) GST_INFO(__VA_ARGS__)
+#define NN_LOGD(...) GST_DEBUG(__VA_ARGS__)
+#define NN_LOGV(...) GST_LOG(__VA_ARGS__)
+#else
+#include <utils/Log.h>
+#define NN_LOGE(...) ALOGE("NN: " __VA_ARGS__)
+#define NN_LOGI(...) ALOGI("NN: " __VA_ARGS__)
+#define NN_LOGD(...) ALOGD("NN: " __VA_ARGS__)
+#define NN_LOGV(...) ALOGD("NN: " __VA_ARGS__)
+#define ensure_debug_category() /* NOOP */
+#endif /* GST_DISABLE_GST_DEBUG */
