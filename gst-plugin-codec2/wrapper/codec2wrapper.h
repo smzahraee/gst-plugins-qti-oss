@@ -97,14 +97,15 @@ typedef enum {
 
 typedef struct {
     guint8* data;
-    guint32  fd;
-    guint32 meta_fd;
+    gint32 fd;
+    gint32 meta_fd;
     guint32 size;
     guint32 capacity;       ///< Total allocation size
     guint32 offset;
     guint64 timestamp;
     guint64 index;
     FLAG_TYPE flag;
+    BUFFER_POOL_TYPE pool_type;
 } BufferDescriptor;
 
 typedef struct {
@@ -146,6 +147,7 @@ gboolean c2componentStore_delete (void* comp_store);
 // Component API
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 gboolean c2component_setListener (void* const comp, void* cb_context, listener_cb callback, BLOCK_MODE_TYPE block);
+gboolean c2component_alloc(void* const comp, BufferDescriptor* buffer, BUFFER_POOL_TYPE poolType);
 gboolean c2component_queue(void* const comp, BufferDescriptor* buffer);
 gboolean c2component_flush (void* const comp, FLUSH_MODE_TYPE mode, void* const flushedWork);
 gboolean c2component_drain (void* const comp, DRAIN_MODE_TYPE mode);

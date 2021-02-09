@@ -65,12 +65,24 @@ public:
     ~C2ComponentAdapter();
 
     /* Methods implementing C2Component */
+    std::shared_ptr<QC2Buffer> alloc(C2BlockPool::local_id_t type);
+
+    /* Queue buffer with va (copy) */
     c2_status_t queue (
-        uint8_t* const* inputBuffer,
+        uint8_t* inputBuffer,
         size_t inputBufferSize,
         C2FrameData::flags_t inputFrameFlag,
         uint64_t frame_index,
-        uint64_t timestamp);
+        uint64_t timestamp,
+        C2BlockPool::local_id_t poolType);
+
+    /* Queue buffer with fd (zero-copy) */
+    c2_status_t queue (
+        uint32_t fd,
+        C2FrameData::flags_t inputFrameFlag,
+        uint64_t frame_index,
+        uint64_t timestamp,
+        C2BlockPool::local_id_t poolType);
 
     c2_status_t flush (C2Component::flush_mode_t mode, std::list< std::unique_ptr< C2Work >> *const flushedWork); 
     c2_status_t drain (C2Component::drain_mode_t mode);
@@ -95,9 +107,12 @@ public:
 
 private:
     c2_status_t prepareC2Buffer(
-        uint8_t* const* rawBuffer,
+        uint8_t* rawBuffer,
         uint32_t bufferSize,
-        std::shared_ptr<QC2Buffer>* c2Buf);
+        std::shared_ptr<QC2Buffer>* c2Buf,
+        C2BlockPool::local_id_t poolType);
+
+    c2_status_t writePlane(std::shared_ptr<QC2Buffer> buf, uint8_t *src);
 
     c2_status_t waitForProgressOrStateChange(
         uint32_t numPendingWorks,
@@ -112,6 +127,7 @@ private:
 
     std::shared_ptr<QC2LinearBufferPool> mLinearPool;
     std::shared_ptr<QC2GraphicBufferPool> mGraphicPool;
+    std::map<uint64_t, std::shared_ptr<QC2Buffer>> mInPendingBuffer;
     std::map<uint64_t, std::shared_ptr<QC2Buffer>> mOutPendingBuffer;
 
     uint32_t mNumPendingWorks;

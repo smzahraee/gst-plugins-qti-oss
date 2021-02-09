@@ -63,17 +63,22 @@ struct _Gstqticodec2venc
 
   guint64 queued_frame[MAX_QUEUED_FRAME];
 
+  GstBufferPool *pool;
   GstVideoCodecState *input_state;
   GstVideoCodecState *output_state;
 
   gboolean input_setup;
   gboolean output_setup;
+  gboolean eos_reached;
 
   gint width;
   gint height;
   GstVideoFormat input_format;
   gchar* streamformat;
   guint64 frame_index;
+  guint64 num_input_queued;
+  guint64 num_output_done;
+
   GstVideoInterlaceMode interlace_mode;
   GstVideoFormat outPixelfmt;
 

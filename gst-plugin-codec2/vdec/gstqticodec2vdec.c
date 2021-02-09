@@ -435,18 +435,18 @@ gst_qticodec2vdec_finish (GstVideoDecoder* decoder) {
 
   GST_DEBUG_OBJECT (dec, "finish");
 
+  inBuf.fd = -1;
   inBuf.data = NULL;
   inBuf.size = 0;
   inBuf.timestamp = 0;
   inBuf.index = dec->frame_index;
   inBuf.flag = FLAG_TYPE_END_OF_STREAM;
+  inBuf.pool_type = BUFFER_POOL_BASIC_LINEAR;
 
   /* Setup EOS work */
   if (dec->comp) {
     /* Queue buffer to Codec2 */
-    c2component_queue(
-          dec->comp,
-          &inBuf);
+    c2component_queue (dec->comp, &inBuf);
   }
 
   /* wait for all the pending buffers to return*/
@@ -770,6 +770,7 @@ gst_video_decoder_buffer_release (GstStructure* structure)
   if (decoder) {
     dec = GST_QTICODEC2VDEC (decoder);
 
+    GST_DEBUG_OBJECT (dec, "release output buffer index: %d", index);
     if (!c2component_freeOutBuffer(dec->comp, index)) {
       GST_ERROR_OBJECT (dec, "Failed to release the buffer (%lu)", index);
     }
@@ -905,8 +906,10 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
 
     buf = frame->input_buffer;
     gst_buffer_map (buf, &mapinfo, GST_MAP_READ);
+    inBuf.fd = -1;
     inBuf.data = mapinfo.data;
     inBuf.size = mapinfo.size;
+    inBuf.pool_type = BUFFER_POOL_BASIC_LINEAR;
 
     gst_buffer_unmap (buf, &mapinfo);
 
@@ -924,9 +927,7 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
   inBuf.index = frame->system_frame_number;
 
   /* Queue buffer to Codec2 */
-  if (!c2component_queue(
-        dec->comp,
-        &inBuf)) {
+  if (!c2component_queue (dec->comp, &inBuf)) {
     goto error_setup_input;
   }
 
