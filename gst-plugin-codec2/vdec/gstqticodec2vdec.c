@@ -36,7 +36,6 @@
 #endif
 
 #include <gst/gst.h>
-#include <gst/ionbuf/gstionbuf_meta.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -717,17 +716,23 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
         NULL, NULL);
   }
   else {
-  /* If downstream accepts dma buffer, just create a new gst buffer and attach the ION meta */
+  /* If downstream accepts dma buffer, create a new gst buffer and attach fd/meta_fd into the videometa */
     out_buf = gst_buffer_new();
   }
 
   if (out_buf) {
-    GstIonBufFdMeta *meta;
-    meta = gst_buffer_add_ionbuf_meta(out_buf, decode_buf->fd, 0, output_size, FALSE, decode_buf->meta_fd, 0, 0, 0);
-    if (!meta) {
-      GST_ERROR_OBJECT (dec, "Fail to add ION buffer fd/meta into output buffer");
-      goto fail;
+    GstVideoMeta* QGVMeta = NULL;
+
+    QGVMeta = gst_buffer_get_video_meta(out_buf);
+    if (!QGVMeta) {
+      QGVMeta = gst_buffer_add_video_meta_full (out_buf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (vinfo),
+          GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), GST_VIDEO_INFO_N_PLANES (vinfo),
+          vinfo->offset, vinfo->stride);
     }
+    QGVMeta->offset[2] = GST_MAKE_FOURCC('Q', 'a','U','T');
+    QGVMeta->offset[3] = output_size;
+    QGVMeta->stride[2] = decode_buf->fd;
+    QGVMeta->stride[3] = decode_buf->meta_fd;
   }
   else {
     GST_ERROR_OBJECT (dec, "Fail to allocate output gst buffer");
