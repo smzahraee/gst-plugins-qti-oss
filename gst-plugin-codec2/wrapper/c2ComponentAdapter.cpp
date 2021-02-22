@@ -219,7 +219,7 @@ std::shared_ptr<QC2Buffer> C2ComponentAdapter::alloc(C2BlockPool::local_id_t typ
             return NULL;
         }
     } else {
-        LOG_ERROR("Unsupported pool type: %d", type);
+        LOG_ERROR("Unsupported pool type: %lu", type);
         return NULL;
     }
 
@@ -314,7 +314,7 @@ c2_status_t C2ComponentAdapter::queue (
             work->input.buffers.emplace_back(buf->getSharedBuffer());
             result = C2_OK;
         } else {
-            LOG_ERROR("Buffer fd(%lu) not found", fd);
+            LOG_ERROR("Buffer fd(%u) not found", fd);
         }
     }
 
@@ -467,7 +467,7 @@ c2_status_t C2ComponentAdapter::createBlockpool(C2BlockPool::local_id_t poolType
 }
 
 void C2ComponentAdapter::handleWorkDone(
-    std::weak_ptr<C2Component> component, 
+    std::weak_ptr<C2Component> component,
     std::list<std::unique_ptr<C2Work>> workItems) {
 
     LOG_MESSAGE("Component(%p) work done", this);
@@ -540,7 +540,7 @@ void C2ComponentAdapter::handleWorkDone(
 }
 
 void C2ComponentAdapter::handleTripped(
-    std::weak_ptr<C2Component> component, 
+    std::weak_ptr<C2Component> component,
     std::vector<std::shared_ptr<C2SettingResult>> settingResult) {
 
     LOG_MESSAGE("Component(%p) work tripped", this);
@@ -618,7 +618,7 @@ C2ComponentListenerAdapter::~C2ComponentListenerAdapter() {
 }
 
 void C2ComponentListenerAdapter::onWorkDone_nb(
-    std::weak_ptr<C2Component> component, 
+    std::weak_ptr<C2Component> component,
     std::list<std::unique_ptr<C2Work>> workItems) {
 
     LOG_MESSAGE("Component listener (%p) onWorkDone_nb", this);
@@ -629,7 +629,7 @@ void C2ComponentListenerAdapter::onWorkDone_nb(
 }
 
 void C2ComponentListenerAdapter::onTripped_nb(
-    std::weak_ptr<C2Component> component, 
+    std::weak_ptr<C2Component> component,
     std::vector<std::shared_ptr<C2SettingResult>> settingResult) {
 
     LOG_MESSAGE("Component listener (%p) onTripped_nb", this);
