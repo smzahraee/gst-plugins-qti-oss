@@ -59,9 +59,9 @@ class EventCallback {
 public:
     // Notify that an output buffer is available with given index.
     virtual void onOutputBufferAvailable(
-        const std::shared_ptr<QC2Buffer> &buffer, 
+        const std::shared_ptr<QC2Buffer> &buffer,
         uint64_t index,
-        uint64_t timestamp, 
+        uint64_t timestamp,
         C2FrameData::flags_t flag) = 0;
 
     virtual void onTripped(uint32_t errorCode) = 0;
@@ -69,6 +69,7 @@ public:
 
     // Map buffer
     virtual void setMapBufferToCpu (bool enable) = 0;
+    virtual ~EventCallback () {}
 };
 
 } // namespace QTI
