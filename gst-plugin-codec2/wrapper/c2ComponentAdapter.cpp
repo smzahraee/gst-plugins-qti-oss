@@ -34,7 +34,7 @@
 #include <QC2Constants.h>
 #include <media/msm_media_info.h>
 
-#define MAX_PENDING_WORK 16
+#define MAX_PENDING_WORK 8
 
 using namespace qc2;
 using namespace std::chrono_literals;
