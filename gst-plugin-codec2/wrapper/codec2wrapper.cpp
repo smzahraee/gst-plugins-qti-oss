@@ -38,6 +38,10 @@
 #include <C2PlatformSupport.h>
 #include <QC2ComponentStore.h>
 #include <QC2Buffer.h>
+#include <gst/gst.h>
+
+GST_DEBUG_CATEGORY (gst_qticodec2wrapper_debug);
+#define GST_CAT_DEFAULT gst_qticodec2wrapper_debug
 
 using namespace QTI;
 
@@ -385,6 +389,9 @@ void CodecCallback::setMapBufferToCpu (bool enable) {
 // ComponentStore API handling
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void* c2componentStore_create () {
+
+    GST_DEBUG_CATEGORY_INIT (gst_qticodec2wrapper_debug,
+      "qticodec2wrapper", 0, "QTI GST codec2.0 wrapper");
 
     LOG_MESSAGE("Creating component store");
 
