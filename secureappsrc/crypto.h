@@ -83,6 +83,7 @@ typedef struct Crypto {
 } Crypto;
 
 OMX_ERRORTYPE crypto_init(Crypto *crypto);
+OMX_ERRORTYPE crypto_deinit(Crypto *crypto);
 OMX_ERRORTYPE crypto_terminate(Crypto *crypto);
 OMX_ERRORTYPE crypto_copy(Crypto *crypto, SecureCopyDir eCopyDir,
     OMX_U8 *pBuffer, unsigned long nBufferFd, OMX_U32 nBufferSize);
