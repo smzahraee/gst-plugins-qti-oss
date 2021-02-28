@@ -361,19 +361,28 @@ registry_handle_global(void *data, struct wl_registry *registry,
   } else if (strcmp(interface, "wl_shm") == 0) {
     self->shm = (struct wl_shm *)wl_registry_bind(registry,
       id, &wl_shm_interface, 1);
-    wl_shm_add_listener(self->shm, &shm_listener, self);
+    if (self->shm)
+      wl_shm_add_listener(self->shm, &shm_listener, self);
+    else
+      GST_ERROR("wl_registry_bind() for wl_shm fail, ret NULL");
 #ifdef USE_V6
   } else if (strcmp(interface, "zxdg_shell_v6") == 0) {
      self->shell = wl_registry_bind(registry,
          id, &zxdg_shell_v6_interface, 1);
-     //xdg_shell_use_unstable_version(self->shell, XDG_VERSION);
-     zxdg_shell_v6_add_listener(self->shell, &xdg_shell_listener, self);
+     if (self->shell) {
+       //xdg_shell_use_unstable_version(self->shell, XDG_VERSION);
+       zxdg_shell_v6_add_listener(self->shell, &xdg_shell_listener, self);
+     }else
+       GST_ERROR("wl_registry_bind() for zxdg_shell_v6 fail, ret NULL");
 #else
   } else if (strcmp(interface, "xdg_shell") == 0) {
      self->shell = wl_registry_bind(registry,
          id, &xdg_shell_interface, 1);
-     xdg_shell_use_unstable_version(self->shell, XDG_VERSION);
-     xdg_shell_add_listener(self->shell, &xdg_shell_listener, self);
+     if (self->shell) {
+       xdg_shell_use_unstable_version(self->shell, XDG_VERSION);
+       xdg_shell_add_listener(self->shell, &xdg_shell_listener, self);
+     }else
+       GST_ERROR("wl_registry_bind() for xdg_shell fail, ret NULL");
 #endif
   } else if (strcmp(interface, "ivi_application") == 0) {
     self->ivi_application = (struct ivi_application *)
@@ -383,8 +392,11 @@ registry_handle_global(void *data, struct wl_registry *registry,
     self->output = malloc(sizeof (struct output));
     if(self->output) {
       self->output->output = wl_registry_bind(registry, id, &wl_output_interface, 1);
-	wl_list_insert(&self->output_list, &self->output->link);
-	 wl_output_add_listener(self->output->output, &output_listener, self->output);
+      if (self->output->output) {
+        wl_list_insert(&self->output_list, &self->output->link);
+        wl_output_add_listener(self->output->output, &output_listener, self->output);
+      }else
+        GST_ERROR("wl_registry_bind() for wl_output fail, ret NULL");
     } else {
         GST_ERROR("self->output malloc failed\n");
     }
