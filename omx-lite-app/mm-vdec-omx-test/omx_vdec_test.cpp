@@ -1532,6 +1532,7 @@ int main(int argc, char **argv)
         printf("Missing real input file in cmd line for kpi mode!\n");
         return -1;
       }
+      usleep(30000);//For early kpi mode, wait for a while to ensure everything is ready during board bootup.
     }else{
       infilename_argptr = argv[1];
     }
@@ -2237,6 +2238,11 @@ int Init_Decoder()
   if (FAILED(omxresult)) {
     DEBUG_PRINT_ERROR("Failed to Load the component:%s", vdecCompNames);
     printf("Failed to Load the component:%s, OMX_GetHandle() ret 0x%08x\n", vdecCompNames, omxresult);
+    if (kpi_mode == 1) {
+      char msg[128] = {0};
+      snprintf(msg, sizeof(msg), "E - Video Dec getHandle 0x%08x err", omxresult);
+      kpi_place_marker(msg);
+    }
     return -1;
   }
   else
