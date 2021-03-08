@@ -28,6 +28,10 @@
 */
 
 #include "c2ComponentInterfaceAdapter.h"
+#include <gst/gst.h>
+
+GST_DEBUG_CATEGORY_EXTERN (gst_qticodec2wrapper_debug);
+#define GST_CAT_DEFAULT gst_qticodec2wrapper_debug
 
 namespace QTI {
 

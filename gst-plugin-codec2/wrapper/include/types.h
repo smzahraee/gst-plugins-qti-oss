@@ -31,6 +31,7 @@
 #include <C2Component.h>
 #include <glib.h>
 #include <QC2Buffer.h>
+#include <gst/gst.h>
 
 #ifndef __TYPES_H__
 #define __TYPES_H__
@@ -40,16 +41,11 @@ using namespace qc2;
 namespace QTI {
 
 
-#define LOG_MESSAGE(format, ...) \
-    g_message(format " in file %s at line %d", ##__VA_ARGS__, __FILE__, __LINE__)
-#define LOG_INFO(format, ...) \
-    g_info(format " in file %s at line %d", ##__VA_ARGS__, __FILE__, __LINE__)
-#define LOG_WARNING(format, ...) \
-    g_warning(format " in file %s at line %d", ##__VA_ARGS__, __FILE__, __LINE__)
-#define LOG_DEBUG(format, ...) \
-    g_debug(format " in file %s at line %d", ##__VA_ARGS__, __FILE__, __LINE__)
-#define LOG_ERROR(format, ...) \
-    g_error(format " in file %s at line %d", ##__VA_ARGS__, __FILE__, __LINE__)
+#define LOG_MESSAGE GST_LOG
+#define LOG_INFO GST_INFO
+#define LOG_WARNING GST_WARNING
+#define LOG_DEBUG GST_DBEUG
+#define LOG_ERROR GST_ERROR
 
 #define UNUSED(x) (void)(x)
 

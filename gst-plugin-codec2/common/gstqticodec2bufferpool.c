@@ -177,7 +177,7 @@ static void
 gst_qticodec2_buffer_pool_init (GstQticodec2BufferPool * pool)
 {
   GST_DEBUG_CATEGORY_INIT (gst_qticodec2_debug,
-      "qticodec2", 0, "QTI GST codec2.0");
+      "qticodec2pool", 0, "QTI GST codec2.0");
 
   GST_DEBUG_OBJECT (pool, "QTI Codec2 pool init");
 }
