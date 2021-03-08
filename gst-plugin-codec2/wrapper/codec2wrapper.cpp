@@ -328,7 +328,7 @@ int32_t CodecCallback::getBufferMetaFD(const std::shared_ptr<QC2Buffer> &buffer)
     int32_t meta_fd = -1;
 
     if (buffer->isGraphic()) {
-        meta_fd = buffer->graphic().meta_fd();
+        meta_fd = buffer->graphic().metaFd();
     }
     else {
         LOG_ERROR("Meta fd only supported for graphic buffer");
