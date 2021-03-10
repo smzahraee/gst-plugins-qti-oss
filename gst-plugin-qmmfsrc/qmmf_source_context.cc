@@ -1120,6 +1120,9 @@ gst_qmmf_context_create_video_stream (GstQmmfContext * context, GstPad * pad)
       format = (vpad->compression == GST_VIDEO_COMPRESSION_UBWC) ?
           ::qmmf::VideoFormat::kNV12UBWC : ::qmmf::VideoFormat::kNV12;
       break;
+    case GST_VIDEO_FORMAT_YUY2:
+      format = ::qmmf::VideoFormat::kYUY2;
+      break;
     case GST_BAYER_FORMAT_BGGR:
     case GST_BAYER_FORMAT_RGGB:
     case GST_BAYER_FORMAT_GBRG:

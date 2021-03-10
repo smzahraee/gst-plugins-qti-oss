@@ -566,18 +566,12 @@ video_pad_set_property (GObject * object, guint property_id,
       break;
     case PROP_VIDEO_CROP:
     {
-      GstVideoRectangle rectangle;
       g_return_if_fail (gst_value_array_get_size (value) == 4);
 
-      rectangle.x = g_value_get_int (gst_value_array_get_value (value, 0));
-      rectangle.y = g_value_get_int (gst_value_array_get_value (value, 1));
-      rectangle.w = g_value_get_int (gst_value_array_get_value (value, 2));
-      rectangle.h = g_value_get_int (gst_value_array_get_value (value, 3));
-
-      pad->crop.x = rectangle.x;
-      pad->crop.y = rectangle.y;
-      pad->crop.w = rectangle.w;
-      pad->crop.h = rectangle.h;
+      pad->crop.x = g_value_get_int (gst_value_array_get_value (value, 0));
+      pad->crop.y = g_value_get_int (gst_value_array_get_value (value, 1));
+      pad->crop.w = g_value_get_int (gst_value_array_get_value (value, 2));
+      pad->crop.h = g_value_get_int (gst_value_array_get_value (value, 3));
       break;
     }
     default:
