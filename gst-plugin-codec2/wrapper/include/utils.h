@@ -32,6 +32,7 @@
 
 #include <QC2Config.h>
 #include <QC2Constants.h>
+#include <QC2V4L2Config.h>
 
 namespace QTI {
 
@@ -158,6 +159,38 @@ C2Component::flush_mode_t toC2FlushMode (FLUSH_MODE_TYPE mode){
     }
 
     return flushMode;
+}
+
+uint32_t toC2RateControlMode (RC_MODE_TYPE mode){
+    uint32_t rcMode = qc2::QC_RC_MODE_DISABLE;
+
+    switch (mode) {
+        case RC_OFF: {
+            rcMode = qc2::RC_MODE_EXT_DISABLE;
+            break;
+        }
+        case RC_CONST : {
+            rcMode = qc2::RC_MODE_CBR_CFR;
+            break;
+        }
+        case RC_CBR_VFR : {
+            rcMode = qc2::RC_MODE_CBR_VFR;
+            break;
+        }
+        case RC_VBR_CFR : {
+            rcMode = qc2::RC_MODE_VBR_CFR;
+            break;
+        }
+        case RC_VBR_VFR : {
+            rcMode = qc2::RC_MODE_VBR_VFR;
+            break;
+        }
+        default : {
+            LOG_ERROR("Invalid RC Mode: %d", mode);
+        }
+    }
+
+    return rcMode;
 }
 
 FLAG_TYPE toWrapperFlag(C2FrameData::flags_t flag) {
