@@ -42,7 +42,6 @@
 #include <stdlib.h>
 
 #include "gstqticodec2venc.h"
-#include "codec2wrapper.h"
 
 
 GST_DEBUG_CATEGORY_STATIC (gst_qticodec2venc_debug);
@@ -51,6 +50,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_qticodec2venc_debug);
 /* class initialization */
 G_DEFINE_TYPE (Gstqticodec2venc, gst_qticodec2venc, GST_TYPE_VIDEO_ENCODER);
 
+#define GST_TYPE_CODEC2_ENC_RATE_CONTROL (gst_qticodec2venc_rate_control_get_type ())
 #define parent_class gst_qticodec2venc_parent_class
 #define NANO_TO_MILLI(x)  x / 1000
 #define EOS_WAITING_TIMEOUT 5
@@ -62,7 +62,8 @@ static G_DEFINE_QUARK(QtiCodec2EncoderQuark, qticodec2venc_qdata);
 enum
 {
   PROP_0,
-  PROP_SILENT
+  PROP_SILENT,
+  PROP_RATE_CONTROL
 };
 
 /* GstVideoEncoder base class method */
@@ -173,6 +174,17 @@ make_interlace_param (INTERLACE_MODE_TYPE mode, gboolean isInput) {
   return param;
 }
 
+static ConfigParams
+make_rateControl_param (RC_MODE_TYPE mode) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.rcMode.type = mode;
+
+  return param;
+}
+
 static gchar*
 gst_to_c2_streamformat (GstStructure* structure) {
   gchar *ret = NULL;
@@ -204,6 +216,26 @@ gst_to_c2_pixelformat (GstVideoFormat format) {
 
   return result;
 }
+
+gst_qticodec2venc_rate_control_get_type (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {RC_OFF,     "Disable RC", "disable"},
+      {RC_CONST,   "Constant", "constant"},
+      {RC_CBR_VFR, "Constant bitrate, variable framerate", "CBR-VFR"},
+      {RC_VBR_CFR, "Variable bitrate, constant framerate", "VBR-CFR"},
+      {RC_VBR_VFR, "Variable bitrate, variable framerate", "VBR-VFR"},
+      {0,          NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("GstCodec2VencRateControl", values);
+  }
+  return qtype;
+}
+
 
 static gboolean
 gst_qticodec2_caps_has_feature (const GstCaps * caps, const gchar * partten)
@@ -239,10 +271,7 @@ gst_qticodec2venc_create_component (GstVideoEncoder* encoder) {
        GST_DEBUG_OBJECT (enc, "Failed to create component");
     }
 
-    ret = c2componentStore_createInterface(enc->comp_store, enc->streamformat, &enc->comp_intf);
-    if (ret ==  FALSE) {
-       GST_DEBUG_OBJECT (enc, "Failed to create component interface");
-    }
+    enc->comp_intf = c2component_intf(enc->comp);
 
     ret = c2component_setListener(enc->comp, encoder, handle_video_event, BLOCK_MODE_MAY_BLOCK);
     if (ret ==  FALSE) {
@@ -437,6 +466,7 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   ConfigParams resolution;
   ConfigParams interlace;
   ConfigParams pixelformat;
+  ConfigParams rate_control;
 
   GST_DEBUG_OBJECT (enc, "set_format");
 
@@ -507,19 +537,19 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   resolution = make_resolution_param(width, height, TRUE);
   g_hash_table_insert(config, CONFIG_FUNCTION_KEY_RESOLUTION, &resolution);
 
-  interlace = make_interlace_param(c2interlace_mode, TRUE);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_INTERLACE, &interlace);
-
   pixelformat = make_pixelFormat_param(gst_to_c2_pixelformat(input_format), TRUE);
   g_hash_table_insert(config, CONFIG_FUNCTION_KEY_PIXELFORMAT, &pixelformat);
+
+  rate_control = make_rateControl_param (enc->rcMode);
+  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_RATECONTROL, &rate_control);
 
   /* Create component */
   if (!gst_qticodec2venc_create_component (encoder)){
     GST_ERROR_OBJECT(enc, "Failed to create component");
   }
 
-  GST_DEBUG_OBJECT (enc, "set graphic pool with: %d, height: %d, format: %x",
-      enc->width, enc->height, enc->input_format);
+  GST_DEBUG_OBJECT (enc, "set graphic pool with: %d, height: %d, format: %x, rc mode: %d",
+      enc->width, enc->height, enc->input_format, enc->rcMode);
 
   /* Set input buffer pool property */
   if(!c2component_set_pool_property(
@@ -983,6 +1013,9 @@ gst_qticodec2venc_set_property (GObject* object, guint prop_id,
     case PROP_SILENT:
       enc->silent = g_value_get_boolean (value);
       break;
+    case PROP_RATE_CONTROL:
+      enc->rcMode = g_value_get_enum (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1000,6 +1033,9 @@ gst_qticodec2venc_get_property (GObject* object, guint prop_id,
   switch (prop_id) {
     case PROP_SILENT:
       g_value_set_boolean (value, enc->silent);
+      break;
+    case PROP_RATE_CONTROL:
+      g_value_set_enum (value, enc->rcMode);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1066,6 +1102,14 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
       g_param_spec_boolean ("silent", "Silent", "Produce verbose output ?",
           FALSE, G_PARAM_READWRITE));
 
+  g_object_class_install_property (gobject_class, PROP_RATE_CONTROL,
+      g_param_spec_enum ("rate-control", "Rate Control",
+          "Bitrate control method",
+          GST_TYPE_CODEC2_ENC_RATE_CONTROL,
+          RC_OFF,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
   video_encoder_class->start = GST_DEBUG_FUNCPTR (gst_qticodec2venc_start);
   video_encoder_class->stop = GST_DEBUG_FUNCPTR (gst_qticodec2venc_stop);
   video_encoder_class->set_format = GST_DEBUG_FUNCPTR (gst_qticodec2venc_set_format);
@@ -1100,6 +1144,7 @@ gst_qticodec2venc_init (Gstqticodec2venc* enc) {
   enc->frame_index = 0;
   enc->num_input_queued = 0;
   enc->num_output_done = 0;
+  enc->rcMode = RC_OFF;
 
   memset(enc->queued_frame, 0, MAX_QUEUED_FRAME);
 
