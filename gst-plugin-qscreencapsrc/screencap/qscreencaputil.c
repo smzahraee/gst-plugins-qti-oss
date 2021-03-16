@@ -50,7 +50,6 @@
 #include "qscreencaputil.h"
 #include "vidc/media/msm_media_info.h"
 #include <gst/video/video.h>
-#include <gst/ionbuf/gstionbuf_meta.h>
 
 GST_DEBUG_CATEGORY_EXTERN (gst_debug_qscreencap_src);
 #define GST_CAT_DEFAULT gst_debug_qscreencap_src
@@ -881,7 +880,10 @@ gst_qscreencapbuf_new (GstQCtx * qctx,
   struct gbm_buffer_params *params;
   uint32_t flags;
   gint64 timeout;
-  GstIonBufFdMeta *ionmeta;
+  GstVideoMeta * QGVMeta = NULL;
+  gsize offsets[GST_VIDEO_MAX_PLANES] = {0};
+  gint strides[GST_VIDEO_MAX_PLANES] = {0};
+  GstVideoFormat gstfmt;
 
   qscreencapbuf = gst_buffer_new ();
   GST_MINI_OBJECT_CAST (qscreencapbuf)->dispose =
@@ -903,6 +905,8 @@ gst_qscreencapbuf_new (GstQCtx * qctx,
     bostride = qctx->gbm_bo_get_stride(meta->gbminfo->bo);
     meta->size = bostride * height;
     meta->stride = bostride;
+    strides[0] = bostride;
+    gstfmt = qctx->format;
     meta->data = (unsigned char *)mmap(NULL, meta->size,
                                 PROT_READ|PROT_WRITE, MAP_SHARED,
                                 meta->gbminfo->bo_fd,0);
@@ -950,10 +954,18 @@ gst_qscreencapbuf_new (GstQCtx * qctx,
   meta->parent = gst_object_ref (parent);
   meta->return_func = return_func;
 
-  /*add ionmeta for downstreaming*/
-  ionmeta = gst_buffer_add_ionbuf_meta (qscreencapbuf, meta->gbminfo->bo_fd, 0,
-        meta->size, FALSE, meta->gbminfo->meta_fd, 0, 0, 0);
-  g_assert(ionmeta != NULL);
+  /*add GstVideoMeta for downstreaming*/
+  QGVMeta = gst_buffer_add_video_meta_full (qscreencapbuf, GST_VIDEO_FRAME_FLAG_NONE, gstfmt, width, height, 1, offsets, strides);
+  if (QGVMeta) {
+    QGVMeta->offset[2] = GST_MAKE_FOURCC('Q','a','U','T');
+    QGVMeta->offset[3] = meta->size;
+    QGVMeta->stride[2] = meta->gbminfo->bo_fd;
+    QGVMeta->stride[3] = meta->gbminfo->meta_fd;
+    GST_INFO("Attach GstBuf:%p with GstVideoMeta %p (sig QaUT, fd %d, meta fd %d, sz %d, gst fmt 0x%08x, stride %d)", qscreencapbuf, QGVMeta, QGVMeta->stride[2], QGVMeta->stride[3], meta->size, gstfmt, strides[0]);
+  }else{
+    GST_ERROR("Attach GstVideoMeta on GstBuf:%p fail", qscreencapbuf);
+  }
+  g_assert(QGVMeta != NULL);
 
 teak:
   if (!succeeded) {

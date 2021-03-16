@@ -28,7 +28,7 @@ CLEANFILES = ivi-application-protocol.c ivi-application-client-protocol.h gbm-bu
 
 # compiler and linker flags used to compile this plugin, set in configure.ac
 libgstqscreencapsrc_la_CFLAGS = $(GST_CFLAGS) -DUSE_GBM
-libgstqscreencapsrc_la_LIBADD = $(GST_LIBS) $(GST_PLUGINS_BASE_LIBS) -lwayland-client -ldrm -lgstionbuf-1.0
+libgstqscreencapsrc_la_LIBADD = $(GST_LIBS) $(GST_PLUGINS_BASE_LIBS) -lwayland-client -ldrm
 libgstqscreencapsrc_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 libgstqscreencapsrc_la_LIBTOOLFLAGS = --tag=disable-static
 
