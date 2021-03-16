@@ -37,6 +37,8 @@
 #include <gst/allocators/allocators.h>
 #include "gstqticodec2bufferpool.h"
 
+#include "codec2wrapper.h"
+
 G_BEGIN_DECLS
 
 #define GST_TYPE_QTICODEC2VENC          (gst_qticodec2venc_get_type())
@@ -82,6 +84,7 @@ struct _Gstqticodec2venc
 
   GstVideoInterlaceMode interlace_mode;
   GstVideoFormat outPixelfmt;
+  RC_MODE_TYPE rcMode;
 
   GMutex pending_lock;
   GCond  pending_cond;

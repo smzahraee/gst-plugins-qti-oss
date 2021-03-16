@@ -41,6 +41,7 @@ extern "C" {
 #define CONFIG_FUNCTION_KEY_RESOLUTION      "resolution"
 #define CONFIG_FUNCTION_KEY_BITRATE         "bitrate"
 #define CONFIG_FUNCTION_KEY_INTERLACE       "interlace"
+#define CONFIG_FUNCTION_KEY_RATECONTROL     "ratecontrol"
 
 #define C2_TICKS_PER_SECOND 1000000
 
@@ -95,6 +96,15 @@ typedef enum {
     EVENT_ERROR
 } EVENT_TYPE;
 
+typedef enum {
+    RC_OFF = 0,
+    RC_CONST,
+    RC_CBR_VFR,
+    RC_VBR_CFR,
+    RC_VBR_VFR,
+    RC_UNSET = 0xFFFF
+} RC_MODE_TYPE;
+
 typedef struct {
     guint8* data;
     gint32 fd;
@@ -129,6 +139,10 @@ typedef struct {
     union{
         INTERLACE_MODE_TYPE type;
     } interlaceMode;
+
+    union{
+        RC_MODE_TYPE type;
+    } rcMode;
 } ConfigParams;
 
 typedef void (*listener_cb)(const void* handle, EVENT_TYPE type, void* data);

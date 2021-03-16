@@ -58,13 +58,15 @@ std::unique_ptr<C2Param> setVideoPixelformat (gpointer param);
 std::unique_ptr<C2Param> setVideoResolution (gpointer param);
 std::unique_ptr<C2Param> setVideoBitrate (gpointer param);
 std::unique_ptr<C2Param> setVideoInterlaceMode (gpointer param);
+std::unique_ptr<C2Param> setRateControl (gpointer param);
 
 // Function map for parameter configuration
 static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_PIXELFORMAT, setVideoPixelformat},
     {CONFIG_FUNCTION_KEY_RESOLUTION, setVideoResolution},
     {CONFIG_FUNCTION_KEY_BITRATE, setVideoBitrate},
-    {CONFIG_FUNCTION_KEY_INTERLACE, setVideoInterlaceMode}
+    {CONFIG_FUNCTION_KEY_INTERLACE, setVideoInterlaceMode},
+    {CONFIG_FUNCTION_KEY_RATECONTROL, setRateControl}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -165,6 +167,18 @@ std::unique_ptr<C2Param> setVideoInterlaceMode (gpointer param) {
 
     return nullptr;
 }
+
+std::unique_ptr<C2Param> setRateControl (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2StreamBitrateModeTuning::output bitrateMode;
+    bitrateMode.value = (C2Config::bitrate_mode_t) toC2RateControlMode(config->rcMode.type);
+    return C2Param::Copy(bitrateMode);
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // CodecCallback API handling
