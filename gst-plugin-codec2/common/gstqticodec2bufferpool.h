@@ -52,7 +52,7 @@ struct _GstQticodec2Allocator
   GstVideoInfo*    info;      // info used for allocation
   void*            comp;      // c2 component
   BUFFER_POOL_TYPE pool_type; // graphic or linear
-  gsize            alloc_size // allocation size
+  gsize            alloc_size; // allocation size
 };
 
 struct _GstQticodec2AllocatorClass

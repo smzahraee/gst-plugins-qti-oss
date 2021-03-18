@@ -95,11 +95,11 @@ static GstStaticPadTemplate gst_qtivenc_src_template =
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS (
-        "video/x-h264," 
+        "video/x-h264,"
         "stream-format = (string) { byte-stream },"
         "alignment = (string) { au }"
         ";"
-        "video/x-h265," 
+        "video/x-h265,"
         "stream-format = (string) { byte-stream },"
         "alignment = (string) { au }"
       )
@@ -176,7 +176,7 @@ make_interlace_param (INTERLACE_MODE_TYPE mode, gboolean isInput) {
 static gchar*
 gst_to_c2_streamformat (GstStructure* structure) {
   gchar *ret = NULL;
-  
+
   if (gst_structure_has_name (structure, "video/x-h264")) {
     ret = g_strdup("c2.qti.avc.encoder");
   }
@@ -360,7 +360,7 @@ gst_qticodec2venc_stop (GstVideoEncoder* encoder) {
   if (enc->comp) {
     ret = c2component_stop(enc->comp);
   }
-  
+
   if (enc->input_state) {
     gst_video_codec_state_unref (enc->input_state);
     enc->input_state = NULL;
@@ -594,7 +594,7 @@ gst_qticodec2venc_open (GstVideoEncoder* encoder) {
 static gboolean
 gst_qticodec2venc_close (GstVideoEncoder* encoder) {
   Gstqticodec2venc* enc = GST_QTICODEC2VENC (encoder);
- 
+
   GST_DEBUG_OBJECT (enc, "qticodec2venc_close");
 
   if (enc->input_state) {
@@ -720,12 +720,11 @@ gst_qticodec2venc_propose_allocation(GstVideoEncoder * encoder, GstQuery * query
       /* add pool into allocation query */
       gst_query_add_allocation_pool (query, enc->pool, GST_VIDEO_INFO_SIZE (&info),
           0, num_max_buffers);
+      gst_object_unref (enc->pool);
     }
   } else {
-    GST_INFO_OBJECT (enc, "peer component does not suuport dmabuf feature" GST_PTR_FORMAT, caps);
+    GST_INFO_OBJECT (enc, "peer component does not suuport dmabuf feature: %" GST_PTR_FORMAT, caps);
   }
-
-  gst_object_unref (enc->pool);
 
   return GST_VIDEO_ENCODER_CLASS (parent_class)->propose_allocation (encoder, query);
 
@@ -761,7 +760,7 @@ push_frame_downstream(GstVideoEncoder* encoder, BufferDescriptor* encode_buf) {
 
   if (encode_buf->flag & FLAG_TYPE_CODEC_CONFIG) {
     GST_DEBUG_OBJECT (enc, "Allocate codec data frame with size: %d", encode_buf->size);
-    frame = g_slice_new (GstVideoFrame);
+    frame = g_slice_new (GstVideoCodecFrame);
     if (frame == NULL) {
       GST_ERROR_OBJECT (enc, "Error in allocating frame");
       goto out;
@@ -871,7 +870,7 @@ handle_video_event (const void* handle, EVENT_TYPE type, void* data) {
     case EVENT_OUTPUTS_DONE: {
       BufferDescriptor* outBuffer = (BufferDescriptor*)data;
 
-      GST_DEBUG_OBJECT (enc, "Event output done, va: %p, offset: %d, index: %d, fd: %d, \
+      GST_DEBUG_OBJECT (enc, "Event output done, va: %p, offset: %d, index: %ld, fd: %d, \
           filled len: %d, buffer size: %d, timestamp: %lu, flag: %x", outBuffer->data,
           outBuffer->offset, outBuffer->index, outBuffer->fd, outBuffer->size,
           outBuffer->capacity, outBuffer->timestamp, outBuffer->flag);
@@ -940,7 +939,7 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
     inBuf.index = frame->system_frame_number;
     inBuf.pool_type = BUFFER_POOL_BASIC_GRAPHIC;
 
-    GST_DEBUG_OBJECT (enc, "input buffer: fd: %d, va:%p, size: %d, timestamp: %lu, index: %d",
+    GST_DEBUG_OBJECT (enc, "input buffer: fd: %d, va:%p, size: %d, timestamp: %lu, index: %ld",
       inBuf.fd, inBuf.data, inBuf.size, inBuf.timestamp, inBuf.index);
   }
 
@@ -1057,7 +1056,7 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
   gst_element_class_add_pad_template (gstelement_class,
       gst_static_pad_template_get (&gst_qtivenc_sink_template));
 
-  /* Set GObject class property*/      
+  /* Set GObject class property*/
   gobject_class->set_property = gst_qticodec2venc_set_property;
   gobject_class->get_property = gst_qticodec2venc_get_property;
   gobject_class->finalize = gst_qticodec2venc_finalize;
@@ -1078,7 +1077,7 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
   video_encoder_class->sink_query = GST_DEBUG_FUNCPTR (gst_qticodec2venc_sink_query);
   video_encoder_class->propose_allocation = GST_DEBUG_FUNCPTR (gst_qticodec2venc_propose_allocation);
 
-  gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass), 
+  gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
    "Codec2 video encoder", "Encoder/Video", "Video Encoder based on Codec2.0", "QTI");
 }
 
@@ -1109,7 +1108,7 @@ gst_qticodec2venc_init (Gstqticodec2venc* enc) {
 
   enc->silent = FALSE;
 }
-  
+
 GST_PLUGIN_DEFINE (
     GST_VERSION_MAJOR,
     GST_VERSION_MINOR,

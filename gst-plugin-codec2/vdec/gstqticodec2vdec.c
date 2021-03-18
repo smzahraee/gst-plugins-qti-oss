@@ -775,7 +775,7 @@ gst_video_decoder_buffer_release (GstStructure* structure)
   if (decoder) {
     dec = GST_QTICODEC2VDEC (decoder);
 
-    GST_DEBUG_OBJECT (dec, "release output buffer index: %d", index);
+    GST_DEBUG_OBJECT (dec, "release output buffer index: %ld", index);
     if (!c2component_freeOutBuffer(dec->comp, index)) {
       GST_ERROR_OBJECT (dec, "Failed to release the buffer (%lu)", index);
     }
@@ -822,9 +822,10 @@ push_frame_downstream(GstVideoDecoder* decoder, BufferDescriptor* decode_buf) {
     GST_BUFFER_PTS (outbuf) = gst_util_uint64_scale(decode_buf->timestamp, GST_SECOND,
         C2_TICKS_PER_SECOND);
 
-    GST_BUFFER_DURATION (outbuf) = gst_util_uint64_scale(GST_SECOND,
-        vinfo->fps_d, vinfo->fps_n);
-
+    if (state->info.fps_d != 0 && state->info.fps_n != 0) {
+      GST_BUFFER_DURATION (outbuf) = gst_util_uint64_scale(GST_SECOND,
+          vinfo->fps_d, vinfo->fps_n);
+    }
     frame->output_buffer = outbuf;
 
     GST_DEBUG_OBJECT (dec, "out buffer: PTS: %lu, duration: %lu, fps_d: %d, fps_n: %d",
@@ -1000,7 +1001,7 @@ gst_qticodec2vdec_finalize (GObject *object) {
     dec->streamformat = NULL;
   }
 
-  if (!gst_qticodec2vdec_destroy_component(dec)){
+  if (!gst_qticodec2vdec_destroy_component(GST_VIDEO_DECODER (object))){
     GST_ERROR_OBJECT (dec, "Failed to delete component");
   }
 

@@ -175,9 +175,9 @@ public:
     ~CodecCallback ();
 
     void onOutputBufferAvailable (
-        const std::shared_ptr<QC2Buffer> &buffer, 
+        const std::shared_ptr<QC2Buffer> &buffer,
         uint64_t index,
-        uint64_t timestamp, 
+        uint64_t timestamp,
         C2FrameData::flags_t flag) override;
     void onTripped(uint32_t errorCode) override;
     void onError(uint32_t errorCode) override;
@@ -209,7 +209,7 @@ CodecCallback::~CodecCallback () {
 }
 
 void CodecCallback::onOutputBufferAvailable (
-    const std::shared_ptr<QC2Buffer> &buffer, 
+    const std::shared_ptr<QC2Buffer> &buffer,
     uint64_t index,
     uint64_t timestamp,
     C2FrameData::flags_t flag) {
@@ -250,7 +250,7 @@ void CodecCallback::onOutputBufferAvailable (
                     BufferDescriptor codecConfigBuf;
                     auto csd = (C2StreamInitDataInfo::output*)info.get();
 
-                    LOG_INFO("get codec config data, size: %d", csd->flexCount());
+                    LOG_INFO("get codec config data, size: %lu", csd->flexCount());
                     codecConfigBuf.data = csd->m.value;
                     codecConfigBuf.size = csd->flexCount();
                     codecConfigBuf.timestamp = 0;
@@ -505,11 +505,11 @@ gboolean c2component_setListener(void* const comp, void* cb_context, listener_cb
 
     gboolean ret = FALSE;
     c2_status_t c2Status = C2_NO_INIT;
- 
+
     if (comp) {
         C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
         std::unique_ptr<EventCallback> callback = std::make_unique<CodecCallback>(cb_context, listener);
- 
+
         c2Status = comp_wrapper->setListenercallback(std::move(callback), toC2BlocingType(mayBlock));
         if (c2Status == C2_OK) {
             ret = TRUE;
@@ -595,7 +595,7 @@ gboolean c2component_queue(void* const comp, BufferDescriptor* buffer) {
     } else {
         LOG_ERROR("Component is null");
     }
- 
+
     return ret;
 }
 
