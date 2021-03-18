@@ -38,7 +38,7 @@
 GST_DEBUG_CATEGORY_EXTERN (gst_qticodec2wrapper_debug);
 #define GST_CAT_DEFAULT gst_qticodec2wrapper_debug
 
-#define MAX_PENDING_WORK 16
+#define MAX_PENDING_WORK 8
 
 using namespace qc2;
 using namespace std::chrono_literals;
