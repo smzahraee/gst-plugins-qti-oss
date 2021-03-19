@@ -116,6 +116,7 @@ gst_qeavb_ts_src_init (GstQeavbTsSrc * qeavbtssrc)
   memset(&(qeavbtssrc->hdr), 0, sizeof(eavb_ioctl_hdr_t));
   memset(&(qeavbtssrc->stream_info), 0, sizeof(eavb_ioctl_stream_info_t));
   g_mutex_init (&qeavbtssrc->lock);
+  kpi_place_marker("M - qeavbtssrc init");
 }
 
 static void
