@@ -30,9 +30,7 @@ libcodec2wrapper_la_LIBADD = -lcodec2_vndk \
                             -lqcodec2_basecodec \
                             -lqcodec2_platform \
                             -lqcodec2_core \
-                            -lqcodec2_version \
                             -lqcodec2_hooks \
-                            -ljsoncpp \
                             $(GLIB_LDFLAGS) \
                             $(GST_LIBS)
 
