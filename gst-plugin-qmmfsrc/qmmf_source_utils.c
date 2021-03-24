@@ -415,6 +415,66 @@ gst_qmmfsrc_noise_reduction_get_type (void)
   return gtype;
 }
 
+GType
+gst_qmmfsrc_tof_range_mode_get_type (void)
+{
+  static GType gtype = 0;
+  static const GEnumValue variants[] = {
+    { TOF_RANGE_MODE_OFF,
+        "No TOF range mode is applied", "off"
+    },
+    { TOF_RANGE_MODE_SHORT,
+        "TOF range short mode", "short"
+    },
+    { TOF_RANGE_MODE_LONG,
+        "TOF range long mode",  "long"
+    },
+    {0, NULL, NULL},
+  };
+
+  if (!gtype)
+    gtype = g_enum_register_static ("GstCameraTOFRangeMode", variants);
+
+  return gtype;
+}
+
+GType
+gst_qmmfsrc_tof_image_type_get_type (void)
+{
+  static GType gtype = 0;
+  static const GEnumValue variants[] = {
+    { TOF_IMAGE_TYPE_OFF,
+        "No TOF image type is applied", "off"
+    },
+    { TOF_IMAGE_TYPE_VGA_DEPTH_QVGA_IR_BG,
+        "TOF image type VGA depth image and QVGA IR image, BG data",
+        "vga-depth-qvga-irbg"
+    },
+    { TOF_IMAGE_TYPE_QVGA_DEPTH_IR_BG,
+        "TOF image type QVGA depth image, IR image and BG data",
+        "qvga-depth-ir-bg"
+    },
+    { TOF_IMAGE_TYPE_VGA_DEPTH_IR,
+        "TOF image type VGA depth image and IR image",
+        "vga-depth-ir"
+    },
+    { TOF_IMAGE_TYPE_VGA_IR_QVGA_DEPTH,
+        "TOF image type VGA IR image and QVGA depth image",
+        "vga-ir-qvga-depth"
+    },
+    { TOF_IMAGE_TYPE_VGA_IR_BG,
+        "TOF image type VGA IR image and BG data",
+        "vga-ir-bg"
+    },
+    {0, NULL, NULL},
+  };
+
+  if (!gtype)
+    gtype = g_enum_register_static ("GstCameraTOFImageType", variants);
+
+  return gtype;
+}
+
 guchar
 gst_qmmfsrc_effect_mode_android_value (const guint value)
 {

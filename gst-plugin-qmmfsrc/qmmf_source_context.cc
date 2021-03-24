@@ -138,6 +138,10 @@ struct _GstQmmfContext {
   GstStructure      *ltmdata;
   /// Camera Sharpness property.
   gint              sharpness;
+  /// Camera tof range mode.
+  gint              tof_range_mode;
+  /// Camera tof image_type.
+  gint              tof_image_type;
 
   /// QMMF Recorder instance.
   ::qmmf::recorder::Recorder *recorder;
@@ -998,6 +1002,18 @@ gst_qmmf_context_open (GstQmmfContext * context)
   vid_hdr_mode.enable = context->shdr;
   extra_param.Update(::qmmf::recorder::QMMF_VIDEO_HDR_MODE, vid_hdr_mode);
 
+  GST_INFO("tof range_mode:%d, image_type:%d", context->tof_range_mode, context->tof_image_type);
+  // set force sensor mode if tof_range_mode and tof_image_type valid
+  // tof_range_mode: TOF_RANGE_MODE_SHORT(0) / TOF_RANGE_MODE_LONG(1)
+  // tof_image_type: TOF_IMAGE_TYPE_VGA_DEPTH_QVGA_IR_BG(0)/1/2/3/4
+  ::qmmf::recorder::ForceSensorMode force_sensor_mode;
+  if( context->tof_range_mode != TOF_RANGE_MODE_OFF &&
+      context->tof_image_type != TOF_IMAGE_TYPE_OFF) {
+    force_sensor_mode.mode =
+        context->tof_range_mode * TOF_IMAGE_TYPE_MAX + context->tof_image_type;
+    extra_param.Update(::qmmf::recorder::QMMF_FORCE_SENSOR_MODE, force_sensor_mode);
+  }
+
   status = recorder->StartCamera(context->camera_id, 30, extra_param);
   QMMFSRC_RETURN_VAL_IF_FAIL (NULL, status == 0, FALSE,
       "QMMF Recorder StartCamera Failed!");
@@ -1123,6 +1139,8 @@ gst_qmmf_context_create_video_stream (GstQmmfContext * context, GstPad * pad)
         format = ::qmmf::VideoFormat::kBayerRDI10BIT;
       } else if (vpad->bpp == 12) {
         format = ::qmmf::VideoFormat::kBayerRDI12BIT;
+      } else if (vpad->bpp == 16) {
+        format = ::qmmf::VideoFormat::kBayerRDI16BIT;
       } else {
         GST_ERROR ("Unsupported bits per pixel for bayer format!");
         GST_QMMFSRC_VIDEO_PAD_UNLOCK (vpad);
@@ -2090,6 +2108,16 @@ gst_qmmf_context_set_camera_param (GstQmmfContext * context, guint param_id,
       meta.update(tag_id, &(context)->sharpness, 1);
       break;
     }
+    case PARAM_CAMERA_TOF_RANGE_MODE:
+    {
+      context->tof_range_mode = g_value_get_enum (value);
+      break;
+    }
+    case PARAM_CAMERA_TOF_IMAGE_TYPE:
+    {
+      context->tof_image_type = g_value_get_enum (value);
+      break;
+    }
   }
 
   if (!context->slave && (context->state >= GST_STATE_READY))
@@ -2253,6 +2281,12 @@ gst_qmmf_context_get_camera_param (GstQmmfContext * context, guint param_id,
     }
     case PARAM_CAMERA_SHARPNESS_STRENGTH:
       g_value_set_int (value, context->sharpness);
+      break;
+    case PARAM_CAMERA_TOF_RANGE_MODE:
+      g_value_set_enum (value, context->tof_range_mode);
+      break;
+    case PARAM_CAMERA_TOF_IMAGE_TYPE:
+      g_value_set_enum (value, context->tof_image_type);
       break;
   }
 }
