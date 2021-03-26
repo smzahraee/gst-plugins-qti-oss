@@ -133,11 +133,20 @@ static GstStaticPadTemplate qmmfsrc_video_src_template =
 #if defined(GST_VIDEO_H265_ENABLE)
             QMMFSRC_VIDEO_H265_CAPS "; "
 #endif
+            QMMFSRC_VIDEO_JPEG_CAPS "; "
             QMMFSRC_VIDEO_RAW_CAPS(
+#if defined(GST_VIDEO_YUY2_FORMAT_ENABLE)
+                "{ NV12, YUY2 }") "; "
+#else
                 "{ NV12 }") "; "
+#endif
             QMMFSRC_VIDEO_RAW_CAPS_WITH_FEATURES(
                 GST_CAPS_FEATURE_MEMORY_GBM,
+#if defined(GST_VIDEO_YUY2_FORMAT_ENABLE)
+                "{ NV12, YUY2 }") "; "
+#else
                 "{ NV12 }") "; "
+#endif
             QMMFSRC_VIDEO_BAYER_CAPS(
                 "{ bggr, rggb, gbrg, grbg, mono }",
                 "{ 8, 10, 12, 16 }")
@@ -288,6 +297,8 @@ qmmfsrc_request_pad (GstElement * element, GstPadTemplate * templ,
   g_signal_connect (srcpad, "notify::framerate",
       G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
   g_signal_connect (srcpad, "notify::idr-interval",
+      G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
+  g_signal_connect (srcpad, "notify::crop",
       G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
 
   return srcpad;
