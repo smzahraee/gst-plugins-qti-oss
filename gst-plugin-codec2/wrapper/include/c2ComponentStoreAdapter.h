@@ -33,6 +33,17 @@
 #include <C2Component.h>
 
 namespace QTI {
+
+  struct QC2ComponentStoreFactory {
+    virtual ~QC2ComponentStoreFactory() = default;
+    virtual std::shared_ptr<C2ComponentStore> getInstance() = 0;
+  };
+
+  // symbol name for getting the factory (library = libqcodec2_core.so)
+  static constexpr const char * kFn_QC2ComponentStoreFactoryGetter = "QC2ComponentStoreFactoryGetter";
+
+  using QC2ComponentStoreFactoryGetter_t
+    = QC2ComponentStoreFactory * (*)(int majorVersion, int minorVersion);
     
 class C2ComponentStoreAdapter {
 

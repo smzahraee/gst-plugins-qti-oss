@@ -357,23 +357,10 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GHashTable* config) {
     goto error_setup_output;
   }
 
-  if(!c2component_set_pool_property(
-        dec->comp,
-        BUFFER_POOL_BASIC_GRAPHIC,
-        dec->width,
-        dec->height,
-        gst_to_c2_pixelformat(decoder, output_format))) {
-      goto error_setup_output;
-  }
-
   dec->outPixelfmt = output_format;
 
-  dec->output_size = get_output_frame_size(
-        dec->width,
-        dec->height,
-        gst_to_c2_pixelformat(decoder, output_format));
-  GST_LOG_OBJECT (dec, "output width: %d, height: %d, format: %d framesize: %d",
-                  dec->width, dec->height, output_format, dec->output_size);
+  GST_LOG_OBJECT (dec, "output width: %d, height: %d, format: %d",
+                  dec->width, dec->height, output_format);
 
   if (config) {
     pixelformat = make_pixelFormat_param(gst_to_c2_pixelformat(decoder, output_format), FALSE);
@@ -699,7 +686,7 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
   GstVideoInfo* vinfo;
   GstStructure* structure = NULL;
   Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
-  guint output_size = dec->output_size;
+  guint output_size = decode_buf->size;
 
   state = gst_video_decoder_get_output_state (decoder);
   if (state) {
@@ -816,7 +803,7 @@ push_frame_downstream(GstVideoDecoder* decoder, BufferDescriptor* decode_buf) {
     goto out;
   }
 
-  guint output_size = dec->output_size;
+  guint output_size = decode_buf->size;
   outbuf = gst_qticodec2vdec_wrap_output_buffer(decoder, decode_buf);
   if (outbuf) {
     GST_BUFFER_PTS (outbuf) = gst_util_uint64_scale(decode_buf->timestamp, GST_SECOND,
