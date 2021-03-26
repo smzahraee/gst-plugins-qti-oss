@@ -32,12 +32,15 @@
 
 #include "types.h"
 #include "c2ComponentInterfaceAdapter.h"
+#include "codec2wrapper.h"
+#include "wrapper_utils.h"
 
+#include <C2Config.h>
 #include <C2Component.h>
 #include <mutex>
 #include <map>
 #include <condition_variable>
-#include <QC2Buffer.h>
+#include <C2Buffer.h>
 
 namespace QTI {
 
@@ -65,16 +68,10 @@ public:
     ~C2ComponentAdapter();
 
     /* Methods implementing C2Component */
-    std::shared_ptr<QC2Buffer> alloc(C2BlockPool::local_id_t type);
+    std::shared_ptr<C2Buffer> alloc(BufferDescriptor* buffer);
 
     /* Queue buffer with va (copy) */
-    c2_status_t queue (
-        uint8_t* inputBuffer,
-        size_t inputBufferSize,
-        C2FrameData::flags_t inputFrameFlag,
-        uint64_t frame_index,
-        uint64_t timestamp,
-        C2BlockPool::local_id_t poolType);
+    c2_status_t queue (BufferDescriptor* buffer);
 
     /* Queue buffer with fd (zero-copy) */
     c2_status_t queue (
@@ -84,7 +81,7 @@ public:
         uint64_t timestamp,
         C2BlockPool::local_id_t poolType);
 
-    c2_status_t flush (C2Component::flush_mode_t mode, std::list< std::unique_ptr< C2Work >> *const flushedWork); 
+    c2_status_t flush (C2Component::flush_mode_t mode, std::list< std::unique_ptr< C2Work >> *const flushedWork);
     c2_status_t drain (C2Component::drain_mode_t mode);
     c2_status_t start ();
     c2_status_t stop ();
@@ -92,7 +89,6 @@ public:
     c2_status_t release ();
     C2ComponentInterfaceAdapter* intf ();
     c2_status_t createBlockpool(C2BlockPool::local_id_t poolType);
-    c2_status_t setPoolProperty(C2BlockPool::local_id_t poolType, uint32_t width, uint32_t height, uint32_t fmt);
 
     /* Methods implementing Listener */
     void handleWorkDone(std::weak_ptr<C2Component> component, std::list<std::unique_ptr<C2Work>> workItems);
@@ -106,14 +102,8 @@ public:
     c2_status_t setMapBufferToCpu (bool enable);
 
 private:
-    c2_status_t prepareC2Buffer(
-        uint8_t* rawBuffer,
-        uint32_t bufferSize,
-        std::shared_ptr<QC2Buffer>* c2Buf,
-        C2BlockPool::local_id_t poolType);
-
-    c2_status_t writePlane(std::shared_ptr<QC2Buffer> buf, uint8_t *src);
-
+    c2_status_t prepareC2Buffer (std::shared_ptr<C2Buffer> *c2Buf, BufferDescriptor* buffer);
+    c2_status_t writePlane(uint8_t *dest, BufferDescriptor *buffer_info);
     c2_status_t waitForProgressOrStateChange(
         uint32_t numPendingWorks,
         uint32_t timeoutMs);
@@ -125,10 +115,10 @@ private:
     std::unique_ptr<EventCallback> mCallback;
     bool mMapBufferToCpu;
 
-    std::shared_ptr<QC2LinearBufferPool> mLinearPool;
-    std::shared_ptr<QC2GraphicBufferPool> mGraphicPool;
-    std::map<uint64_t, std::shared_ptr<QC2Buffer>> mInPendingBuffer;
-    std::map<uint64_t, std::shared_ptr<QC2Buffer>> mOutPendingBuffer;
+    std::shared_ptr<C2BlockPool> mLinearPool; // C2PlatformLinearBlockPool
+    std::shared_ptr<C2BlockPool> mGraphicPool; // C2PlatformGraphicBlockPool
+    std::map<uint64_t, std::shared_ptr<C2Buffer>> mInPendingBuffer;
+    std::map<uint64_t, std::shared_ptr<C2Buffer>> mOutPendingBuffer;
 
     uint32_t mNumPendingWorks;
     std::mutex mLock;

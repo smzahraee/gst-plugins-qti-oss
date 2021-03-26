@@ -157,7 +157,7 @@ make_pixelFormat_param (guint32 fmt, gboolean isInput) {
   memset(&param, 0, sizeof(ConfigParams));
 
   param.isInput = isInput;
-  param.val.u32 = fmt;
+  param.pixelFormat.fmt = fmt;
 
   return param;
 }
@@ -236,7 +236,6 @@ gst_qticodec2venc_rate_control_get_type (void)
   return qtype;
 }
 
-
 static gboolean
 gst_qticodec2_caps_has_feature (const GstCaps * caps, const gchar * partten)
 {
@@ -255,7 +254,6 @@ gst_qticodec2_caps_has_feature (const GstCaps * caps, const gchar * partten)
 
   return ret;
 }
-
 
 static gboolean
 gst_qticodec2venc_create_component (GstVideoEncoder* encoder) {
@@ -546,17 +544,6 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
 
   GST_DEBUG_OBJECT (enc, "set graphic pool with: %d, height: %d, format: %x, rc mode: %d",
       enc->width, enc->height, enc->input_format, enc->rcMode);
-
-  /* Set input buffer pool property */
-  if(!c2component_set_pool_property(
-        enc->comp,
-        BUFFER_POOL_BASIC_GRAPHIC,
-        enc->width,
-        enc->height,
-        gst_to_c2_pixelformat(input_format))) {
-    GST_ERROR_OBJECT (enc, "fail to set graphic pool");
-    goto error_output;
-  }
 
   if (!c2componentInterface_config(
         enc->comp_intf,
@@ -896,8 +883,8 @@ handle_video_event (const void* handle, EVENT_TYPE type, void* data) {
     case EVENT_OUTPUTS_DONE: {
       BufferDescriptor* outBuffer = (BufferDescriptor*)data;
 
-      GST_DEBUG_OBJECT (enc, "Event output done, va: %p, offset: %d, index: %ld, fd: %d, \
-          filled len: %d, buffer size: %d, timestamp: %lu, flag: %x", outBuffer->data,
+      GST_DEBUG_OBJECT (enc, "Event output done, va: %p, offset: %d, index: %lu, fd: %u, \
+          filled len: %lu, buffer size: %u, timestamp: %lu, flag: %x", outBuffer->data,
           outBuffer->offset, outBuffer->index, outBuffer->fd, outBuffer->size,
           outBuffer->capacity, outBuffer->timestamp, outBuffer->flag);
 
@@ -967,6 +954,9 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
     inBuf.timestamp = NANO_TO_MILLI(frame->pts);
     inBuf.index = frame->system_frame_number;
     inBuf.pool_type = BUFFER_POOL_BASIC_GRAPHIC;
+    inBuf.width = enc->width;
+    inBuf.height = enc->height;
+    inBuf.format = enc->input_format;
 
     GST_DEBUG_OBJECT (enc, "input buffer: fd: %d, va:%p, size: %d, timestamp: %lu, index: %ld",
       inBuf.fd, inBuf.data, inBuf.size, inBuf.timestamp, inBuf.index);
