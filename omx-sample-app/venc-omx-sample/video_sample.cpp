@@ -56,7 +56,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**************************** QTI Extend function **************************/
 // Hardware related, for example: width align
-#include <media/msm_media_info.h>
+#include <vidc/media/msm_media_info.h>
 
 #define QTI_EXT 1
 
@@ -231,8 +231,6 @@ void Help() {
   printf("         (Values 0(Error), 1(Performance), 2(Debug), 4(Verbose), 8(Function Enter/Exit)\n");
   printf("      -p IDR-period\n");
   printf("      -c colorformat (NV12, NV12_UBWC, P010)\n");
-  printf("      -s slice-delivery\n");
-  printf("          (Valus 0(close), 1(open)) \n");
   printf("      -L rectangle-left\n");
   printf("      -T rectangle-top\n");
   printf("      -R rectangle-right\n");
@@ -277,7 +275,6 @@ static int ParseArgs(int argc, char **argv) {
     {"rotation", required_argument, NULL, 'r'},
     {"IDR-period", required_argument, NULL, 'p'},
     {"debug-level", required_argument, NULL, 'd'},
-    {"slice-delivery", required_argument, NULL, 's'},
     {"rectangle-left", required_argument, NULL, 'L'},
     {"rectangle-top", required_argument, NULL, 'T'},
     {"rectangle-right", required_argument, NULL, 'R'},
@@ -359,9 +356,6 @@ static int ParseArgs(int argc, char **argv) {
         break;
       case 'd':
         m_DebugLevelSets = atoi(optarg);
-        break;
-      case 's':
-        m_Settings.bEnableSliceDeliveryMode = atoi(optarg);
         break;
       case 'L':
         m_Settings.nRectangleLeft = atoi(optarg);
@@ -578,10 +572,6 @@ int ParseConfigs(char * filename) {
   item = GetItem(object, "IntraRefresh-Count");
   if (item != NULL) {
     m_Settings.nIntraRefresh = item->valueint;
-  }
-  item = GetItem(object, "Slice-Delivery");
-  if (item != NULL) {
-    m_Settings.bEnableSliceDeliveryMode = item->valueint;
   }
   item = GetItem(object, "ResyncMarker-Type");
   if (item != NULL) {

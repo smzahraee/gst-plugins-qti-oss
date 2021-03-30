@@ -39,7 +39,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                             Include Files
 //////////////////////////////////////////////////////////////////////////////
 
-#include <media/msm_media_info.h>
+#include <vidc/media/msm_media_info.h>
 
 #include "video_types.h"
 #include "video_debug.h"

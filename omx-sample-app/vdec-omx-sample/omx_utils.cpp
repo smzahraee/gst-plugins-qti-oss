@@ -59,7 +59,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "video_queue.h"
 #include "omx_utils.h"
-#include <media/msm_media_info.h>
+#include <vidc/media/msm_media_info.h>
 
 #define FractionToQ16(q, v) { (q) = (unsigned int) (65536*(double)(v)); }
 

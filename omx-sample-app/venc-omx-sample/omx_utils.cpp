@@ -61,6 +61,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* def: StoreMetaDataInBuffersParams */
 #include <media/hardware/HardwareAPI.h>
 
+#include <vidc/media/msm_media_info.h>
+
 //  OMX
 #include "OMX_QCOMExtns.h"
 #include "OMX_Core.h"
@@ -291,6 +293,8 @@ static const unsigned int hevc_profile_level_table[][5] = {
 
 #define DEFAULT_TILE_DIMENSION 512
 #define DEFAULT_TILE_COUNT 40
+
+#define FRAME_PACK_SIZE 18
 
 static OMX_STATETYPE m_State = OMX_StateLoaded;
 static OMX_STATETYPE m_PendingEstate = OMX_StateLoaded;
@@ -1125,8 +1129,7 @@ bool SetAVCIntraPeriod(OMX_U32 idr_period, OMX_U32 pframes) {
 bool ConfigErrorCorrection(OMX_U32 codec,
     OMX_U32 resyncmarker_type,
     OMX_U32 resyncmarker_spacing,
-    OMX_U32 hecinterval,
-    uint32_t enable_slice_delivery_mode) {
+    OMX_U32 hecinterval) {
   OMX_ERRORTYPE result = OMX_ErrorNone;
   OMX_BOOL enable_hec = OMX_FALSE;
 
@@ -1167,17 +1170,6 @@ bool ConfigErrorCorrection(OMX_U32 codec,
             (OMX_PTR)&slice_spacing);
         CHECK_RESULT("Set Slice Spacing failed:", result);
 
-        if (enable_slice_delivery_mode) {
-          QOMX_EXTNINDEX_PARAMTYPE ext_index;
-          OMX_INIT_STRUCT(&ext_index, QOMX_EXTNINDEX_PARAMTYPE);
-          ext_index.nPortIndex = PORT_INDEX_OUT;
-          ext_index.bEnable = OMX_TRUE;
-          // OMX_INIT_STRUCT_SIZE(&extnIndex, QOMX_EXTNINDEX_PARAMTYPE);
-          result = OMX_SetParameter(m_Handle,
-              (OMX_INDEXTYPE)OMX_QcomIndexEnableSliceDeliveryMode,
-              (OMX_PTR) &ext_index);
-          CHECK_RESULT("Failed to set slice delivery mode:", result);
-        }
         break;
       case OMX_VIDEO_CodingMPEG4:
         OMX_VIDEO_PARAM_MPEG4TYPE mp4;
@@ -2316,8 +2308,7 @@ bool ConfigEncoder(VideoCodecSetting_t *codec_settings) {
   ret = ConfigErrorCorrection(codec_settings->eCodec,
       codec_settings->eResyncMarkerType,
       codec_settings->nResyncMarkerSpacing,
-      codec_settings->nHECInterval,
-      codec_settings->bEnableSliceDeliveryMode);
+      codec_settings->nHECInterval);
   CHECK_BOOL("set Error correction failed", ret);
 
   ret = SetIntraRefresh(codec_settings->nFrameWidth,

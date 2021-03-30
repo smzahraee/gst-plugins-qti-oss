@@ -120,7 +120,6 @@ typedef struct VideoCodecSetting {
 
   uint32_t eResyncMarkerType;
   uint32_t nResyncMarkerSpacing;
-  uint32_t bEnableSliceDeliveryMode;  // OMX_BOOL == enum
   uint32_t nHECInterval;
 
   int32_t nRefreshMode;

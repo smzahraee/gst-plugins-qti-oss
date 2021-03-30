@@ -38,7 +38,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <media/msm_media_info.h>
+#include <vidc/media/msm_media_info.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <sys/types.h>
