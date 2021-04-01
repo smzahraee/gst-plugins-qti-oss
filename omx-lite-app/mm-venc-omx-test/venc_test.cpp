@@ -581,7 +581,11 @@ void* PmemMalloc(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pMem, int nSize, struct en
     goto error_handle;
   }
   ion_data_ptr->bo = bo;
-  bo_fd = gbm_bo_get_fd(bo);
+
+  /* TODO: won't use gbm_bo_get_fd() till it's redefined definitely. */
+  //bo_fd = gbm_bo_get_fd(bo);
+  /* Interim solution, just for smooth switch to new interface. */
+  bo_fd = bo->ion_fd;
   if(bo_fd < 0) {
     E("Get bo fd failed \n");
     goto error_handle;
