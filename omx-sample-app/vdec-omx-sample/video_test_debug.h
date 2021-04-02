@@ -83,30 +83,30 @@ char * GetTimeStamp();
 #endif
 
     // Error log
-    #define VLOGE(fmt, ...) fprintf(stderr, LOG_TAG "%s  ERROR:%s::%d " fmt "\n", \
+    #define VLOGE(fmt, ...) fprintf(stderr, LOG_TAG "  %s  ERROR:%s::%d " fmt "\n", \
                             GetTimeStamp(), __FUNCTION__, __LINE__,                   \
                             ## __VA_ARGS__)
 
     // Performance log
     #define VLOGP(fmt, ...) if (debug_level_sets & LVL_P) \
-                            fprintf(stderr, LOG_TAG "%s  PERF:%s::%d " fmt "\n",   \
+                            fprintf(stderr, LOG_TAG "  %s  PERF:%s::%d " fmt "\n",   \
                             GetTimeStamp(), __FUNCTION__, __LINE__,                     \
                             ## __VA_ARGS__)
     // Debug log
     #define VLOGD(fmt, ...) if (debug_level_sets & LVL_D) \
-                            fprintf(stderr, LOG_TAG "%s  DEBUG:%s::%d " fmt "\n",   \
+                            fprintf(stderr, LOG_TAG "  %s  DEBUG:%s::%d " fmt "\n",   \
                             GetTimeStamp(), __FUNCTION__, __LINE__,                     \
                             ## __VA_ARGS__)
 
     // Verbose log
     #define VLOGV(fmt, ...) if (debug_level_sets & LVL_V) \
-                            fprintf(stderr, LOG_TAG "%s  VERBOSE:%s::%d " fmt "\n",   \
+                            fprintf(stderr, LOG_TAG "  %s  VERBOSE:%s::%d " fmt "\n",   \
                             GetTimeStamp(), __FUNCTION__, __LINE__,                     \
                             ## __VA_ARGS__)
 
     // Function Enter/Exit
     #define VLOGF(fmt, ...) if (debug_level_sets & LVL_V) \
-                            fprintf(stderr, LOG_TAG "%s  FUNC:%s::%d " fmt "\n",   \
+                            fprintf(stderr, LOG_TAG "  %s  FUNC:%s::%d " fmt "\n",   \
                             GetTimeStamp(), __FUNCTION__, __LINE__,                     \
                             ## __VA_ARGS__)
 

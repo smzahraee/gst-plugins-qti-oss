@@ -1472,22 +1472,6 @@ bool InitializeCodec(OMX_U32 eCodec, int32_t filetype)
   return true;
 }
 
-bool SetExtraData()
-{
-  OMX_ERRORTYPE result = OMX_ErrorNone;
-  FUNCTION_ENTER();
-
-  QOMX_ENABLETYPE extra_data;
-  extra_data.bEnable = OMX_TRUE;
-  extra_data.nSize = sizeof(QOMX_ENABLETYPE);
-  result = OMX_SetParameter(m_Handle,(OMX_INDEXTYPE)OMX_QcomIndexParamFrameInfoExtraData,
-      (OMX_PTR)&extra_data);
-  CHECK_RESULT("Set OMX_QcomIndexParamFrameInfoExtraData error", result);
-
-  FUNCTION_EXIT();
-  return true;
-}
-
 void CheckIsSWCodec(const char * component)
 {
   FUNCTION_ENTER();
@@ -1702,23 +1686,6 @@ bool SetNalSize(int32_t nalSize)
   return true;
 }
 #endif
-
-bool SetFramePackingFormat(int32_t fileType)
-{
-  OMX_ERRORTYPE result = OMX_ErrorNone;
-  FUNCTION_ENTER();
-
-  OMX_QCOM_PARAM_PORTDEFINITIONTYPE qcInPortFmt;
-  OMX_INIT_STRUCT(&qcInPortFmt, OMX_QCOM_PARAM_PORTDEFINITIONTYPE);
-  qcInPortFmt.nPortIndex = PORT_INDEX_IN;
-  qcInPortFmt.nFramePackingFormat = GetFramePackingFormat(fileType);
-  result = OMX_SetParameter(m_Handle,(OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
-      (OMX_PTR)&qcInPortFmt);
-  CHECK_RESULT("Input set OMX_QcomIndexPortDefn error: FramePackingFormat", result);
-
-  FUNCTION_EXIT();
-  return true;
-}
 
 // codec is not used.
 bool RegisterBuffer(int32_t height, int32_t width, int colorformat, int codec, PortIndexType port)
@@ -1946,21 +1913,6 @@ bool ConfigureCodec(VideoCodecSetting_t *codecSettings)
   CheckFpsControl(codecSettings->nFrameRate);
   CheckIfNeedToWaitReconfig(codecSettings->nFrameHeight,
       codecSettings->nFrameWidth, codecSettings->eCodec);
-  result = SetFramePackingFormat(codecSettings->nFileType);
-  CHECK_BOOL("Set frame packing format failed", result);
-
-  if (codecSettings->eCodec != OMX_VIDEO_CodingMPEG4 &&
-      codecSettings->eCodec != OMX_VIDEO_CodingH263 &&
-      codecSettings->eCodec != OMX_VIDEO_CodingWMV &&
-      codecSettings->eCodec != QOMX_VIDEO_CodingDivx)
-  {
-    result = SetExtraData();
-    CHECK_BOOL("Set extra data failed", result);
-  }
-  else
-  {
-    VLOGD("Skip extra data settings for SW Codec MPEG4 and H263");
-  }
 
   // set input port
   result = SetInPortParameters(codecSettings->nFileType, codecSettings->nFrameHeight,
