@@ -183,7 +183,6 @@ gboolean c2component_delete (void* comp);
 const gchar* c2componentInterface_getName (void* const comp_intf);
 const gint c2componentInterface_getId (void* const comp_intf);
 gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config, BLOCK_MODE_TYPE block);
-gboolean c2componentInterface_delete (void* comp_intf);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Helper API
