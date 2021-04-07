@@ -41,7 +41,7 @@ C2ComponentInterfaceAdapter::C2ComponentInterfaceAdapter(std::shared_ptr<C2Compo
 }
 
 C2ComponentInterfaceAdapter::~C2ComponentInterfaceAdapter() {
-
+    LOG_MESSAGE("delete C2 Component Interface Adapter");
     mCompIntf = nullptr;
 }
 

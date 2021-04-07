@@ -273,10 +273,6 @@ gst_qticodec2venc_destroy_component (GstVideoEncoder* encoder) {
 
   GST_DEBUG_OBJECT (enc, "destroy_component");
 
-  if (enc->comp_intf) {
-    c2componentInterface_delete(enc->comp_intf);
-  }
-
   if (enc->comp) {
     c2component_delete(enc->comp);
   }
