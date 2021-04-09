@@ -2869,7 +2869,7 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
 
   DEBUG_PRINT("pBufHdrs = %x,bufCntMin = %d", pBufHdrs, bufCntMin);
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-      malloc(sizeof(OMX_BUFFERHEADERTYPE)*bufCntMin);
+      malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
 
   for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
     DEBUG_PRINT("OMX_AllocateBuffer No %d ", bufCnt);
@@ -2892,7 +2892,7 @@ static OMX_ERRORTYPE use_input_buffer ( OMX_COMPONENTTYPE *dec_handle,
   OMX_U8* pvirt = NULL;
 
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-         malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
+         malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
   if(*pBufHdrs == NULL){
     DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
     return OMX_ErrorInsufficientResources;
@@ -2924,7 +2924,7 @@ static OMX_ERRORTYPE use_output_buffer ( OMX_COMPONENTTYPE *dec_handle,
   OMX_U8* pvirt = NULL;
 
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-               malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
+               malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
   if(*pBufHdrs == NULL){
     DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
     return OMX_ErrorInsufficientResources;
@@ -2985,7 +2985,7 @@ static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_hand
 //#ifndef USE_OUTPUT_BUFFER
 #ifndef USE_ION
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-             malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
+             malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
   if(*pBufHdrs == NULL){
     DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
     return OMX_ErrorInsufficientResources;
@@ -3051,7 +3051,7 @@ static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_hand
 #else
   struct vdec_ion vdecion = {0};
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-                malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
+                malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
   if(*pBufHdrs == NULL){
     DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
     return OMX_ErrorInsufficientResources;
