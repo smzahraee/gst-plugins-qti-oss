@@ -402,7 +402,7 @@ int realtime_display = 0;
 int num_frames_to_decode = 0;
 int thumbnailMode = 0;
 
-Queue *etb_queue = NULL;
+Queue *ebd_queue = NULL;
 Queue *fbd_queue = NULL;
 
 pthread_t ebd_thread_id;
@@ -410,7 +410,7 @@ pthread_t fbd_thread_id;
 void* ebd_thread(void*);
 void* fbd_thread(void*);
 
-pthread_mutex_t etb_lock;
+pthread_mutex_t ebd_lock;
 pthread_mutex_t fbd_lock;
 pthread_mutex_t lock;
 pthread_cond_t cond;
@@ -418,7 +418,7 @@ pthread_mutex_t eos_lock;
 pthread_cond_t eos_cond;
 pthread_mutex_t enable_lock;
 
-sem_t etb_sem;
+sem_t ebd_sem;
 sem_t fbd_sem;
 sem_t seq_sem;
 sem_t in_flush_sem, out_flush_sem;
@@ -847,13 +847,13 @@ void* ebd_thread(void* pArg)
         DEBUG_PRINT(" EBD_thread flush wait complete");
     }
 
-    sem_wait(&etb_sem);
-    pthread_mutex_lock(&etb_lock);
-    pBuffer = (OMX_BUFFERHEADERTYPE *) pop(etb_queue);
-    pthread_mutex_unlock(&etb_lock);
+    sem_wait(&ebd_sem);
+    pthread_mutex_lock(&ebd_lock);
+    pBuffer = (OMX_BUFFERHEADERTYPE *) pop(ebd_queue);
+    pthread_mutex_unlock(&ebd_lock);
     if(pBuffer == NULL)
     {
-      DEBUG_PRINT_ERROR("Error - No etb pBuffer to dequeue");
+      DEBUG_PRINT_ERROR("Error - No ebd pBuffer to dequeue");
       continue;
     }
 
@@ -1363,7 +1363,7 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
         waitForPortSettingsChanged = 0;
         event_complete();
       }
-      sem_post(&etb_sem);
+      sem_post(&ebd_sem);
       sem_post(&fbd_sem);
       break;
     case OMX_EventPortSettingsChanged:
@@ -1449,14 +1449,14 @@ OMX_ERRORTYPE EmptyBufferDone(OMX_IN OMX_HANDLETYPE hComponent,
     return OMX_ErrorNone;
   }
 
-  pthread_mutex_lock(&etb_lock);
-  if(push(etb_queue, (void *) pBuffer) < 0)
+  pthread_mutex_lock(&ebd_lock);
+  if(push(ebd_queue, (void *) pBuffer) < 0)
   {
     DEBUG_PRINT_ERROR("Error in enqueue  ebd data");
     return OMX_ErrorUndefined;
   }
-  pthread_mutex_unlock(&etb_lock);
-  sem_post(&etb_sem);
+  pthread_mutex_unlock(&ebd_lock);
+  sem_post(&ebd_sem);
 
   return OMX_ErrorNone;
 }
@@ -1899,10 +1899,10 @@ int main(int argc, char **argv)
   pthread_cond_init(&eos_cond, 0);
   pthread_mutex_init(&eos_lock, 0);
   pthread_mutex_init(&lock, 0);
-  pthread_mutex_init(&etb_lock, 0);
+  pthread_mutex_init(&ebd_lock, 0);
   pthread_mutex_init(&fbd_lock, 0);
   pthread_mutex_init(&enable_lock, 0);
-  if (-1 == sem_init(&etb_sem, 0, 0))
+  if (-1 == sem_init(&ebd_sem, 0, 0))
   {
     DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
   }
@@ -1922,10 +1922,10 @@ int main(int argc, char **argv)
   {
     DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
   }
-  etb_queue = alloc_queue();
-  if (etb_queue == NULL)
+  ebd_queue = alloc_queue();
+  if (ebd_queue == NULL)
   {
-    DEBUG_PRINT_ERROR(" Error in Creating etb_queue");
+    DEBUG_PRINT_ERROR(" Error in Creating ebd_queue");
     return -1;
   }
 
@@ -1933,14 +1933,14 @@ int main(int argc, char **argv)
   if (fbd_queue == NULL)
   {
     DEBUG_PRINT_ERROR(" Error in Creating fbd_queue");
-    free_queue(etb_queue);
+    free_queue(ebd_queue);
     return -1;
   }
 
   if(0 != pthread_create(&fbd_thread_id, NULL, fbd_thread, NULL))
   {
     DEBUG_PRINT_ERROR(" Error in Creating fbd_thread ");
-    free_queue(etb_queue);
+    free_queue(ebd_queue);
     free_queue(fbd_queue);
     return -1;
   }
@@ -1959,12 +1959,12 @@ int main(int argc, char **argv)
     close_display();
   pthread_cond_destroy(&cond);
   pthread_mutex_destroy(&lock);
-  pthread_mutex_destroy(&etb_lock);
+  pthread_mutex_destroy(&ebd_lock);
   pthread_mutex_destroy(&fbd_lock);
   pthread_mutex_destroy(&enable_lock);
   pthread_cond_destroy(&eos_cond);
   pthread_mutex_destroy(&eos_lock);
-  if (-1 == sem_destroy(&etb_sem))
+  if (-1 == sem_destroy(&ebd_sem))
   {
     DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
   }
@@ -2802,7 +2802,7 @@ int Play_Decoder()
   if(0 != pthread_create(&ebd_thread_id, NULL, ebd_thread, NULL))
   {
     DEBUG_PRINT_ERROR(" Error in Creating fbd_thread ");
-    free_queue(etb_queue);
+    free_queue(ebd_queue);
     free_queue(fbd_queue);
     return -1;
   }
@@ -3241,12 +3241,12 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
   }
   DEBUG_PRINT("[OMX Vdec Test] - after free outputfile");
 
-  if(etb_queue)
+  if(ebd_queue)
   {
-    free_queue(etb_queue);
-    etb_queue = NULL;
+    free_queue(ebd_queue);
+    ebd_queue = NULL;
   }
-  DEBUG_PRINT("[OMX Vdec Test] - after free etb_queue ");
+  DEBUG_PRINT("[OMX Vdec Test] - after free ebd_queue ");
   if(fbd_queue)
   {
     free_queue(fbd_queue);
