@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016, 2018-2021 The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -208,6 +208,8 @@ struct OverlayTargetBuffer {
   TargetBufferFormat format;
   uint32_t width;
   uint32_t height;
+  uint32_t offset[2];
+  uint32_t stride[2];
   uint32_t ion_fd;
   uint32_t frame_len;
 };
@@ -218,11 +220,14 @@ struct OverlayParamInfo {
   bool is_active;
 };
 
+enum class OverlayBlitType {
+  kC2D,
+  kOpenCL
+};
+
 class OverlayItem;
 
-#ifdef OVERLAY_OPEN_CL_BLIT
 class OpenClKernel;
-#endif // OVERLAY_OPEN_CL_BLIT
 
 // This class provides facility to embed different
 // Kinds of overlay on top of Camera stream buffers.
@@ -289,17 +294,19 @@ private:
 
   bool IsOverlayItemValid (uint32_t overlay_id);
 
+  int32_t ApplyOverlay_C2D (const OverlayTargetBuffer& buffer);
+
+  int32_t ApplyOverlay_CL (const OverlayTargetBuffer& buffer);
+
   std::map<uint32_t, OverlayItem*> overlay_items_;
 
-#ifndef OVERLAY_OPEN_CL_BLIT
   uint32_t target_c2dsurface_id_;
-#else
   std::shared_ptr<OpenClKernel> blit_instance_;
-#endif // OVERLAY_OPEN_CL_BLIT
 
   int32_t ion_device_;
   uint32_t id_;
   std::mutex lock_;
+  OverlayBlitType blit_type_;
 };
 
 }; // namespace overlay
