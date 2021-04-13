@@ -940,6 +940,8 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
   GstBuffer* buf = NULL;
   GstMemory *mem;
   GstMapInfo mapinfo = { 0, };
+  gboolean mem_mapped = FALSE;
+  gboolean ret = FALSE;
 
   GST_DEBUG_OBJECT (enc, "encode");
 
@@ -956,6 +958,7 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
       inBuf.data = NULL;
     } else {
       gst_buffer_map (buf, &mapinfo, GST_MAP_READ);
+      mem_mapped = TRUE;
       inBuf.fd = -1;
       inBuf.data = mapinfo.data;
       inBuf.size = mapinfo.size;
@@ -973,7 +976,13 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
   enc->queued_frame[(enc->frame_index) % MAX_QUEUED_FRAME] =  frame->system_frame_number;
 
   /* Queue buffer to Codec2 */
-  if (!c2component_queue (enc->comp, &inBuf)) {
+  ret = c2component_queue (enc->comp, &inBuf);
+  /* unmap the gstbuffer if it's mapped*/
+  if (mem_mapped) {
+    gst_buffer_unmap (buf, &mapinfo);
+  }
+
+  if (!ret) {
     goto error_setup_input;
   }
 
