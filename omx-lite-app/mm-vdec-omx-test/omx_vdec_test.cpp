@@ -216,14 +216,8 @@ static int previous_vc1_au = 0;
 #define MDP_DEINTERLACE 0x80000000
 
 #define ALLOCATE_BUFFER 1
-//#define USE_OUTPUT_BUFFER 1
 
 #define PMEM_DEVICE "/dev/ion"
-
-#ifdef USE_OUTPUT_BUFFER
-#define USE_EXTERN_PMEM_BUF
-#undef USE_EGL_IMAGE_TEST_APP
-#endif
 
 /************************************************************************/
 /*              GLOBAL DECLARATIONS                     */
@@ -241,8 +235,6 @@ struct vdec_ion {
   int data_fd;
   struct ion_allocation_data alloc_data;
 };
-
-struct vdec_ion *outPort_ion;
 
 bool alloc_map_ion_memory(OMX_U32 buffer_size, struct vdec_ion *ion_info, int flag);
 void free_ion_memory(struct vdec_ion *buf_ion_info);
@@ -427,7 +419,7 @@ OMX_PARAM_PORTDEFINITIONTYPE portFmt;
 OMX_PORT_PARAM_TYPE portParam;
 OMX_ERRORTYPE error;
 OMX_COLOR_FORMATTYPE color_fmt;
-static bool input_use_buffer = false,output_use_buffer = false;
+static bool input_use_buffer = false;
 QOMX_VIDEO_DECODER_PICTURE_ORDER picture_order;
 
 #ifdef MAX_RES_1080P
@@ -540,15 +532,8 @@ OMX_COMPONENTTYPE* dec_handle = 0;
 OMX_BUFFERHEADERTYPE  **pInputBufHdrs = NULL;
 OMX_BUFFERHEADERTYPE  **pOutYUVBufHdrs= NULL;
 
-static OMX_BOOL use_external_pmem_buf = OMX_FALSE;
-
 int rcv_v1=0;
-static struct temp_egl **p_eglHeaders = NULL;
-static unsigned char* use_buf_virt_addr[32];
 
-OMX_QCOM_PLATFORM_PRIVATE_LIST      *pPlatformList = NULL;
-OMX_QCOM_PLATFORM_PRIVATE_ENTRY     *pPlatformEntry = NULL;
-OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
 OMX_CONFIG_RECTTYPE crop_rect = {0,0,0,0};
 
 static int bHdrflag = 0;
@@ -593,18 +578,6 @@ static OMX_ERRORTYPE use_input_buffer(OMX_COMPONENTTYPE      *dec_handle,
                                 OMX_U32              nPortIndex,
                                 OMX_U32              bufSize,
                                 long                 bufcnt);
-
-static OMX_ERRORTYPE use_output_buffer(OMX_COMPONENTTYPE      *dec_handle,
-                                OMX_BUFFERHEADERTYPE ***bufferHdr,
-                                OMX_U32              nPortIndex,
-                                OMX_U32              bufSize,
-                                long                 bufcnt);
-
-static OMX_ERRORTYPE use_output_buffer_multiple_fd(OMX_COMPONENTTYPE      *dec_handle,
-                                                   OMX_BUFFERHEADERTYPE ***bufferHdr,
-                                                   OMX_U32              nPortIndex,
-                                                   OMX_U32              bufSize,
-                                                   long                 bufcnt);
 
 static OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
                                   OMX_IN OMX_PTR pAppData,
@@ -2319,9 +2292,7 @@ int Init_Decoder()
               (OMX_PTR)&thumbNailMode);
     DEBUG_PRINT("Enabled Thumbnail mode");
   }
-#ifdef USE_OUTPUT_BUFFER
-  use_external_pmem_buf = OMX_TRUE;
-#endif
+
   return 0;
 }
 
@@ -2378,25 +2349,7 @@ int Play_Decoder()
   }
   OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
              (OMX_PTR)&inputPortFmt);
-#ifdef USE_EXTERN_PMEM_BUF
-  OMX_QCOM_PARAM_PORTDEFINITIONTYPE outPortFmt;
-  memset(&outPortFmt, 0, sizeof(OMX_QCOM_PARAM_PORTDEFINITIONTYPE));
-  CONFIG_VERSION_SIZE(outPortFmt);
-  outPortFmt.nPortIndex = 1;  // output port
-  outPortFmt.nCacheAttr = OMX_QCOM_CacheAttrNone;
-  outPortFmt.nMemRegion = OMX_QCOM_MemRegionEBI1;
-  OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
-            (OMX_PTR)&outPortFmt);
 
-  OMX_QCOM_PLATFORMPRIVATE_EXTN outPltPvtExtn;
-  memset(&outPltPvtExtn, 0, sizeof(OMX_QCOM_PLATFORMPRIVATE_EXTN));
-  CONFIG_VERSION_SIZE(outPltPvtExtn);
-  outPltPvtExtn.nPortIndex = 1;  // output port
-  outPltPvtExtn.type = OMX_QCOM_PLATFORM_PRIVATE_PMEM;
-  OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexPlatformPvt,
-            (OMX_PTR)&outPltPvtExtn);
-  use_external_pmem_buf = OMX_TRUE;
-#endif
   QOMX_ENABLETYPE extra_data;
   extra_data.bEnable = OMX_TRUE;
 #if 0
@@ -2619,22 +2572,9 @@ int Play_Decoder()
     }
   }
 
-#ifndef USE_EGL_IMAGE_TEST_APP
-  if (use_external_pmem_buf)
-  {
-    DEBUG_PRINT_ERROR(" Use External pmem buf: OMX_UseBuffer %p", &pInputBufHdrs);
-    error =  use_output_buffer_multiple_fd(dec_handle,
-                    &pOutYUVBufHdrs,
-                    portFmt.nPortIndex,
-                    portFmt.nBufferSize,
-                    portFmt.nBufferCountActual);
-  }
-  else
-  {
-    /* Allocate buffer on decoder's o/p port */
-    error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
-                    portFmt.nBufferCountActual, portFmt.nBufferSize);
-  }
+  /* Allocate buffer on decoder's o/p port */
+  error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
+                  portFmt.nBufferCountActual, portFmt.nBufferSize);
   free_op_buf_cnt = portFmt.nBufferCountActual;
   if (error != OMX_ErrorNone) {
     DEBUG_PRINT_ERROR("Error - OMX_AllocateBuffer Output buffer error");
@@ -2644,22 +2584,7 @@ int Play_Decoder()
   {
     DEBUG_PRINT("OMX_AllocateBuffer Output buffer success");
   }
-#else
-  DEBUG_PRINT_ERROR(" before OMX_UseBuffer %p", &pInputBufHdrs);
-  error =  use_output_buffer(dec_handle,
-                 &pOutYUVBufHdrs,
-                 portFmt.nPortIndex,
-                 portFmt.nBufferSize,
-                 portFmt.nBufferCountActual);
-  free_op_buf_cnt = portFmt.nBufferCountActual;
-  if (error != OMX_ErrorNone) {
-    DEBUG_PRINT_ERROR("ERROR - OMX_UseBuffer Input buffer failed");
-    return -1;
-  }
-  else {
-    DEBUG_PRINT("OMX_UseBuffer Input buffer success");
-  }
-#endif
+
   wait_for_event();
   if (currentStatus == ERROR_STATE)
   {
@@ -2917,214 +2842,6 @@ static OMX_ERRORTYPE use_input_buffer ( OMX_COMPONENTTYPE *dec_handle,
   return error;
 }
 
-static OMX_ERRORTYPE use_output_buffer ( OMX_COMPONENTTYPE *dec_handle,
-                                  OMX_BUFFERHEADERTYPE  ***pBufHdrs,
-                                  OMX_U32 nPortIndex,
-                                  OMX_U32 bufSize,
-                                  long bufCntMin)
-{
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  OMX_ERRORTYPE error=OMX_ErrorNone;
-  long bufCnt=0;
-  OMX_U8* pvirt = NULL;
-
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-               malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
-  if(*pBufHdrs == NULL){
-    DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  output_use_buffer = true;
-  p_eglHeaders = (struct temp_egl **)
-             malloc(sizeof(struct temp_egl *)* bufCntMin);
-  if (!p_eglHeaders){
-    DEBUG_PRINT_ERROR(" EGL allocation failed");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
-    // allocate input buffers
-    DEBUG_PRINT("OMX_UseBuffer No %d %d ", bufCnt, bufSize);
-    p_eglHeaders[bufCnt] = (struct temp_egl*)
-                  malloc(sizeof(struct temp_egl));
-    if(!p_eglHeaders[bufCnt]) {
-      DEBUG_PRINT_ERROR(" EGL allocation failed");
-      return OMX_ErrorInsufficientResources;
-    }
-    p_eglHeaders[bufCnt]->pmem_fd = open(PMEM_DEVICE,O_RDWR);
-    p_eglHeaders[bufCnt]->offset = 0;
-    if(p_eglHeaders[bufCnt]->pmem_fd < 0) {
-      DEBUG_PRINT_ERROR(" open failed %s",PMEM_DEVICE);
-      return OMX_ErrorInsufficientResources;
-    }
-#ifndef USE_ION
-    /* TBD - this commenting is dangerous */
-    align_pmem_buffers(p_eglHeaders[bufCnt]->pmem_fd, bufSize,
-                                  8192);
-#endif
-    DEBUG_PRINT_ERROR(" allocation size %d pmem fd %d",bufSize,p_eglHeaders[bufCnt]->pmem_fd);
-    pvirt = (unsigned char *)mmap(NULL,bufSize,PROT_READ|PROT_WRITE,
-                MAP_SHARED,p_eglHeaders[bufCnt]->pmem_fd,0);
-    DEBUG_PRINT_ERROR(" Virtaul Address %p Size %d",pvirt,bufSize);
-    if (pvirt == MAP_FAILED) {
-      DEBUG_PRINT_ERROR(" mmap failed for buffers");
-      return OMX_ErrorInsufficientResources;
-    }
-    use_buf_virt_addr[bufCnt] = pvirt;
-    error = OMX_UseEGLImage(dec_handle, &((*pBufHdrs)[bufCnt]),
-                   nPortIndex, pvirt,(void *)p_eglHeaders[bufCnt]);
-  }
-  return error;
-}
-
-static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_handle,
-                                  OMX_BUFFERHEADERTYPE  ***pBufHdrs,
-                                  OMX_U32 nPortIndex,
-                                  OMX_U32 bufSize,
-                                  long bufCntMin)
-{
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  OMX_ERRORTYPE error=OMX_ErrorNone;
-  long bufCnt=0;
-  OMX_U8* pvirt = NULL;
-//#ifndef USE_OUTPUT_BUFFER
-#ifndef USE_ION
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-             malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
-  if(*pBufHdrs == NULL){
-    DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  pPlatformList = (OMX_QCOM_PLATFORM_PRIVATE_LIST *)
-  malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_LIST)* bufCntMin);
-
-  if(pPlatformList == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformList Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPlatformEntry = (OMX_QCOM_PLATFORM_PRIVATE_ENTRY *)
-  malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_ENTRY)* bufCntMin);
-
-  if(pPlatformEntry == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformEntry Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPMEMInfo = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
-    malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO)* bufCntMin);
-
-  if(pPMEMInfo == NULL){
-    DEBUG_PRINT_ERROR(" pPMEMInfo Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  //output_use_buffer = true;
-  for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
-    // allocate input buffers
-    DEBUG_PRINT("OMX_UseBuffer_multiple_fd No %d %d ", bufCnt, bufSize);
-
-    pPlatformEntry[bufCnt].type       = OMX_QCOM_PLATFORM_PRIVATE_PMEM;
-    pPlatformEntry[bufCnt].entry      = &pPMEMInfo[bufCnt];
-    // Initialize the Platform List
-    pPlatformList[bufCnt].nEntries    = 1;
-    pPlatformList[bufCnt].entryList   = &pPlatformEntry[bufCnt];
-    pPMEMInfo[bufCnt].offset          =  0;
-    pPMEMInfo[bufCnt].pmem_fd = open(PMEM_DEVICE,O_RDWR);
-    if(pPMEMInfo[bufCnt].pmem_fd < 0) {
-      DEBUG_PRINT_ERROR(" open failed %s",PMEM_DEVICE);
-      return OMX_ErrorInsufficientResources;
-    }
-#ifndef USE_ION
-    /* TBD - this commenting is dangerous */
-    align_pmem_buffers(pPMEMInfo[bufCnt].pmem_fd, bufSize,
-                                8192);
-#endif
-    DEBUG_PRINT(" allocation size %d pmem fd 0x%x",bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    pvirt = (unsigned char *)mmap(NULL,bufSize,PROT_READ|PROT_WRITE,
-                    MAP_SHARED,pPMEMInfo[bufCnt].pmem_fd,0);
-    getFreePmem();
-    DEBUG_PRINT(" Virtual Address %p Size %d pmem_fd=0x%x",pvirt,bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    if (pvirt == MAP_FAILED) {
-      DEBUG_PRINT_ERROR(" mmap failed for buffers");
-      return OMX_ErrorInsufficientResources;
-    }
-    use_buf_virt_addr[bufCnt] = pvirt;
-    error = OMX_UseBuffer(dec_handle, &((*pBufHdrs)[bufCnt]),
-                          nPortIndex, &pPlatformList[bufCnt], bufSize, pvirt);
-  }
-#else
-  struct vdec_ion vdecion = {0};
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-                malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
-  if(*pBufHdrs == NULL){
-    DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  pPlatformList = (OMX_QCOM_PLATFORM_PRIVATE_LIST *)
-      malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_LIST)* bufCntMin);
-
-  if(pPlatformList == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformList Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPlatformEntry = (OMX_QCOM_PLATFORM_PRIVATE_ENTRY *)
-    malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_ENTRY)* bufCntMin);
-
-  if(pPlatformEntry == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformEntry Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPMEMInfo = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
-      malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO)* bufCntMin);
-
-  if(pPMEMInfo == NULL){
-    DEBUG_PRINT_ERROR(" pPMEMInfo Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  outPort_ion = (struct vdec_ion *)calloc(sizeof(struct vdec_ion), bufCntMin);
-  if(!outPort_ion)
-    return OMX_ErrorInsufficientResources;
-
-  //output_use_buffer = true;
-  for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
-    // allocate input buffers
-    DEBUG_PRINT("OMX_UseBuffer_multiple_fd No %d %d ", bufCnt, bufSize);
-
-    pPlatformEntry[bufCnt].type       = OMX_QCOM_PLATFORM_PRIVATE_PMEM;
-    pPlatformEntry[bufCnt].entry      = &pPMEMInfo[bufCnt];
-    // Initialize the Platform List
-    pPlatformList[bufCnt].nEntries    = 1;
-    pPlatformList[bufCnt].entryList   = &pPlatformEntry[bufCnt];
-    pPMEMInfo[bufCnt].offset          =  0;
-
-    bool status =  alloc_map_ion_memory(bufSize, &vdecion, 0);
-    if (status == false) {
-      return OMX_ErrorInsufficientResources;
-    }
-    pPMEMInfo[bufCnt].pmem_fd  = vdecion.data_fd;
-
-    outPort_ion[bufCnt].dev_fd = vdecion.dev_fd;
-    outPort_ion[bufCnt].alloc_data = vdecion.alloc_data;
-    outPort_ion[bufCnt].data_fd = vdecion.data_fd;
-
-    DEBUG_PRINT(" allocation size %d pmem fd 0x%x",bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    pvirt = (unsigned char *)mmap(NULL,bufSize,PROT_READ|PROT_WRITE,
-                  MAP_SHARED,pPMEMInfo[bufCnt].pmem_fd,0);
-    DEBUG_PRINT(" Virtual Address %p Size %d pmem_fd=0x%x",pvirt,bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    if (pvirt == MAP_FAILED) {
-      DEBUG_PRINT_ERROR(" mmap failed for buffers");
-      return OMX_ErrorInsufficientResources;
-    }
-    use_buf_virt_addr[bufCnt] = pvirt;
-    error = OMX_UseBuffer(dec_handle, &((*pBufHdrs)[bufCnt]),
-                        nPortIndex, &pPlatformList[bufCnt], bufSize, pvirt);
-  }
-#endif
-  return error;
-}
 static void do_freeHandle_and_clean_up(bool isDueToError)
 {
   int bufCnt = 0;
@@ -3157,55 +2874,7 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
       pInputBufHdrs = NULL;
     }
     for(bufCnt = 0; bufCnt < portFmt.nBufferCountActual; ++bufCnt) {
-      if (output_use_buffer && p_eglHeaders) {
-        if(p_eglHeaders[bufCnt]) {
-          munmap (pOutYUVBufHdrs[bufCnt]->pBuffer,
-                  pOutYUVBufHdrs[bufCnt]->nAllocLen);
-          close(p_eglHeaders[bufCnt]->pmem_fd);
-          p_eglHeaders[bufCnt]->pmem_fd = -1;
-          free(p_eglHeaders[bufCnt]);
-          p_eglHeaders[bufCnt] = NULL;
-        }
-      }
-      if (use_external_pmem_buf)
-      {
-        DEBUG_PRINT("Freeing in external pmem case: buffer=0x%x, pmem_fd=0x%d",
-                              pOutYUVBufHdrs[bufCnt]->pBuffer,
-                              pPMEMInfo[bufCnt].pmem_fd);
-        if (pOutYUVBufHdrs[bufCnt]->pBuffer)
-        {
-          munmap (pOutYUVBufHdrs[bufCnt]->pBuffer,
-                    pOutYUVBufHdrs[bufCnt]->nAllocLen);
-        }
-        if (&pPMEMInfo[bufCnt])
-        {
-          close(pPMEMInfo[bufCnt].pmem_fd);
-          pPMEMInfo[bufCnt].pmem_fd = -1;
-        }
-      }
       OMX_FreeBuffer(dec_handle, 1, pOutYUVBufHdrs[bufCnt]);
-    }
-    if(p_eglHeaders) {
-      free(p_eglHeaders);
-      p_eglHeaders = NULL;
-    }
-    if (pPMEMInfo)
-    {
-      DEBUG_PRINT("Freeing in external pmem case:PMEM");
-      free(pPMEMInfo);
-      pPMEMInfo = NULL;
-    }
-    if (pPlatformEntry)
-    {
-      DEBUG_PRINT("Freeing in external pmem case:ENTRY");
-      free(pPlatformEntry);
-      pPlatformEntry = NULL;
-    }
-    if (pPlatformList)
-    {
-      DEBUG_PRINT("Freeing in external pmem case:LIST");
-      free(pPlatformList);
-      pPlatformList = NULL;
     }
     wait_for_event();
   }
@@ -4388,7 +4057,7 @@ int overlay_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
   struct msmfb_overlay_data ov_front;
   memset(&ov_front, 0, sizeof(struct msmfb_overlay_data));
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
+#if defined(_ANDROID_)
   MemoryHeapBase *vheap = NULL;
 #endif
 
@@ -4408,7 +4077,7 @@ int overlay_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
     ALOGE("overlay_fb: pmem_info is null");
     return -1;
   }
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
+#if defined(_ANDROID_)
   vheap = (MemoryHeapBase*)pPMEMInfo->pmem_fd;
 #endif
 
@@ -4449,7 +4118,7 @@ void render_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   OMX_QCOM_EXTRADATA_FRAMEINFO *pExtraFrameInfo = 0;
   OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
   unsigned int destx, desty,destW, destH;
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
+#if defined(_ANDROID_)
   MemoryHeapBase *vheap = NULL;
 #endif
 
@@ -4493,7 +4162,7 @@ void render_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   pPMEMInfo  = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
                ((OMX_QCOM_PLATFORM_PRIVATE_LIST *)
                pBufHdr->pPlatformPrivate)->entryList->entry;
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
+#if defined(_ANDROID_)
   vheap = (MemoryHeapBase *)pPMEMInfo->pmem_fd;
 #endif
 
@@ -4507,7 +4176,7 @@ void render_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   e->src.height = portFmt.format.video.nSliceHeight;
   e->src.format = MDP_Y_CBCR_H2V2;
   e->src.offset = pPMEMInfo->offset;
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
+#if defined(_ANDROID_)
   e->src.memory_id = vheap->getHeapID();
 #else
   e->src.memory_id = pPMEMInfo->pmem_fd;
@@ -4928,28 +4597,6 @@ int disable_output_port()
   pthread_mutex_unlock(&enable_lock);
   // wait for Disable event to come back
   wait_for_event();
-  if(p_eglHeaders) {
-    free(p_eglHeaders);
-    p_eglHeaders = NULL;
-  }
-  if (pPMEMInfo)
-  {
-    DEBUG_PRINT("Freeing in external pmem case:PMEM");
-    free(pPMEMInfo);
-    pPMEMInfo = NULL;
-  }
-  if (pPlatformEntry)
-  {
-    DEBUG_PRINT("Freeing in external pmem case:ENTRY");
-    free(pPlatformEntry);
-    pPlatformEntry = NULL;
-  }
-  if (pPlatformList)
-  {
-    DEBUG_PRINT("Freeing in external pmem case:LIST");
-    free(pPlatformList);
-    pPlatformList = NULL;
-  }
   if (currentStatus == ERROR_STATE)
   {
     do_freeHandle_and_clean_up(true);
@@ -4966,7 +4613,7 @@ int enable_output_port()
   DEBUG_PRINT("ENABLING OP PORT");
   // Send Enable command
   OMX_SendCommand(dec_handle, OMX_CommandPortEnable, 1, 0);
-#ifndef USE_EGL_IMAGE_TEST_APP
+
   /* Allocate buffer on decoder's o/p port */
   portFmt.nPortIndex = 1;
 
@@ -4984,20 +4631,8 @@ int enable_output_port()
     }
   }
 
-  if (use_external_pmem_buf)
-  {
-    DEBUG_PRINT("Enable op port: calling use_buffer_mult_fd");
-    error =  use_output_buffer_multiple_fd(dec_handle,
-                                           &pOutYUVBufHdrs,
-                                           portFmt.nPortIndex,
-                                           portFmt.nBufferSize,
-                                           portFmt.nBufferCountActual);
-  }
-  else
-  {
-    error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
-                            portFmt.nBufferCountActual, portFmt.nBufferSize);
-  }
+  error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
+                          portFmt.nBufferCountActual, portFmt.nBufferSize);
   if (error != OMX_ErrorNone) {
     DEBUG_PRINT_ERROR("Error - OMX_AllocateBuffer Output buffer error");
     return -1;
@@ -5007,22 +4642,7 @@ int enable_output_port()
     DEBUG_PRINT("OMX_AllocateBuffer Output buffer success");
     free_op_buf_cnt = portFmt.nBufferCountActual;
   }
-#else
-  error =  use_output_buffer(dec_handle,
-                       &pOutYUVBufHdrs,
-                        portFmt.nPortIndex,
-                        portFmt.nBufferSize,
-                        portFmt.nBufferCountActual);
-  free_op_buf_cnt = portFmt.nBufferCountActual;
-  if (error != OMX_ErrorNone) {
-    DEBUG_PRINT_ERROR("ERROR - OMX_UseBuffer Input buffer failed");
-    return -1;
-  }
-  else {
-    DEBUG_PRINT("OMX_UseBuffer Input buffer success");
-  }
 
-#endif
   // wait for enable event to come back
   wait_for_event();
   if (currentStatus == ERROR_STATE)
@@ -5104,58 +4724,13 @@ int output_port_reconfig()
 
 void free_output_buffers()
 {
-  int index = 0;
+  DEBUG_PRINT(" pOutYUVBufHdrs %p", pOutYUVBufHdrs);
   OMX_BUFFERHEADERTYPE *pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   while (pBuffer) {
-    DEBUG_PRINT(" pOutYUVBufHdrs %p p_eglHeaders %p output_use_buffer %d",
-           pOutYUVBufHdrs,p_eglHeaders,output_use_buffer);
-    if(pOutYUVBufHdrs && p_eglHeaders && output_use_buffer)
-    {
-      index = pBuffer - pOutYUVBufHdrs[0];
-      DEBUG_PRINT(" Index of free buffer %d",index);
-      DEBUG_PRINT(" Address freed %p size freed %d",pBuffer->pBuffer,
-                  pBuffer->nAllocLen);
-      munmap((void *)use_buf_virt_addr[index],pBuffer->nAllocLen);
-      if(p_eglHeaders[index])
-      {
-        close(p_eglHeaders[index]->pmem_fd);
-        free(p_eglHeaders[index]);
-        p_eglHeaders[index] = NULL;
-      }
-    }
-
-    if (pOutYUVBufHdrs && use_external_pmem_buf)
-    {
-      index = pBuffer - pOutYUVBufHdrs[0];
-      DEBUG_PRINT(" Address freed %p size freed %d,virt=%p,pmem_fd=0x%x",
-                              pBuffer->pBuffer,
-                              pBuffer->nAllocLen,
-                              use_buf_virt_addr[index],
-                              pPMEMInfo[index].pmem_fd);
-      munmap((void *)use_buf_virt_addr[index],pBuffer->nAllocLen);
-      getFreePmem();
-      use_buf_virt_addr[index] = NULL;
-      if (&pPMEMInfo[index])
-      {
-        close(pPMEMInfo[index].pmem_fd);
-        pPMEMInfo[index].pmem_fd = -1;
-      }
-//#ifdef USE_OUTPUT_BUFFER
-#ifdef USE_ION
-      free_ion_memory(&outPort_ion[index]);
-#endif
-    }
-    DEBUG_PRINT(" Free output buffer");
+    DEBUG_PRINT(" Free output buffer %p", pBuffer);
     OMX_FreeBuffer(dec_handle, 1, pBuffer);
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   }
-//#ifdef USE_OUTPUT_BUFFER
-#ifdef USE_ION
-  if (outPort_ion) {
-    free(outPort_ion);
-    outPort_ion = NULL;
-  }
-#endif
 }
 
 #ifndef USE_ION
