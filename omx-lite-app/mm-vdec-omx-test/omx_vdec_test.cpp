@@ -71,31 +71,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OMX_QCOMExtns.h"
 #include <sys/time.h>
 
-#ifndef _ANDROID_
-#define PROPERTY_VALUE_MAX 92
-#else
-#include <cutils/properties.h>
-#endif
-
-//#include <linux/android_pmem.h>
-
-#ifdef _ANDROID_
-#include <binder/MemoryHeapBase.h>
-
-extern "C"{
-#include<utils/Log.h>
-}
-#define DEBUG_PRINT printf
-#define DEBUG_PRINT_ERROR ALOGE
-
-//#define __DEBUG_DIVX__ // Define this macro to print (through logcat)
-                         // the kind of frames packed per buffer and
-                         // timestamps adjustments for divx.
-
-//#define TEST_TS_FROM_SEI // Define this macro to calculate the timestamps
-                           // from the SEI and VUI data for H264
-
-#else
 #include <glib.h>
 #define strlcpy g_strlcpy
 #define strlcat g_strlcat
@@ -122,7 +97,6 @@ enum {
 #define DEBUG_PRINT(fmt, args...) DEBUG_PRINT_CTL(PRIO_LOW, fmt, ##args)
 #define DEBUG_PRINT_ERROR(fmt,args...) DEBUG_PRINT_CTL(PRIO_ERROR, fmt, ##args)
 #define ALOGE DEBUG_PRINT_ERROR
-#endif /* _ANDROID_ */
 
 #include "OMX_Core.h"
 #include "OMX_Component.h"
@@ -220,10 +194,6 @@ static int previous_vc1_au = 0;
 /************************************************************************/
 /*              GLOBAL DECLARATIONS                     */
 /************************************************************************/
-#ifdef _ANDROID_
-using namespace android;
-#endif
-
 #ifdef USE_ION
 #define MEM_DEVICE "/dev/ion"
 #define MEM_HEAP_ID ION_CP_MM_HEAP_ID
@@ -275,13 +245,6 @@ const uint16 crc_16_l_table[ 256 ] = {
   0xf78f, 0xe606, 0xd49d, 0xc514, 0xb1ab, 0xa022, 0x92b9, 0x8330,
   0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
 };
-
-#ifdef ANDROID_JELLYBEAN_MR1
-//Since this is unavailable on Android 4.2.2, defining it in terms of base 10
-static inline float log2f(const float& x) {
-  return log(x) / log(2);
-}
-#endif
 
 uint16 crc_16_l_step_nv12 (uint16 seed, const void *buf_ptr,
   unsigned int byte_len, unsigned int height, unsigned int width)
@@ -856,15 +819,10 @@ void* fbd_thread(void* pArg)
   int canDisplay = 1, contigous_drop_frame = 0, bytes_written = 0, ret = 0;
   OMX_S64 base_timestamp = 0, lastTimestamp = 0;
   OMX_BUFFERHEADERTYPE *pBuffer = NULL, *pPrevBuff = NULL;
-  char value[PROPERTY_VALUE_MAX] = {0};
-  OMX_U32 aspectratio_prop = 0;
   pthread_mutex_lock(&eos_lock);
   int stride,scanlines,stride_c,i;
   DEBUG_PRINT("First Inside %s", __FUNCTION__);
-#ifdef _ANDROID_
-  property_get("vidc.vdec.debug.aspectratio", value, "0");
-#endif
-  aspectratio_prop = atoi(value);
+
   while(currentStatus != ERROR_STATE && !bOutputEosReached)
   {
     pthread_mutex_unlock(&eos_lock);
@@ -1071,13 +1029,7 @@ void* fbd_thread(void* pArg)
               DEBUG_PRINT("OMX_ExtraDataFrameInfo: Buf(%p) TSmp(%lld) PicType(%u) IntT(%u) ConMB(%u)",
                 pBuffer->pBuffer, pBuffer->nTimeStamp, frame_info->ePicType,
                 frame_info->interlaceType, frame_info->nConcealedMacroblocks);
-              if (aspectratio_prop)
-                DEBUG_PRINT_ERROR(" FrmRate(%u), AspRatioX(%u), AspRatioY(%u) DispWidth(%u) DispHeight(%u)",
-                frame_info->nFrameRate, frame_info->aspectRatio.aspectRatioX,
-                frame_info->aspectRatio.aspectRatioY, frame_info->displayAspectRatio.displayHorizontalSize,
-                frame_info->displayAspectRatio.displayVerticalSize);
-              else
-                DEBUG_PRINT(" FrmRate(%u), AspRatioX(%u), AspRatioY(%u) DispWidth(%u) DispHeight(%u)",
+              DEBUG_PRINT(" FrmRate(%u), AspRatioX(%u), AspRatioY(%u) DispWidth(%u) DispHeight(%u)",
                 frame_info->nFrameRate, frame_info->aspectRatio.aspectRatioX,
                 frame_info->aspectRatio.aspectRatioY, frame_info->displayAspectRatio.displayHorizontalSize,
                 frame_info->displayAspectRatio.displayVerticalSize);
@@ -3988,9 +3940,6 @@ int overlay_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
   struct msmfb_overlay_data ov_front;
   memset(&ov_front, 0, sizeof(struct msmfb_overlay_data));
-#if defined(_ANDROID_)
-  MemoryHeapBase *vheap = NULL;
-#endif
 
   DEBUG_PRINT("overlay_fb:");
   ov_front.id = overlayp->id;
@@ -4008,9 +3957,6 @@ int overlay_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
     ALOGE("overlay_fb: pmem_info is null");
     return -1;
   }
-#if defined(_ANDROID_)
-  vheap = (MemoryHeapBase*)pPMEMInfo->pmem_fd;
-#endif
 
   ov_front.data.memory_id = pPMEMInfo->pmem_fd;
 
@@ -4049,9 +3995,6 @@ void render_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   OMX_QCOM_EXTRADATA_FRAMEINFO *pExtraFrameInfo = 0;
   OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
   unsigned int destx, desty,destW, destH;
-#if defined(_ANDROID_)
-  MemoryHeapBase *vheap = NULL;
-#endif
 
   size_t end = (size_t)(pBufHdr->pBuffer + pBufHdr->nAllocLen);
 
@@ -4093,25 +4036,15 @@ void render_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
   pPMEMInfo  = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
                ((OMX_QCOM_PLATFORM_PRIVATE_LIST *)
                pBufHdr->pPlatformPrivate)->entryList->entry;
-#if defined(_ANDROID_)
-  vheap = (MemoryHeapBase *)pPMEMInfo->pmem_fd;
-#endif
-
 
   DEBUG_PRINT_ERROR("DecWidth %d DecHeight %d",portFmt.format.video.nStride,portFmt.format.video.nSliceHeight);
   DEBUG_PRINT_ERROR("DispWidth %d DispHeight %d",portFmt.format.video.nFrameWidth,portFmt.format.video.nFrameHeight);
-
-
 
   e->src.width = portFmt.format.video.nStride;
   e->src.height = portFmt.format.video.nSliceHeight;
   e->src.format = MDP_Y_CBCR_H2V2;
   e->src.offset = pPMEMInfo->offset;
-#if defined(_ANDROID_)
-  e->src.memory_id = vheap->getHeapID();
-#else
   e->src.memory_id = pPMEMInfo->pmem_fd;
-#endif
 
   DEBUG_PRINT_ERROR("pmemOffset %d pmemID %d",e->src.offset,e->src.memory_id);
 
@@ -4828,13 +4761,8 @@ static void destroy_egl (struct eglimage * eglimage)
 int open_display()
 {
 #ifdef FB_DISPLAY
-#ifdef _ANDROID_
-  DEBUG_PRINT(" Opening /dev/graphics/fb0");
-  fb_fd = open("/dev/graphics/fb0", O_RDWR);
-#else
   DEBUG_PRINT(" Opening /dev/fb0");
   fb_fd = open("/dev/fb0", O_RDWR);
-#endif
   if (fb_fd < 0) {
     DEBUG_PRINT_ERROR("[omx_vdec_test] - ERROR - can't open framebuffer!");
     return -1;
