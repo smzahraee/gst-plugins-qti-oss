@@ -52,8 +52,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     An Open max test lite application ....
 */
 
-#define LOG_TAG "OMX-VDEC-TEST"
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -119,9 +117,6 @@ extern "C" {
 /************************************************************************/
 /*              #DEFINES                            */
 /************************************************************************/
-#define DELAY 66
-//#define false 0
-//#define true 1
 #define H264_START_CODE 0x00000001
 #define H265_START_CODE 0x00000001
 #define VOP_START_CODE 0x000001B6
@@ -172,13 +167,11 @@ static int previous_vc1_au = 0;
 #define SIZE_NAL_FIELD_MAX  4
 #define MDP_DEINTERLACE 0x80000000
 
-#define PMEM_DEVICE "/dev/ion"
-
 /************************************************************************/
 /*              GLOBAL DECLARATIONS                     */
 /************************************************************************/
 #ifdef USE_ION
-#define MEM_DEVICE "/dev/ion"
+#define PMEM_DEVICE "/dev/ion"
 #define MEM_HEAP_ID ION_CP_MM_HEAP_ID
 
 struct vdec_ion {
@@ -250,17 +243,11 @@ typedef enum {
   FREE_HANDLE_AT_PAUSE
 } freeHandle_test;
 
-struct temp_egl {
-  int pmem_fd;
-  int offset;
-};
-
 static int (*Read_Buffer)(OMX_BUFFERHEADERTYPE  *pBufHdr );
 
 int inputBufferFileFd;
 
 FILE * outputBufferFile;
-FILE * seqFile;
 int takeYuvLog = 0;
 int displayYuv = 0;
 int displayWindow = 0;
@@ -286,7 +273,6 @@ pthread_mutex_t enable_lock;
 
 sem_t ebd_sem;
 sem_t fbd_sem;
-sem_t seq_sem;
 sem_t in_flush_sem, out_flush_sem;
 
 OMX_PARAM_PORTDEFINITIONTYPE portFmt;
@@ -320,14 +306,10 @@ int ebd_cnt= 0, fbd_cnt = 0;
 int bInputEosReached = 0;
 int bOutputEosReached = 0;
 char in_filename[512];
-char crclogname[512];
-char seq_file_name[512];
-unsigned char seq_enabled = 0;
 bool anti_flickering = true;
 unsigned char flush_input_progress = 0, flush_output_progress = 0;
-unsigned cmd_data = ~(unsigned)0, etb_count = 0;
+unsigned etb_count = 0;
 
-char curr_seq_command[100];
 OMX_S64 timeStampLfile = 0;
 int fps = 30;
 unsigned int timestampInterval = 33333;
@@ -354,10 +336,6 @@ int rcv_v1=0;
 OMX_CONFIG_RECTTYPE crop_rect = {0,0,0,0};
 
 static int bHdrflag = 0;
-
-/* Performance related variable*/
-//QPERF_INIT(render_fb);
-//QPERF_INIT(client_decode);
 
 /************************************************************************/
 /*              GLOBAL FUNC DECL                        */
@@ -405,7 +383,6 @@ static OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
 static void do_freeHandle_and_clean_up(bool isDueToError);
 
 void getFreePmem();
-static int overlay_vsync_ctrl(int enable);
 
 int kpi_place_marker(const char* str)
 {
@@ -438,129 +415,6 @@ void event_complete(void)
     pthread_cond_broadcast(&cond);
   }
   pthread_mutex_unlock(&lock);
-}
-int get_next_command(FILE *seq_file)
-{
-  int i = -1;
-  do{
-      i++;
-      if(fread(&curr_seq_command[i], 1, 1, seq_file) != 1)
-        return -1;
-  }while(curr_seq_command[i] != '\n');
-  curr_seq_command[i] = 0;
-  DEBUG_PRINT("cmd_str = %s", curr_seq_command);
-  return 0;
-}
-
-int process_current_command(const char *seq_command)
-{
-  char *data_str = NULL;
-  unsigned int data = 0, bufCnt = 0, i = 0;
-  int frameSize;
-
-  if(strstr(seq_command, "pause") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   PAUSE    $$$$$");
-    data_str = (char*)seq_command + strlen("pause") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" After frame number %u", data);
-    cmd_data = data;
-    sem_wait(&seq_sem);
-    if (!bOutputEosReached && !bInputEosReached)
-    {
-      DEBUG_PRINT(" Sending PAUSE cmd to OMX compt");
-      OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StatePause,0);
-      wait_for_event();
-      DEBUG_PRINT(" EventHandler for PAUSE DONE");
-    }
-    else
-      seq_enabled = 0;
-  }
-  else if(strstr(seq_command, "sleep") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   SLEEP    $$$$$");
-    data_str = (char*)seq_command + strlen("sleep") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" Sleep Time = %u ms", data);
-    usleep(data*1000);
-  }
-  else if(strstr(seq_command, "resume") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   RESUME    $$$$$");
-    DEBUG_PRINT(" Immediate effect");
-    DEBUG_PRINT(" Sending RESUME cmd to OMX compt");
-    OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StateExecuting,0);
-    wait_for_event();
-    DEBUG_PRINT(" EventHandler for RESUME DONE");
-  }
-  else if(strstr(seq_command, "flush") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   FLUSH    $$$$$");
-    data_str = (char*)seq_command + strlen("flush") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" After frame number %u", data);
-    if (previous_vc1_au)
-    {
-      DEBUG_PRINT(" Flush not allowed on Field boundary");
-      return 0;
-    }
-    cmd_data = data;
-    sem_wait(&seq_sem);
-    if (!bOutputEosReached && !bInputEosReached)
-    {
-      DEBUG_PRINT(" Sending FLUSH cmd to OMX compt");
-      flush_input_progress = 1;
-      flush_output_progress = 1;
-      OMX_SendCommand(dec_handle, OMX_CommandFlush, OMX_ALL, 0);
-      wait_for_event();
-      DEBUG_PRINT(" EventHandler for FLUSH DONE");
-      DEBUG_PRINT(" Post EBD_thread flush sem");
-      sem_post(&in_flush_sem);
-      DEBUG_PRINT(" Post FBD_thread flush sem");
-      sem_post(&out_flush_sem);
-    }
-    else
-      seq_enabled = 0;
-  }
-  else if(strstr(seq_command, "disable_op") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   DISABLE OP PORT    $$$$$");
-    data_str = (char*)seq_command + strlen("disable_op") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" After frame number %u", data);
-    cmd_data = data;
-    sem_wait(&seq_sem);
-    DEBUG_PRINT(" Sending DISABLE OP cmd to OMX compt");
-    if (disable_output_port() != 0)
-    {
-      DEBUG_PRINT_ERROR(" ERROR: While DISABLE OP...");
-      do_freeHandle_and_clean_up(true);
-      return -1;
-    }
-    else
-      DEBUG_PRINT(" EventHandler for DISABLE OP");
-  }
-  else if(strstr(seq_command, "enable_op") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   ENABLE OP PORT    $$$$$");
-    data_str = (char*)seq_command + strlen("enable_op") + 1;
-    DEBUG_PRINT(" Sending ENABLE OP cmd to OMX compt");
-    if (enable_output_port() != 0)
-    {
-      DEBUG_PRINT_ERROR(" ERROR: While ENABLE OP...");
-      do_freeHandle_and_clean_up(true);
-      return -1;
-    }
-    else
-      DEBUG_PRINT(" EventHandler for ENABLE OP");
-  }
-  else
-  {
-    DEBUG_PRINT(" $$$$$   INVALID CMD    $$$$$");
-    DEBUG_PRINT(" seq_command[%s] is invalid", seq_command);
-    seq_enabled = 0;
-  }
-  return 0;
 }
 
 void PrintFramePackArrangement(OMX_QCOM_FRAME_PACK_ARRANGEMENT framePackingArrangement)
@@ -602,6 +456,7 @@ void PrintFramePackArrangement(OMX_QCOM_FRAME_PACK_ARRANGEMENT framePackingArran
   DEBUG_PRINT("extension_flag (%d)",
      framePackingArrangement.extension_flag);
 }
+
 void* ebd_thread(void* pArg)
 {
   int signal_eos = 0;
@@ -945,20 +800,9 @@ void* fbd_thread(void* pArg)
       }
     }
     pthread_mutex_unlock(&enable_lock);
-    if(cmd_data <= fbd_cnt)
-    {
-      sem_post(&seq_sem);
-      DEBUG_PRINT("Posted seq_sem Frm(%d) Req(%d)", fbd_cnt, cmd_data);
-      cmd_data = ~(unsigned)0;
-    }
     pthread_mutex_lock(&eos_lock);
   }
-  if(seq_enabled)
-  {
-    seq_enabled = 0;
-    sem_post(&seq_sem);
-    DEBUG_PRINT("Posted seq_sem in EOS ");
-  }
+
   pthread_cond_broadcast(&eos_cond);
   pthread_mutex_unlock(&eos_lock);
   return NULL;
@@ -1021,12 +865,6 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
           pthread_mutex_lock(&eos_lock);
           bOutputEosReached = true;
           pthread_mutex_unlock(&eos_lock);
-          if(seq_enabled)
-          {
-            seq_enabled = 0;
-            sem_post(&seq_sem);
-            DEBUG_PRINT(" Posted seq_sem in ERROR");
-          }
         }
       }
       if (waitForPortSettingsChanged)
@@ -1082,12 +920,6 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
                 pthread_mutex_lock(&eos_lock);
                 bOutputEosReached = true;
                 pthread_mutex_unlock(&eos_lock);
-                if(seq_enabled)
-                {
-                    seq_enabled = 0;
-                    sem_post(&seq_sem);
-                    DEBUG_PRINT(" Posted seq_sem in OMX_EventBufferFlag");
-                }
             }
             else
             {
@@ -1217,8 +1049,6 @@ int main(int argc, char **argv)
       //Here, just confirm input file exist. Later, will open it formally.
       fclose(file);
     }
-    strlcpy(crclogname, infilename_argptr, sizeof(crclogname));
-    strlcat(crclogname, ".crc", sizeof(crclogname));
   }
 
   if(argc > 2)
@@ -1229,13 +1059,7 @@ int main(int argc, char **argv)
     int next_arg = 3, idx = 0;
     while (argc > next_arg && idx < 10)
     {
-      if (strlen(argv[next_arg]) > 2)
-      {
-        strlcpy(seq_file_name, argv[next_arg], sizeof(seq_file_name));
-        next_arg = argc;
-      }
-      else
-        param[idx++] = atoi(argv[next_arg++]);
+      param[idx++] = atoi(argv[next_arg++]);
     }
     idx = 0;
     file_type_option = (file_type)param[idx++];
@@ -1577,10 +1401,6 @@ int main(int argc, char **argv)
   {
     DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
   }
-  if (-1 == sem_init(&seq_sem, 0, 0))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
-  }
   if (-1 == sem_init(&in_flush_sem, 0, 0))
   {
     DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
@@ -1626,10 +1446,6 @@ int main(int argc, char **argv)
     DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
   }
   if (-1 == sem_destroy(&fbd_sem))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
-  }
-  if (-1 == sem_destroy(&seq_sem))
   {
     DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
   }
@@ -1733,40 +1549,11 @@ int run_tests()
   }
 
   anti_flickering = true;
-  if(strlen(seq_file_name))
-  {
-    seqFile = fopen (seq_file_name, "rb");
-    if (seqFile == NULL)
-    {
-      DEBUG_PRINT_ERROR("Error - Seq file %s could NOT be opened",
-              seq_file_name);
-      return -1;
-    }
-    else
-    {
-      DEBUG_PRINT("Seq file %s is opened ", seq_file_name);
-      seq_enabled = 1;
-      anti_flickering = false;
-    }
-  }
 
   pthread_mutex_lock(&eos_lock);
   while (bOutputEosReached == false && cmd_error == 0)
   {
-    if(seq_enabled)
-    {
-      pthread_mutex_unlock(&eos_lock);
-      if(!get_next_command(seqFile))
-        cmd_error = process_current_command(curr_seq_command);
-      else
-      {
-        DEBUG_PRINT_ERROR(" Error in get_next_cmd or EOF");
-        seq_enabled = 0;
-      }
-      pthread_mutex_lock(&eos_lock);
-    }
-    else
-      pthread_cond_wait(&eos_cond, &eos_lock);
+    pthread_cond_wait(&eos_cond, &eos_lock);
 
     if (currentStatus == PORT_SETTING_CHANGE_STATE)
     {
@@ -1808,40 +1595,6 @@ int Init_Decoder()
   else {
     DEBUG_PRINT_ERROR("OpenMAX Core Init Done");
   }
-
-#if 0
-    /* Query for video decoders*/
-    OMX_GetComponentsOfRole(role, &total, 0);
-    DEBUG_PRINT("Total components of role=%s :%d", role, total);
-
-    if(total)
-    {
-        /* Allocate memory for pointers to component name */
-        OMX_U8** vidCompNames = (OMX_U8**)malloc((sizeof(OMX_U8*))*total);
-        if (vidCompNames == NULL) {
-            DEBUG_PRINT_ERROR("Failed to allocate vidCompNames");
-            return -1;
-        }
-
-        for (i = 0; i < total; ++i) {
-            vidCompNames[i] = (OMX_U8*)malloc(sizeof(OMX_U8)*OMX_MAX_STRINGNAME_SIZE);
-            if (vidCompNames[i] == NULL) {
-                DEBUG_PRINT_ERROR("Failed to allocate vidCompNames[%d]", i);
-                return -1;
-            }
-        }
-        OMX_GetComponentsOfRole(role, &total, vidCompNames);
-        DEBUG_PRINT("Components of Role:%s", role);
-        for (i = 0; i < total; ++i) {
-            DEBUG_PRINT("Component Name [%s]",vidCompNames[i]);
-            free(vidCompNames[i]);
-        }
-        free(vidCompNames);
-    }
-    else {
-        DEBUG_PRINT_ERROR("No components found with Role:%s", role);
-    }
-#endif
 
   if (codec_format_option == CODEC_FORMAT_H264)
   {
@@ -2036,32 +1789,10 @@ int Play_Decoder()
 
   QOMX_ENABLETYPE extra_data;
   extra_data.bEnable = OMX_TRUE;
-#if 0
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamInterlaceExtraData,
-                     (OMX_PTR)&extra_data);
-#endif
-#if 0
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamConcealMBMapExtraData,
-                     (OMX_PTR)&extra_data);
-#endif
-#if 1
+
   OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamFrameInfoExtraData,
            (OMX_PTR)&extra_data);
-#endif
-#ifdef TEST_TS_FROM_SEI
-  OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamH264TimeInfo,
-           (OMX_PTR)&extra_data);
-#endif
-#if 0
-    extra_data.bEnable = OMX_FALSE;
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamConcealMBMapExtraData,
-                     (OMX_PTR)&extra_data);
-#endif
-#if 0
-    extra_data.bEnable = OMX_TRUE;
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexEnableExtnUserData,
-                     (OMX_PTR)&extra_data);
-#endif
+
   /* Query the decoder outport's min buf requirements */
   CONFIG_VERSION_SIZE(portFmt);
 
@@ -2312,7 +2043,6 @@ int Play_Decoder()
 
   rcv_v1 = 0;
 
-  //QPERF_START(client_decode);
   if (codec_format_option == CODEC_FORMAT_VC1)
   {
     pInputBufHdrs[0]->nOffset = 0;
@@ -2673,17 +2403,8 @@ static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
       }
     }
   } while (1);
-
-#ifdef TEST_TS_FROM_SEI
-  if (timeStampLfile == 0)
-    pBufHdr->nTimeStamp = 0;
-  else
-    pBufHdr->nTimeStamp = LLONG_MAX;
-#else
   pBufHdr->nTimeStamp = timeStampLfile;
-#endif
   timeStampLfile += timestampInterval;
-
   return cnt;
 }
 static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
@@ -2768,17 +2489,8 @@ static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
       }
     }
   } while (1);
-
-#ifdef TEST_TS_FROM_SEI
-  if (timeStampLfile == 0)
-    pBufHdr->nTimeStamp = 0;
-  else
-    pBufHdr->nTimeStamp = LLONG_MAX;
-#else
   pBufHdr->nTimeStamp = timeStampLfile;
-#endif
   timeStampLfile += timestampInterval;
-
   return cnt;
 }
 
@@ -2793,14 +2505,7 @@ static int Read_Buffer_ArbitraryBytes(OMX_BUFFERHEADERTYPE  *pBufHdr)
                   video_playback_count);
     return 0;
   }
-#ifdef TEST_TS_FROM_SEI
-  if (timeStampLfile == 0)
-    pBufHdr->nTimeStamp = 0;
-  else
-    pBufHdr->nTimeStamp = LLONG_MAX;
-#else
   pBufHdr->nTimeStamp = timeStampLfile;
-#endif
   timeStampLfile += timestampInterval;
   return bytes_read;
 }
@@ -3489,18 +3194,6 @@ static int open_video_file ()
   }
 
   return error_code;
-}
-
-void swap_byte(char *pByte, int nbyte)
-{
-  int i=0;
-
-  for (i=0; i<nbyte/2; i++)
-  {
-    pByte[i] ^= pByte[nbyte-i-1];
-    pByte[nbyte-i-1] ^= pByte[i];
-    pByte[i] ^= pByte[nbyte-i-1];
-  }
 }
 
 int disable_output_port()
