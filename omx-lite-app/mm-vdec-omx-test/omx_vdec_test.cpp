@@ -477,10 +477,6 @@ static OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
 
 static void do_freeHandle_and_clean_up(bool isDueToError);
 
-#ifndef USE_ION
-static bool align_pmem_buffers(int pmem_fd, OMX_U32 buffer_size,
-                                  OMX_U32 alignment);
-#endif
 void getFreePmem();
 static int overlay_vsync_ctrl(int enable);
 
@@ -495,16 +491,6 @@ int kpi_place_marker(const char* str)
   return -1;
 }
 
-static  int clip2(int x)
-{
-  x = x -1;
-  x = x | x >> 1;
-  x = x | x >> 2;
-  x = x | x >> 4;
-  x = x | x >> 16;
-  x = x + 1;
-  return x;
-}
 void wait_for_event(void)
 {
   DEBUG_PRINT("Waiting for event");
@@ -4513,26 +4499,6 @@ void free_output_buffers()
   }
 }
 
-#ifndef USE_ION
-static bool align_pmem_buffers(int pmem_fd, OMX_U32 buffer_size,
-                                  OMX_U32 alignment)
-{
-  struct pmem_allocation allocation;
-  allocation.size = buffer_size;
-  allocation.align = clip2(alignment);
-
-  if (allocation.align < 4096)
-  {
-    allocation.align = 4096;
-  }
-  if (ioctl(pmem_fd, PMEM_ALLOCATE_ALIGNED, &allocation) < 0)
-  {
-    DEBUG_PRINT_ERROR(" Aligment failed with pmem driver");
-    return false;
-  }
-  return true;
-}
-#endif
 #ifdef WL_DISPLAY
 #define IVI_SURFACE_ID 9000
 static void
