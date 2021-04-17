@@ -16,12 +16,6 @@ add_definitions(
 set(SOURCE_FILES
     ${ROOT_PATH}/queue.c
     ${ROOT_PATH}/queue.h
-    ${ROOT_PATH}/xdg-shell-protocol.c
-    ${ROOT_PATH}/xdg-shell-client-protocol.h
-    ${ROOT_PATH}/ivi-application-protocol.c
-    ${ROOT_PATH}/ivi-application-client-protocol.h
-    ${ROOT_PATH}/scaler-protocol.c
-    ${ROOT_PATH}/scaler-client-protocol.h
     ${ROOT_PATH}/omx_vdec_test.cpp
 )
 
@@ -34,12 +28,8 @@ link_directories(${SYSROOT_LIBDIR})
 
 target_link_libraries (mm-vdec-omx-test-lite glib-2.0)
 target_link_libraries (mm-vdec-omx-test-lite pthread)
-target_link_libraries (mm-vdec-omx-test-lite wayland-client)
-target_link_libraries (mm-vdec-omx-test-lite gbm)
-target_link_libraries (mm-vdec-omx-test-lite drm)
 target_link_libraries (mm-vdec-omx-test-lite OmxCore)
 target_link_libraries (mm-vdec-omx-test-lite OmxVdec)
-target_link_libraries (mm-vdec-omx-test-lite EGL_adreno)
 target_link_libraries (mm-vdec-omx-test-lite ion)
 
 
