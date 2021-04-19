@@ -119,18 +119,6 @@ extern "C" {
 /************************************************************************/
 #define H264_START_CODE 0x00000001
 #define H265_START_CODE 0x00000001
-#define VOP_START_CODE 0x000001B6
-#define SHORT_HEADER_START_CODE 0x00008000
-#define MPEG2_FRAME_START_CODE 0x00000100
-#define MPEG2_SEQ_START_CODE 0x000001B3
-#define VC1_START_CODE  0x00000100
-#define VC1_FRAME_START_CODE  0x0000010D
-#define VC1_FRAME_FIELD_CODE  0x0000010C
-#define VC1_SEQUENCE_START_CODE 0x0000010F
-#define VC1_ENTRY_POINT_START_CODE 0x0000010E
-#define NUMBER_OF_ARBITRARYBYTES_READ  (4 * 1024)
-#define VC1_SEQ_LAYER_SIZE_WITHOUT_STRUCTC 32
-#define VC1_SEQ_LAYER_SIZE_V1_WITHOUT_STRUCTC 16
 #define HEVC_NAL_UNIT_TYPE_MASK 0x7F
 #define HEVC_NAL_UNIT_TYPE_TRAIL_N 0x00
 #define HEVC_NAL_UNIT_TYPE_NONIDR 0x16
@@ -155,7 +143,7 @@ extern "C" {
 #define HEVC_NAL_UNIT_TYPE_SUFFIX_SEI 0x28
 #define HEVC_NAL_UNIT_TYPE_RESERVED_UNSPECIFIED 0x29
 #define HEVC_FIRST_MB_IN_SLICE_MASK 0x80
-static int previous_vc1_au = 0;
+
 #define CONFIG_VERSION_SIZE(param) \
     param.nVersion.nVersion = CURRENT_OMX_SPEC_VERSION;\
     param.nSize = sizeof(param);
@@ -165,7 +153,6 @@ static int previous_vc1_au = 0;
 #define SUCCEEDED(result) (result == OMX_ErrorNone)
 #define SWAPBYTES(ptrA, ptrB) { char t = *ptrA; *ptrA = *ptrB; *ptrB = t;}
 #define SIZE_NAL_FIELD_MAX  4
-#define MDP_DEINTERLACE 0x80000000
 
 /************************************************************************/
 /*              GLOBAL DECLARATIONS                     */
@@ -280,11 +267,8 @@ OMX_ERRORTYPE error;
 OMX_COLOR_FORMATTYPE color_fmt;
 QOMX_VIDEO_DECODER_PICTURE_ORDER picture_order;
 
-#ifdef MAX_RES_1080P
-unsigned int color_fmt_type = 1;
-#else
 unsigned int color_fmt_type = 0;
-#endif
+
 static char tempbuf[16];
 
 int disable_output_port();
@@ -329,11 +313,7 @@ OMX_COMPONENTTYPE* dec_handle = 0;
 OMX_BUFFERHEADERTYPE  **pInputBufHdrs = NULL;
 OMX_BUFFERHEADERTYPE  **pOutYUVBufHdrs= NULL;
 
-int rcv_v1=0;
-
 OMX_CONFIG_RECTTYPE crop_rect = {0,0,0,0};
-
-static int bHdrflag = 0;
 
 /************************************************************************/
 /*              GLOBAL FUNC DECL                        */
@@ -347,19 +327,9 @@ int run_tests();
 /**************************************************************************/
 static int video_playback_count = 1;
 static int open_video_file ();
-static int Read_Buffer_From_DAT_File(OMX_BUFFERHEADERTYPE  *pBufHdr );
 static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_ArbitraryBytes(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_Vop_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_Mpeg2_Start_Code(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_RCV_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_VC1_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_DivX_4_5_6_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_DivX_311_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 
 static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
                                        OMX_BUFFERHEADERTYPE  ***pBufHdrs,
@@ -1286,26 +1256,12 @@ int main(int argc, char **argv)
       case CODEC_FORMAT_H264:
         file_type_option = (file_type)(FILE_TYPE_START_OF_H264_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
         break;
-      case CODEC_FORMAT_DIVX:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_DIVX_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_MP4:
-      case CODEC_FORMAT_H263:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_MP4_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_VC1:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_VC1_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_MPEG2:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_MPEG2_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_VP8:
-        break;
       case CODEC_FORMAT_HEVC:
         file_type_option = (file_type)(FILE_TYPE_START_OF_H265_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
         break;
       default:
         DEBUG_PRINT_ERROR("Error: Unknown code %d", codec_format_option);
+        return -1;
     }
   }
 
@@ -1430,13 +1386,7 @@ int run_tests()
   DEBUG_PRINT("Inside %s", __FUNCTION__);
   waitForPortSettingsChanged = 1;
 
-  if(file_type_option == FILE_TYPE_DAT_PER_AU) {
-    Read_Buffer = Read_Buffer_From_DAT_File;
-  }
-  else if(file_type_option == FILE_TYPE_ARBITRARY_BYTES) {
-    Read_Buffer = Read_Buffer_ArbitraryBytes;
-  }
-  else if(codec_format_option == CODEC_FORMAT_H264) {
+  if(codec_format_option == CODEC_FORMAT_H264) {
     if (file_type_option == FILE_TYPE_264_NAL_SIZE_LENGTH) {
       Read_Buffer = Read_Buffer_From_Size_Nal;
     } else if (file_type_option == FILE_TYPE_264_START_CODE_BASED) {
@@ -1454,49 +1404,14 @@ int run_tests()
       return -1;
     }
   }
-  else if((codec_format_option == CODEC_FORMAT_H263) ||
-          (codec_format_option == CODEC_FORMAT_MP4)) {
-    Read_Buffer = Read_Buffer_From_Vop_Start_Code_File;
-  }
-  else if (codec_format_option == CODEC_FORMAT_MPEG2) {
-    Read_Buffer = Read_Buffer_From_Mpeg2_Start_Code;
-  }
-  else if(file_type_option == FILE_TYPE_DIVX_4_5_6) {
-    Read_Buffer = Read_Buffer_From_DivX_4_5_6_File;
-  }
-#ifdef MAX_RES_1080P
-  else if(file_type_option == FILE_TYPE_DIVX_311) {
-    Read_Buffer = Read_Buffer_From_DivX_311_File;
-  }
-#endif
-  else if(file_type_option == FILE_TYPE_RCV) {
-    Read_Buffer = Read_Buffer_From_RCV_File;
-  }
-  else if(file_type_option == FILE_TYPE_VP8) {
-    Read_Buffer = Read_Buffer_From_VP8_File;
-  }
-  else if(file_type_option == FILE_TYPE_VC1) {
-    Read_Buffer = Read_Buffer_From_VC1_File;
-  }
 
   DEBUG_PRINT("file_type_option %d!", file_type_option);
 
   switch(file_type_option)
   {
-    case FILE_TYPE_DAT_PER_AU:
-    case FILE_TYPE_ARBITRARY_BYTES:
     case FILE_TYPE_264_START_CODE_BASED:
     case FILE_TYPE_264_NAL_SIZE_LENGTH:
-    case FILE_TYPE_PICTURE_START_CODE:
-    case FILE_TYPE_MPEG2_START_CODE:
-    case FILE_TYPE_RCV:
-    case FILE_TYPE_VC1:
-    case FILE_TYPE_VP8:
     case FILE_TYPE_265_START_CODE_BASED:
-    case FILE_TYPE_DIVX_4_5_6:
-#ifdef MAX_RES_1080P
-    case FILE_TYPE_DIVX_311:
-#endif
       if(Init_Decoder()!= 0x00)
       {
         DEBUG_PRINT_ERROR("Error - Decoder Init failed");
@@ -1509,7 +1424,7 @@ int run_tests()
       break;
     default:
       DEBUG_PRINT_ERROR("Error - Invalid Entry...%d",file_type_option);
-      break;
+      return -1;
   }
 
   anti_flickering = true;
@@ -1564,48 +1479,10 @@ int Init_Decoder()
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.avc", sizeof(vdecCompNames));
   }
-  else if (codec_format_option == CODEC_FORMAT_MP4)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg4", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_H263)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.h263", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_VC1)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vc1", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_MPEG2)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg2", sizeof(vdecCompNames));
-  }
-  else if (file_type_option == FILE_TYPE_RCV)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.wmv", sizeof(vdecCompNames));
-  }
-  else if (file_type_option == FILE_TYPE_DIVX_4_5_6)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_VP8)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp8", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_VP9)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp9", sizeof(vdecCompNames));
-  }
   else if (codec_format_option == CODEC_FORMAT_HEVC)
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.hevc", sizeof(vdecCompNames));
   }
-#ifdef MAX_RES_1080P
-  else if (file_type_option == FILE_TYPE_DIVX_311)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx311", sizeof(vdecCompNames));
-  }
-#endif
   else
   {
     DEBUG_PRINT_ERROR("Error: Unsupported codec %d", codec_format_option);
@@ -1656,27 +1533,6 @@ int Init_Decoder()
   {
     portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingAVC;
   }
-  else if (codec_format_option == CODEC_FORMAT_MP4)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingMPEG4;
-  }
-  else if (codec_format_option == CODEC_FORMAT_H263)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingH263;
-  }
-  else if (codec_format_option == CODEC_FORMAT_VC1)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingWMV;
-  }
-  else if (codec_format_option == CODEC_FORMAT_DIVX)
-  {
-    portFmt.format.video.eCompressionFormat =
-        (OMX_VIDEO_CODINGTYPE)QOMX_VIDEO_CodingDivx;
-  }
-  else if (codec_format_option == CODEC_FORMAT_MPEG2)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingMPEG2;
-  }
   else if (codec_format_option == CODEC_FORMAT_HEVC)
   {
     portFmt.format.video.eCompressionFormat = (OMX_VIDEO_CODINGTYPE)QOMX_VIDEO_CodingHevc;
@@ -1684,6 +1540,7 @@ int Init_Decoder()
   else
   {
     DEBUG_PRINT_ERROR("Error: Unsupported codec %d", codec_format_option);
+    return -1;
   }
 
   if (thumbnailMode == 1) {
@@ -1718,31 +1575,15 @@ int Play_Decoder()
   inputPortFmt.nPortIndex = 0;  // input port
   switch (file_type_option)
   {
-    case FILE_TYPE_DAT_PER_AU:
-    case FILE_TYPE_PICTURE_START_CODE:
-    case FILE_TYPE_MPEG2_START_CODE:
     case FILE_TYPE_264_START_CODE_BASED:
     case FILE_TYPE_265_START_CODE_BASED:
-    case FILE_TYPE_RCV:
-    case FILE_TYPE_VC1:
-#ifdef MAX_RES_1080P
-    case FILE_TYPE_DIVX_311:
-#endif
     {
       inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_OnlyOneCompleteFrame;
       break;
     }
-
-    case FILE_TYPE_ARBITRARY_BYTES:
     case FILE_TYPE_264_NAL_SIZE_LENGTH:
-    case FILE_TYPE_DIVX_4_5_6:
     {
       inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_Arbitrary;
-      break;
-    }
-    case FILE_TYPE_VP8:
-    {
-      inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_OnlyOneCompleteFrame;
       break;
     }
     default:
@@ -1771,60 +1612,7 @@ int Play_Decoder()
     DEBUG_PRINT ("Dec: Expect Input Port");
     return -1;
   }
-#ifdef MAX_RES_1080P
-  if( (codec_format_option == CODEC_FORMAT_DIVX) &&
-    (file_type_option == FILE_TYPE_DIVX_311) ) {
 
-    int off;
-
-    if ( read(inputBufferFileFd, &width, 4 ) == -1 ) {
-      DEBUG_PRINT_ERROR("Failed to read width for divx");
-      return  -1;
-    }
-
-    DEBUG_PRINT("Width for DIVX = %d", width);
-
-    if ( read(inputBufferFileFd, &height, 4 ) == -1 ) {
-      DEBUG_PRINT_ERROR("Failed to read height for divx");
-      return  -1;
-    }
-
-    DEBUG_PRINT("Height for DIVX = %u", height);
-    sliceheight = height;
-    stride = width;
-  }
-#endif
-  if( (codec_format_option == CODEC_FORMAT_VC1) &&
-    (file_type_option == FILE_TYPE_RCV) ) {
-    //parse struct_A data to get height and width information
-    unsigned int temp;
-    lseek64(inputBufferFileFd, 0, SEEK_SET);
-    if (read(inputBufferFileFd, &temp, 4) < 0) {
-      DEBUG_PRINT_ERROR("Failed to read vc1 data");
-      return -1;
-    }
-    //Refer to Annex L of SMPTE 421M-2006 VC1 decoding standard
-    //We need to skip 12 bytes after 0xC5 in sequence layer data
-    //structure to read struct_A, which includes height and
-    //width information.
-    if ((temp & 0xFF000000) == 0xC5000000) {
-      lseek64(inputBufferFileFd, 12, SEEK_SET);
-
-      if ( read(inputBufferFileFd, &height, 4 ) < -1 ) {
-        DEBUG_PRINT_ERROR("Failed to read height for vc-1");
-        return  -1;
-      }
-      if ( read(inputBufferFileFd, &width, 4 ) == -1 ) {
-        DEBUG_PRINT_ERROR("Failed to read width for vc-1");
-        return  -1;
-      }
-      lseek64(inputBufferFileFd, 0, SEEK_SET);
-    }
-    if ((temp & 0xFF000000) == 0x85000000) {
-      lseek64(inputBufferFileFd, 0, SEEK_SET);
-    }
-    DEBUG_PRINT(" RCV clip width = %u height = %u ",width, height);
-  }
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
@@ -2004,57 +1792,7 @@ int Play_Decoder()
   }
 
   used_ip_buf_cnt = input_buf_cnt;
-
-  rcv_v1 = 0;
-
-  if (codec_format_option == CODEC_FORMAT_VC1)
-  {
-    pInputBufHdrs[0]->nOffset = 0;
-    if(file_type_option == FILE_TYPE_RCV)
-    {
-      frameSize = Read_Buffer_From_RCV_File_Seq_Layer(pInputBufHdrs[0]);
-      pInputBufHdrs[0]->nFilledLen = frameSize;
-      DEBUG_PRINT("After Read_Buffer_From_RCV_File_Seq_Layer, "
-              "frameSize %d", frameSize);
-    }
-    else if(file_type_option == FILE_TYPE_VC1)
-    {
-      bHdrflag = 1;
-      pInputBufHdrs[0]->nFilledLen = Read_Buffer(pInputBufHdrs[0]);
-      bHdrflag = 0;
-      DEBUG_PRINT_ERROR("After 1st Read_Buffer for VC1, "
-             "pInputBufHdrs[0]->nFilledLen %d", pInputBufHdrs[0]->nFilledLen);
-    }
-    else
-    {
-      pInputBufHdrs[0]->nFilledLen = Read_Buffer(pInputBufHdrs[0]);
-      DEBUG_PRINT("After Read_Buffer pInputBufHdrs[0]->nFilledLen %d",
-             pInputBufHdrs[0]->nFilledLen);
-    }
-
-    pInputBufHdrs[0]->nInputPortIndex = 0;
-    pInputBufHdrs[0]->nOffset = 0;
-    ret = OMX_EmptyThisBuffer(dec_handle, pInputBufHdrs[0]);
-    if (ret != OMX_ErrorNone)
-    {
-      DEBUG_PRINT_ERROR("ERROR - OMX_EmptyThisBuffer failed with result %d", ret);
-      do_freeHandle_and_clean_up(true);
-      return -1;
-    }
-    else
-    {
-      etb_count++;
-      DEBUG_PRINT("OMX_EmptyThisBuffer success!");
-    }
-    i = 1;
-    pInputBufHdrs[0]->nFlags = 0;
-  }
-  else
-  {
-    i = 0;
-  }
-
-  for (i; i < used_ip_buf_cnt;i++) {
+  for (i = 0; i < used_ip_buf_cnt; i++) {
     pInputBufHdrs[i]->nInputPortIndex = 0;
     pInputBufHdrs[i]->nOffset = 0;
     if((frameSize = Read_Buffer(pInputBufHdrs[i])) <= 0 ){
@@ -2249,52 +1987,6 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
   printf("*****************************************\n");
 }
 
-static int Read_Buffer_From_DAT_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  long frameSize=0;
-  char temp_buffer[10];
-  char temp_byte;
-  int bytes_read=0;
-  int i=0;
-  unsigned char *read_buffer=NULL;
-  char c = '1'; //initialize to anything except '\0'(0)
-  char inputFrameSize[12];
-  int count =0; char cnt =0;
-  memset(temp_buffer, 0, sizeof(temp_buffer));
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  while (cnt < 10)
-  /* Check the input file format, may result in infinite loop */
-  {
-    DEBUG_PRINT("loop[%d] count[%d]",cnt,count);
-    count = read( inputBufferFileFd, &inputFrameSize[cnt], 1);
-    if(inputFrameSize[cnt] == '\0' )
-      break;
-      cnt++;
-  }
-  inputFrameSize[cnt]='\0';
-  frameSize = atoi(inputFrameSize);
-  pBufHdr->nFilledLen = 0;
-
-  /* get the frame length */
-  lseek64(inputBufferFileFd, -1, SEEK_CUR);
-  bytes_read = read(inputBufferFileFd, pBufHdr->pBuffer, frameSize);
-
-  DEBUG_PRINT("Actual frame Size [%d] bytes_read using fread[%d]",
-                  frameSize, bytes_read);
-
-  if(bytes_read == 0 || bytes_read < frameSize ) {
-    DEBUG_PRINT("Bytes read Zero After Read frame Size ");
-    DEBUG_PRINT("Checking VideoPlayback Count:video_playback_count is:%d",
-                       video_playback_count);
-    return 0;
-  }
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-  return bytes_read;
-}
-
 static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
 {
   int bytes_read = 0;
@@ -2458,160 +2150,6 @@ static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
   return cnt;
 }
 
-static int Read_Buffer_ArbitraryBytes(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  int bytes_read=0;
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  bytes_read = read(inputBufferFileFd, pBufHdr->pBuffer, NUMBER_OF_ARBITRARYBYTES_READ);
-  if(bytes_read == 0) {
-    DEBUG_PRINT("Bytes read Zero After Read frame Size ");
-    DEBUG_PRINT("Checking VideoPlayback Count:video_playback_count is:%d",
-                  video_playback_count);
-    return 0;
-  }
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-  return bytes_read;
-}
-
-static int Read_Buffer_From_Vop_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0;
-  int bytes_read = 0;
-  unsigned int code = 0;
-  pBufHdr->nFilledLen = 0;
-  static unsigned int header_code = 0;
-
-  DEBUG_PRINT("Inside %s", __FUNCTION__);
-
-  do
-  {
-    //Start codes are always byte aligned.
-    bytes_read = read(inputBufferFileFd, &pBufHdr->pBuffer[readOffset], 1);
-    if(bytes_read == 0 || bytes_read == -1)
-    {
-      DEBUG_PRINT("Bytes read Zero ");
-      break;
-    }
-    code <<= 8;
-    code |= (0x000000FF & pBufHdr->pBuffer[readOffset]);
-    //VOP start code comparision
-    if (readOffset>3)
-    {
-      if(!header_code ){
-        if( VOP_START_CODE == code)
-        {
-          header_code = VOP_START_CODE;
-        }
-        else if ( (0xFFFFFC00 & code) == SHORT_HEADER_START_CODE )
-        {
-          header_code = SHORT_HEADER_START_CODE;
-        }
-      }
-      if ((header_code == VOP_START_CODE) && (code == VOP_START_CODE))
-      {
-        //Seek backwards by 4
-        lseek64(inputBufferFileFd, -4, SEEK_CUR);
-        readOffset-=3;
-        break;
-      }
-      else if (( header_code == SHORT_HEADER_START_CODE ) && ( SHORT_HEADER_START_CODE == (code & 0xFFFFFC00)))
-      {
-        //Seek backwards by 4
-        lseek64(inputBufferFileFd, -4, SEEK_CUR);
-        readOffset-=3;
-        break;
-      }
-    }
-    readOffset++;
-  }while (1);
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-  return readOffset;
-}
-static int Read_Buffer_From_Mpeg2_Start_Code(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0;
-  int bytesRead = 0;
-  unsigned int code = 0;
-  pBufHdr->nFilledLen = 0;
-  static unsigned int firstParse = true;
-  unsigned int seenFrame = false;
-
-  DEBUG_PRINT("Inside %s", __FUNCTION__);
-
-  /* Read one byte at a time. Construct the code every byte in order to
-   * compare to the start codes. Keep looping until we've read in a complete
-   * frame, which can be either just a picture start code + picture, or can
-   * include the sequence header as well
-   */
-  while (1) {
-    bytesRead = read(inputBufferFileFd, &pBufHdr->pBuffer[readOffset], 1);
-
-    /* Exit the loop if we can't read any more bytes */
-    if (bytesRead == 0 || bytesRead == -1) {
-      break;
-    }
-
-    /* Construct the code one byte at a time */
-    code <<= 8;
-    code |= (0x000000FF & pBufHdr->pBuffer[readOffset]);
-
-    /* Can't compare the code to MPEG2 start codes until we've read the
-     * first four bytes
-     */
-    if (readOffset >= 3) {
-
-      /* If this is the first time we're reading from the file, then we
-       * need to throw away the system start code information at the
-       * beginning. We can just look for the first sequence header.
-       */
-      if (firstParse) {
-        if (code == MPEG2_SEQ_START_CODE) {
-          /* Seek back by 4 bytes and reset code so that we can skip
-           * down to the common case below.
-           */
-          lseek(inputBufferFileFd, -4, SEEK_CUR);
-          code = 0;
-          readOffset -= 3;
-          firstParse = false;
-          continue;
-        }
-      }
-
-      /* If we have already parsed a frame and we see a sequence header, then
-       * the sequence header is part of the next frame so we seek back and
-       * break.
-       */
-      if (code == MPEG2_SEQ_START_CODE) {
-        if (seenFrame) {
-          lseek(inputBufferFileFd, -4, SEEK_CUR);
-          readOffset -= 3;
-          break;
-        }
-        /* If we haven't seen a frame yet, then read in all the data until we
-         * either see another frame start code or sequence header start code.
-         */
-      } else if (code == MPEG2_FRAME_START_CODE) {
-        if (!seenFrame) {
-          seenFrame = true;
-        } else {
-          lseek(inputBufferFileFd, -4, SEEK_CUR);
-          readOffset -= 3;
-          break;
-        }
-      }
-    }
-
-    readOffset++;
-  }
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-  return readOffset;
-}
-
-
 static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr)
 {
   // NAL unit stream processing
@@ -2654,480 +2192,6 @@ static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr)
   return bytes_read + nalSize;
 }
 
-static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0, size_struct_C = 0;
-  unsigned int startcode = 0;
-  pBufHdr->nFilledLen = 0;
-  pBufHdr->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  if (read(inputBufferFileFd, &startcode, 4) <= 0)
-    DEBUG_PRINT_ERROR("Error while reading");
-
-  /* read size of struct C as it need not be 4 always*/
-  if (read(inputBufferFileFd, &size_struct_C, 4) <= 0)
-    DEBUG_PRINT_ERROR("Error while reading");
-
-  if ((startcode & 0xFF000000) == 0xC5000000)
-  {
-
-    DEBUG_PRINT("Read_Buffer_From_RCV_File_Seq_Layer size_struct_C: %d", size_struct_C);
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, size_struct_C);
-    lseek64(inputBufferFileFd, 24, SEEK_CUR);
-  }
-  else if((startcode & 0xFF000000) == 0x85000000)
-  {
-    // .RCV V1 file
-
-    rcv_v1 = 1;
-
-    DEBUG_PRINT("Read_Buffer_From_RCV_File_Seq_Layer size_struct_C: %d", size_struct_C);
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, size_struct_C);
-    lseek64(inputBufferFileFd, 8, SEEK_CUR);
-
-  }
-  else
-  {
-    DEBUG_PRINT_ERROR("Error: Unknown VC1 clip format %x", startcode);
-  }
-
-#if 0
-    {
-      int i=0;
-      DEBUG_PRINT("Read_Buffer_From_RCV_File, length %d readOffset %d", readOffset, readOffset);
-      for (i=0; i<36; i++)
-      {
-        DEBUG_PRINT("0x%.2x ", pBufHdr->pBuffer[i]);
-        if (i%16 == 15) {
-          printf("\n");
-        }
-      }
-      printf("\n");
-    }
-#endif
-  return readOffset;
-}
-
-static int Read_Buffer_From_RCV_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0;
-  unsigned int len = 0;
-  unsigned int key = 0;
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  DEBUG_PRINT("Read_Buffer_From_RCV_File - nOffset %d", pBufHdr->nOffset);
-  if(rcv_v1)
-  {
-    /* for the case of RCV V1 format, the frame header is only of 4 bytes and has
-       only the frame size information */
-    readOffset = read(inputBufferFileFd, &len, 4);
-    DEBUG_PRINT("Read_Buffer_From_RCV_File - framesize %d %x", len, len);
-
-  }
-  else
-  {
-    /* for a regular RCV file, 3 bytes comprise the frame size and 1 byte for key*/
-    readOffset = read(inputBufferFileFd, &len, 3);
-    DEBUG_PRINT("Read_Buffer_From_RCV_File - framesize %d %x", len, len);
-
-    readOffset = read(inputBufferFileFd, &key, 1);
-    if ( (key & 0x80) == false)
-    {
-      DEBUG_PRINT("Read_Buffer_From_RCV_File - Non IDR frame key %x", key);
-    }
-
-  }
-
-  if(!rcv_v1)
-  {
-    /* There is timestamp field only for regular RCV format and not for RCV V1 format*/
-    readOffset = read(inputBufferFileFd, &pBufHdr->nTimeStamp, 4);
-    DEBUG_PRINT("Read_Buffer_From_RCV_File - timeStamp %d", pBufHdr->nTimeStamp);
-    pBufHdr->nTimeStamp *= 1000;
-  }
-  else
-  {
-    pBufHdr->nTimeStamp = timeStampLfile;
-    timeStampLfile += timestampInterval;
-  }
-
-  if(len > pBufHdr->nAllocLen)
-  {
-    DEBUG_PRINT_ERROR("Error in sufficient buffer framesize %d, allocalen %d noffset %d",len,pBufHdr->nAllocLen, pBufHdr->nOffset);
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer+pBufHdr->nOffset,
-                     pBufHdr->nAllocLen - pBufHdr->nOffset);
-
-    loff_t off = (len - readOffset)*1LL;
-    lseek64(inputBufferFileFd, off ,SEEK_CUR);
-    return readOffset;
-  }
-  else {
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer+pBufHdr->nOffset, len);
-  }
-  if (readOffset != len)
-  {
-    DEBUG_PRINT("EOS reach or Reading error %d, %s ", readOffset, strerror( errno ));
-    return 0;
-  }
-
-#if 0
-    {
-      int i=0;
-      DEBUG_PRINT("Read_Buffer_From_RCV_File, length %d readOffset %d", len, readOffset);
-      for (i=0; i<64; i++)
-      {
-        DEBUG_PRINT("0x%.2x ", pBufHdr->pBuffer[i]);
-        if (i%16 == 15) {
-          printf("\n");
-        }
-      }
-      printf("\n");
-    }
-#endif
-
-  return readOffset;
-}
-
-static int Read_Buffer_From_VC1_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  static int timeStampLfile = 0;
-  OMX_U8 *pBuffer = pBufHdr->pBuffer + pBufHdr->nOffset;
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  unsigned int readOffset = 0;
-  int bytes_read = 0;
-  unsigned int code = 0, total_bytes = 0;
-  int startCode_cnt = 0;
-  int bSEQflag = 0;
-  int bEntryflag = 0;
-  unsigned int SEQbytes = 0;
-  int numStartcodes = 0;
-
-  numStartcodes = bHdrflag?1:2;
-
-  do
-  {
-    if (total_bytes == pBufHdr->nAllocLen)
-    {
-      DEBUG_PRINT_ERROR("Buffer overflow!");
-      break;
-    }
-    //Start codes are always byte aligned.
-    bytes_read = read(inputBufferFileFd, &pBuffer[readOffset],1 );
-
-    if(!bytes_read)
-    {
-      DEBUG_PRINT(" Bytes read Zero ");
-      break;
-    }
-    total_bytes++;
-    code <<= 8;
-    code |= (0x000000FF & pBufHdr->pBuffer[readOffset]);
-
-    if(!bSEQflag && (code == VC1_SEQUENCE_START_CODE)) {
-      if(startCode_cnt) bSEQflag = 1;
-    }
-
-    if(!bEntryflag && ( code == VC1_ENTRY_POINT_START_CODE)) {
-      if(startCode_cnt) bEntryflag = 1;
-    }
-
-    if(code == VC1_FRAME_START_CODE || code == VC1_FRAME_FIELD_CODE)
-    {
-      startCode_cnt++ ;
-    }
-
-    //VOP start code comparision
-    if(startCode_cnt == numStartcodes)
-    {
-      if (VC1_FRAME_START_CODE == (code & 0xFFFFFFFF) ||
-        VC1_FRAME_FIELD_CODE == (code & 0xFFFFFFFF))
-      {
-        previous_vc1_au = 0;
-        if(VC1_FRAME_FIELD_CODE == (code & 0xFFFFFFFF))
-        {
-          previous_vc1_au = 1;
-        }
-
-        if(!bHdrflag && (bSEQflag || bEntryflag)) {
-          lseek(inputBufferFileFd,-(SEQbytes+4),SEEK_CUR);
-          readOffset -= (SEQbytes+3);
-        }
-        else {
-          //Seek backwards by 4
-          lseek64(inputBufferFileFd, -4, SEEK_CUR);
-          readOffset-=3;
-        }
-
-        while(pBufHdr->pBuffer[readOffset-1] == 0)
-         readOffset--;
-
-        break;
-      }
-    }
-    readOffset++;
-    if(bSEQflag || bEntryflag) {
-      SEQbytes++;
-    }
-  }while (1);
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-
-#if 0
-    {
-      int i=0;
-      DEBUG_PRINT("Read_Buffer_From_VC1_File, readOffset %d", readOffset);
-      for (i=0; i<64; i++)
-      {
-        DEBUG_PRINT("0x%.2x ", pBufHdr->pBuffer[i]);
-        if (i%16 == 15) {
-          printf("\n");
-        }
-      }
-      printf("\n");
-    }
-#endif
-
-  return readOffset;
-}
-
-static int Read_Buffer_From_DivX_4_5_6_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-#define MAX_NO_B_FRMS 3 // Number of non-b-frames packed in each buffer
-#define N_PREV_FRMS_B 1 // Number of previous non-b-frames packed
-                        // with a set of consecutive b-frames
-#define FRM_ARRAY_SIZE (MAX_NO_B_FRMS + N_PREV_FRMS_B)
-  char *p_buffer = NULL;
-  unsigned int offset_array[FRM_ARRAY_SIZE];
-  int byte_cntr, pckt_end_idx;
-  unsigned int read_code = 0, bytes_read, byte_pos = 0, frame_type;
-  unsigned int i, b_frm_idx, b_frames_found = 0, vop_set_cntr = 0;
-  bool pckt_ready = false;
-#ifdef __DEBUG_DIVX__
-  char pckt_type[20];
-  int pckd_frms = 0;
-  static unsigned long long int total_bytes = 0;
-  static unsigned long long int total_frames = 0;
-#endif //__DEBUG_DIVX__
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  do {
-    p_buffer = (char *)pBufHdr->pBuffer + byte_pos;
-
-    bytes_read = read(inputBufferFileFd, p_buffer, NUMBER_OF_ARBITRARYBYTES_READ);
-    byte_pos += bytes_read;
-    for (byte_cntr = 0; byte_cntr < bytes_read && !pckt_ready; byte_cntr++) {
-      read_code <<= 8;
-      ((char*)&read_code)[0] = p_buffer[byte_cntr];
-      if (read_code == VOP_START_CODE) {
-        if (++byte_cntr < bytes_read) {
-          frame_type = p_buffer[byte_cntr];
-          frame_type &= 0x000000C0;
-#ifdef __DEBUG_DIVX__
-          switch (frame_type) {
-            case 0x00: pckt_type[pckd_frms] = 'I'; break;
-            case 0x40: pckt_type[pckd_frms] = 'P'; break;
-            case 0x80: pckt_type[pckd_frms] = 'B'; break;
-            default: pckt_type[pckd_frms] = 'X';
-          }
-          pckd_frms++;
-#endif // __DEBUG_DIVX__
-          offset_array[vop_set_cntr] = byte_pos - bytes_read + byte_cntr - 4;
-          if (frame_type == 0x80) { // B Frame found!
-            if (!b_frames_found) {
-              // Try to packet N_PREV_FRMS_B previous frames
-              // with the next consecutive B frames
-              i = N_PREV_FRMS_B;
-              while ((vop_set_cntr - i) < 0 && i > 0) i--;
-              b_frm_idx = vop_set_cntr - i;
-              if (b_frm_idx > 0) {
-                pckt_end_idx = b_frm_idx;
-                pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-                pckt_type[b_frm_idx] = '\0';
-                total_frames += b_frm_idx;
-#endif //__DEBUG_DIVX__
-              }
-            }
-            b_frames_found++;
-          } else if (b_frames_found) {
-            pckt_end_idx = vop_set_cntr;
-            pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-            pckt_type[pckd_frms - 1] = '\0';
-            total_frames += pckd_frms - 1;
-#endif //__DEBUG_DIVX__
-          } else if (vop_set_cntr == (FRM_ARRAY_SIZE -1)) {
-            pckt_end_idx = MAX_NO_B_FRMS;
-            pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-            pckt_type[pckt_end_idx] = '\0';
-            total_frames += pckt_end_idx;
-#endif //__DEBUG_DIVX__
-          } else
-            vop_set_cntr++;
-        } else {
-          // The vop start code was found in the last 4 bytes,
-          // seek backwards by 4 to include this start code
-          // with the next buffer.
-          lseek64(inputBufferFileFd, -4, SEEK_CUR);
-          byte_pos -= 4;
-#ifdef __DEBUG_DIVX__
-          pckd_frms--;
-#endif //__DEBUG_DIVX__
-        }
-      }
-    }
-    if (pckt_ready) {
-      loff_t off = (byte_pos - offset_array[pckt_end_idx]);
-      if ( lseek64(inputBufferFileFd, -1LL*off , SEEK_CUR) == -1 ){
-        DEBUG_PRINT_ERROR("lseek64 with offset = %lld failed with errno %d"
-                       ", current position =0x%llx", -1LL*off,
-                       errno, lseek64(inputBufferFileFd, 0, SEEK_CUR));
-      }
-    }
-    else {
-      char eofByte;
-      int ret = read(inputBufferFileFd, &eofByte, 1 );
-      if ( ret == 0 ) {
-        offset_array[vop_set_cntr] = byte_pos;
-        pckt_end_idx = vop_set_cntr;
-        pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-        pckt_type[pckd_frms] = '\0';
-        total_frames += pckd_frms;
-#endif //__DEBUG_DIVX__
-      }
-      else if (ret == 1){
-        if ( lseek64(inputBufferFileFd, -1, SEEK_CUR ) == -1 ){
-          DEBUG_PRINT_ERROR("lseek64 failed with errno = %d, "
-                           "current fileposition = %llx",
-                            errno,
-                            lseek64(inputBufferFileFd, 0, SEEK_CUR));
-        }
-      }
-      else {
-        DEBUG_PRINT_ERROR("Error when checking for EOF");
-      }
-    }
-  } while (!pckt_ready);
-  pBufHdr->nFilledLen = offset_array[pckt_end_idx];
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-#ifdef __DEBUG_DIVX__
-  total_bytes += pBufHdr->nFilledLen;
-  ALOGE("[DivX] Packet: Type[%s] Size[%u] TS[%lld] TB[%llx] NFrms[%lld]",
-    pckt_type, pBufHdr->nFilledLen, pBufHdr->nTimeStamp,
-    total_bytes, total_frames);
-#endif //__DEBUG_DIVX__
-  return pBufHdr->nFilledLen;
-}
-
-static int Read_Buffer_From_DivX_311_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  static OMX_S64 timeStampLfile = 0;
-  char *p_buffer = NULL;
-  bool pkt_ready = false;
-  unsigned int frame_type = 0;
-  unsigned int bytes_read = 0;
-  unsigned int frame_size = 0;
-  unsigned int num_bytes_size = 4;
-  unsigned int num_bytes_frame_type = 1;
-  unsigned int n_offset = 0;
-
-  if (pBufHdr != NULL)
-  {
-    p_buffer = (char *)pBufHdr->pBuffer + pBufHdr->nOffset;
-  }
-  else
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: pBufHdr is NULL");
-    return 0;
-  }
-
-  n_offset = pBufHdr->nOffset;
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-
-  if (p_buffer == NULL)
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: p_bufhdr is NULL");
-    return 0;
-  }
-
-  //Read first frame based on size
-  //DivX 311 frame - 4 byte header with size followed by the frame
-
-  bytes_read = read(inputBufferFileFd, &frame_size, num_bytes_size);
-
-  DEBUG_PRINT("Read_Buffer_From_DivX_311_File: Frame size = %d", frame_size);
-  n_offset += read(inputBufferFileFd, p_buffer, frame_size);
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-
-  timeStampLfile += timestampInterval;
-
-  //the packet is ready to be sent
-  DEBUG_PRINT("Returning Read Buffer from Divx 311: TS=[%ld], Offset=[%d]",
-       (long int)pBufHdr->nTimeStamp,
-       n_offset );
-
-  return n_offset;
-}
-static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  static OMX_S64 timeStampLfile = 0;
-  char *p_buffer = NULL;
-  bool pkt_ready = false;
-  unsigned int frame_type = 0;
-  unsigned int bytes_read = 0;
-  unsigned int frame_size = 0;
-  unsigned int num_bytes_size = 4;
-  unsigned int num_bytes_frame_type = 1;
-  unsigned long long time_stamp;
-  unsigned int n_offset = 0;
-  static int ivf_header_read;
-
-  if (pBufHdr != NULL)
-  {
-    p_buffer = (char *)pBufHdr->pBuffer + pBufHdr->nOffset;
-  }
-  else
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: pBufHdr is NULL");
-    return 0;
-  }
-  n_offset = pBufHdr->nOffset;
-
-  if (p_buffer == NULL)
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: p_bufhdr is NULL");
-    return 0;
-  }
-
-  if(ivf_header_read == 0) {
-    bytes_read = read(inputBufferFileFd, p_buffer, 32);
-    ivf_header_read = 1;
-    if(p_buffer[0] == 'D' && p_buffer[1] == 'K' && p_buffer[2] == 'I' && p_buffer[3] == 'F')
-    {
-      DEBUG_PRINT("  IVF header found  ");
-    } else
-    {
-      DEBUG_PRINT("  No IVF header found  ");
-      lseek(inputBufferFileFd, -32, SEEK_CUR);
-    }
-  }
-  bytes_read = read(inputBufferFileFd, &frame_size, 4);
-  bytes_read = read(inputBufferFileFd, &time_stamp, 8);
-  n_offset += read(inputBufferFileFd, p_buffer, frame_size);
-  pBufHdr->nTimeStamp = time_stamp;
-  return n_offset;
-}
 static int open_video_file ()
 {
   int error_code = 0;
