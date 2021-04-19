@@ -273,7 +273,6 @@ pthread_mutex_t enable_lock;
 
 sem_t ebd_sem;
 sem_t fbd_sem;
-sem_t in_flush_sem, out_flush_sem;
 
 OMX_PARAM_PORTDEFINITIONTYPE portFmt;
 OMX_PORT_PARAM_TYPE portParam;
@@ -307,7 +306,6 @@ int bInputEosReached = 0;
 int bOutputEosReached = 0;
 char in_filename[512];
 bool anti_flickering = true;
-unsigned char flush_input_progress = 0, flush_output_progress = 0;
 unsigned etb_count = 0;
 
 OMX_S64 timeStampLfile = 0;
@@ -465,13 +463,6 @@ void* ebd_thread(void* pArg)
     int readBytes =0;
     OMX_BUFFERHEADERTYPE* pBuffer = NULL;
 
-    if(flush_input_progress)
-    {
-        DEBUG_PRINT(" EBD_thread flush wait start");
-        sem_wait(&in_flush_sem);
-        DEBUG_PRINT(" EBD_thread flush wait complete");
-    }
-
     sem_wait(&ebd_sem);
     pthread_mutex_lock(&ebd_lock);
     pBuffer = (OMX_BUFFERHEADERTYPE *) pop(ebd_queue);
@@ -525,12 +516,6 @@ void* fbd_thread(void* pArg)
   {
     pthread_mutex_unlock(&eos_lock);
     DEBUG_PRINT("Inside %s", __FUNCTION__);
-    if(flush_output_progress)
-    {
-      DEBUG_PRINT(" FBD_thread flush wait start");
-      sem_wait(&out_flush_sem);
-      DEBUG_PRINT(" FBD_thread flush wait complete");
-    }
     sem_wait(&fbd_sem);
     pthread_mutex_lock(&enable_lock);
     if (sent_disabled)
@@ -766,7 +751,7 @@ void* fbd_thread(void* pArg)
     }
 
     pthread_mutex_lock(&enable_lock);
-    if (flush_output_progress || sent_disabled)
+    if (sent_disabled)
     {
       pBuffer->nFilledLen = 0;
       pBuffer->nFlags &= ~OMX_BUFFERFLAG_EXTRADATA;
@@ -846,13 +831,8 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
         printf("*********************************************\n");
         printf("Received FLUSH Event Command Complete[%d]\n",nData2);
         printf("*********************************************\n");
-        if (nData2 == 0)
-          flush_input_progress = 0;
-        else if (nData2 == 1)
-          flush_output_progress = 0;
       }
-      if (!flush_input_progress && !flush_output_progress)
-        event_complete();
+      event_complete();
     break;
 
     case OMX_EventError:
@@ -1406,14 +1386,6 @@ int main(int argc, char **argv)
   {
     DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
   }
-  if (-1 == sem_init(&in_flush_sem, 0, 0))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
-  }
-  if (-1 == sem_init(&out_flush_sem, 0, 0))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
-  }
   ebd_queue = alloc_queue();
   if (ebd_queue == NULL)
   {
@@ -1451,14 +1423,6 @@ int main(int argc, char **argv)
     DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
   }
   if (-1 == sem_destroy(&fbd_sem))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
-  }
-  if (-1 == sem_destroy(&in_flush_sem))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
-  }
-  if (-1 == sem_destroy(&out_flush_sem))
   {
     DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
   }
