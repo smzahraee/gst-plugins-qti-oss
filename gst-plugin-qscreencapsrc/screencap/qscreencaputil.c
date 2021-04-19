@@ -1037,7 +1037,10 @@ QGbm_info * gbm_memory_alloc(GstQCtx * qctx,int w,int h)
       return NULL;
     }
 
-    bo_fd = qctx->gbm_bo_get_fd(bo);
+    /* TODO: won't use gbm_bo_get_fd() till it's redefined definitely. */
+    //bo_fd = qctx->gbm_bo_get_fd(bo);
+    /* Interim solution, just for smooth switch to new interface. */
+    bo_fd = bo->ion_fd;
     if (bo_fd < 0) {
       GST_ERROR("Get bo fd failed");
       qctx->gbm_bo_destroy(bo);

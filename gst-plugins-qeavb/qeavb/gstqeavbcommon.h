@@ -88,7 +88,8 @@ typedef enum { false = 0, true = 1 } bool;
 
 #include "eavb_shared.h"
 
-#define MAX_QEAVB_PCM_SIZE 1500
+#define QEAVB_PCM_DEFAULT_BLOCKSIZE 1500
+#define QEAVB_TS_DEFAULT_BLOCKSIZE 1500
 #define DEFALUT_SLEEP_US 10000
 #define RETRY_COUNT 100000
 #define MAC_STR "%02x:%02x:%02x:%02x:%02x:%02x"

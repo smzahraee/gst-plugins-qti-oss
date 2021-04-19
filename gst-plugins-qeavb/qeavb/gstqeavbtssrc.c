@@ -106,7 +106,7 @@ gst_qeavb_ts_src_init (GstQeavbTsSrc * qeavbtssrc)
 {
   gst_base_src_set_live (GST_BASE_SRC (qeavbtssrc), TRUE);
   gst_base_src_set_format (GST_BASE_SRC (qeavbtssrc), GST_FORMAT_TIME);
-  gst_base_src_set_blocksize (GST_BASE_SRC (qeavbtssrc), MAX_QEAVB_PCM_SIZE);
+  gst_base_src_set_blocksize (GST_BASE_SRC (qeavbtssrc), QEAVB_TS_DEFAULT_BLOCKSIZE);
 
   qeavbtssrc->config_file = g_strdup (DEFAULT_TS_CONFIG_FILE);
   qeavbtssrc->eavb_addr = NULL;
@@ -186,17 +186,10 @@ gst_qeavb_ts_src_setcaps (GstBaseSrc * basesrc, GstCaps * caps)
 {
   GstQeavbTsSrc *src = GST_QEAVB_TS_SRC (basesrc);
 
-  if (0 != src->stream_info.max_buffer_size && 0 != src->stream_info.pkts_per_wake)
+  if (NULL != src && 0 != src->stream_info.max_buffer_size && 0 != src->stream_info.pkts_per_wake)
     gst_base_src_set_blocksize (basesrc, src->stream_info.max_buffer_size * src->stream_info.pkts_per_wake);
 
   return TRUE;
-
-  /* ERROR */
-invalid_caps:
-  {
-    GST_ERROR_OBJECT (basesrc, "received invalid caps");
-    return FALSE;
-  }
 }
 
 static GstStateChangeReturn
@@ -218,7 +211,6 @@ gst_qeavb_ts_src_change_state (GstElement * element,
 static gboolean
 gst_qeavb_ts_src_query (GstBaseSrc * basesrc, GstQuery * query)
 {
-  GstQeavbTsSrc *src = GST_QEAVB_TS_SRC (basesrc);
   gboolean res = FALSE;
 
   switch (GST_QUERY_TYPE (query)) {
@@ -239,9 +231,9 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
 
   GST_INFO_OBJECT(qeavbtssrc,"qeavb ts src start");
   qeavbtssrc->eavb_fd = open("/dev/virt-eavb", O_RDWR);
-  if (qeavbtssrc->eavb_fd == -1) {
+  if (qeavbtssrc->eavb_fd < 0) {
     GST_ERROR_OBJECT (qeavbtssrc,"open eavb fd error, exit!");
-    goto error;
+    return FALSE;
   }
 
   err = qeavb_read_config_file(&(qeavbtssrc->cfg_data), qeavbtssrc->config_file);
@@ -253,20 +245,20 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
   }
   if (0 != err) {
     GST_ERROR_OBJECT (qeavbtssrc,"create stream error %d, exit!", err);
-    goto error;
+    goto error_close;
   }
 
   err = qeavb_connect_stream(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr));
   if (0 != err) {
     GST_ERROR_OBJECT (qeavbtssrc,"connect stream error %d, exit!", err);
-    goto error;
+    goto error_destroy;
   }
   GST_DEBUG_OBJECT (qeavbtssrc,"get stream info");
 
   err = qeavb_get_stream_info(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &(qeavbtssrc->stream_info));
   if (0 != err) {
     GST_ERROR_OBJECT (qeavbtssrc,"get stream info error %d, exit!", err);
-    goto error;
+    goto error_disconnect;
   }
 
   // mmap
@@ -275,8 +267,19 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
   qeavbtssrc->started = TRUE;
   return TRUE;
 
-error:
-  if (qeavbtssrc->eavb_fd != -1) {
+error_disconnect:
+  err = qeavb_disconnect_stream(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr));
+    if (0 != err) {
+      GST_ERROR_OBJECT (qeavbtssrc,"disconnect stream error %d!", err);
+    }
+error_destroy:
+    GST_DEBUG_OBJECT (qeavbtssrc,"destroying stream");
+    err = qeavb_destroy_stream(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr));
+    if (0 != err) {
+      GST_ERROR_OBJECT (qeavbtssrc,"destroy stream error %d!", err);
+    }
+error_close:
+  if (qeavbtssrc->eavb_fd >= 0) {
     close(qeavbtssrc->eavb_fd);
     qeavbtssrc->eavb_fd = -1;
   }
@@ -325,12 +328,18 @@ gst_qeavb_ts_src_fill (GstPushSrc * pushsrc, GstBuffer * buffer)
   GstQeavbTsSrc *qeavbtssrc = GST_QEAVB_TS_SRC (pushsrc);
   GstFlowReturn error = GST_FLOW_OK;
   int err = 0;
+  guint32 payload_size = 0;
+
+  if(qeavbtssrc->stream_info.wakeup_period_us != 0)
+    sleep_us = qeavbtssrc->stream_info.wakeup_period_us;
+
+  payload_size = qeavbtssrc->stream_info.max_buffer_size * qeavbtssrc->stream_info.pkts_per_wake;
 
 retry:
   g_mutex_lock(&qeavbtssrc->lock);
   if (qeavbtssrc->started) {
     memset(&qavb_buffer, 0, sizeof(eavb_ioctl_buf_data_t));
-    qavb_buffer.hdr.payload_size = qeavbtssrc->stream_info.max_buffer_size * qeavbtssrc->stream_info.pkts_per_wake;
+    qavb_buffer.hdr.payload_size = payload_size;
     qavb_buffer.pbuf = (uint64_t)qeavbtssrc->eavb_addr;
     GST_DEBUG_OBJECT (qeavbtssrc, "pkts_per_wake %d, qavb_buffer.hdr.payload_size %d",qeavbtssrc->stream_info.pkts_per_wake, qavb_buffer.hdr.payload_size);
     recv_len = qeavb_receive_data(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
@@ -343,36 +352,32 @@ retry:
       }
       gst_buffer_fill (buffer, 0, qavb_buffer.pbuf, recv_len);
       gst_buffer_set_size (buffer, recv_len);
+      err = qeavb_receive_done(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
+      if (0 != err) {
+        GST_ERROR_OBJECT (qeavbtssrc,"receive data (len %d) done error %d, exit!", recv_len, err);
+        error = GST_FLOW_ERROR;
+        goto finish_handle;
+      }
     } else {
-        if (retry_time < RETRY_COUNT){
-        if(qeavbtssrc->stream_info.wakeup_period_us != 0)
-          sleep_us = qeavbtssrc->stream_info.wakeup_period_us;
-        g_usleep(sleep_us);
+      err = qeavb_receive_done(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
+      if (0 != err) {
+        GST_ERROR_OBJECT (qeavbtssrc,"receive data done error %d, exit!", err);
+        error = GST_FLOW_ERROR;
+        goto finish_handle;
+      }
+      if (retry_time < RETRY_COUNT){
         retry_time ++;
-        err = qeavb_receive_done(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
-        if (0 != err) {
-          GST_ERROR_OBJECT (qeavbtssrc,"receive data done error %d, exit!", err);
-          error = GST_FLOW_ERROR;
-          goto err_handle;
-        }
-        GST_DEBUG_OBJECT (qeavbtssrc,"retry to receive data %d, sleep time %d\n", retry_time, sleep_us);
         g_mutex_unlock(&qeavbtssrc->lock);
+        GST_DEBUG_OBJECT (qeavbtssrc,"retry to receive data %d, will sleep time %d us\n", retry_time, sleep_us);
+        g_usleep(sleep_us);
         goto retry;
       } else {
-        GST_ERROR_OBJECT (qeavbtssrc, "Failed to receive  ts");
+        GST_ERROR_OBJECT (qeavbtssrc, "Failed to receive ts");
         error = GST_FLOW_ERROR;
-        goto err_handle;
       }
     }
-
-    err = qeavb_receive_done(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
-    if (0 != err) {
-      GST_ERROR_OBJECT (qeavbtssrc,"receive data error %d, exit!", err);
-      error = GST_FLOW_ERROR;
-      goto err_handle;
-    }
   }
-err_handle:
+finish_handle:
   g_mutex_unlock(&qeavbtssrc->lock);
   return error;
 }
