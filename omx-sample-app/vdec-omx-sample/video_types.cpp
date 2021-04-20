@@ -140,7 +140,7 @@ const char * FindColorNameByOmxFmt(int32_t omx_fmt_value)
 
 const int32_t FindOmxFmtByColorName(char * name)
 {
-  int32_t omx_fmt;
+  int32_t omx_fmt = 0;
   FUNCTION_ENTER();
   for (int i=0; i < sizeof(m_FormatMaps) / sizeof(struct format_map); i++)
   {
@@ -218,7 +218,7 @@ const char * GetComponentRole(int32_t codec, int32_t filetype)
 
 const int32_t UpdateFileType(int32_t filetype, int32_t codec)
 {
-  int32_t file_type;
+  int32_t file_type = filetype;
   FUNCTION_ENTER();
   switch (codec)
   {
