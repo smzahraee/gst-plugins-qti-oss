@@ -1414,7 +1414,7 @@ bool InitializeCodec(OMX_U32 eCodec, int32_t filetype)
 
   if (eCodec >= OMX_VIDEO_CodingMax)
   {
-    VLOGE("invalid parameter: eCodec: %s", FindCodecNameByType(eCodec));
+    VLOGE("invalid parameter: eCodec: %d", eCodec);
     FUNCTION_EXIT();
     return false;
   }
@@ -1440,18 +1440,23 @@ bool InitializeCodec(OMX_U32 eCodec, int32_t filetype)
 
   m_Handle = NULL;
   const char * componentName = GetComponentRole(eCodec, filetype);
-  VLOGD("Get codec handle: %s", componentName);
   if (componentName == NULL)
   {
-    VLOGE("Error: Unsupported codec %s", FindCodecNameByType(eCodec));
+    VLOGE("Error: Unsupported codec %d", eCodec);
     FUNCTION_EXIT();
     return false;
   }
+  VLOGD("Get codec handle: %s", componentName);
 
   CheckIsSWCodec(componentName);
 
   result = OMX_GetHandle((OMX_HANDLETYPE*)(&m_Handle),
       (OMX_STRING)componentName, NULL, &callbacks);
+  if (m_Handle == NULL) {
+    VLOGE("Failed to get codec handle.");
+    FUNCTION_EXIT();
+    return false;
+  }
   CHECK_RESULT("Failed to get codec handle", result);
 
   QOMX_VIDEO_QUERY_DECODER_INSTANCES decoder_instances;

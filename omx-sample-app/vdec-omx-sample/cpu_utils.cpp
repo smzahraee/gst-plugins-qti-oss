@@ -55,6 +55,10 @@ int GetPhysicalMem(const pid_t p) {
 
   fd = fopen(file, "r");  // Open the file in R read mode and assign it to the pointer fd
 
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
   // Get vmrss: actual physical memory usage
   int i;
   char name[32];  // Store project name
@@ -78,6 +82,10 @@ int GetTotalMem() {
   char line_buff[256] = {0};  // Read line buffer
   fd = fopen(file, "r");  // Open the file in R read mode and assign it to the pointer fd
 
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
   // Get memtotal: total memory footprint
   int i;
   char name[32];  // Store project name
@@ -106,6 +114,11 @@ unsigned int GetCpuProcessOccupy(const pid_t p) {
   snprintf(file, sizeof(file), "/proc/%d/stat", (int)p);  // Line 11 in the file contains
 
   fd = fopen(file, "r");  // Open the file in R read mode and assign it to the pointer fd
+
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
   // Read the string of length buff from the fd file and store it in the space with the starting address of buff
   if (fgets(line_buff, sizeof(line_buff), fd) == NULL) {
     return 0;
@@ -136,10 +149,14 @@ unsigned int GetCpuProcessOccupy(const pid_t p) {
 
 unsigned int GetCpuTotalOccupy() {
   FILE *fd;  // Define file pointer fd
-  char buff[1024] = {0};  // 定义局部变量buff数组为char类型大小为1024
+  char buff[1024] = {0};
   TotalCpuOccupy_t t;
 
   fd = fopen("/proc/stat", "r");  // Open the file in R read mode and assign it to the pointer fd
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
   // Read the string of length buff from the fd file and store it in the space with the starting address of buff
   if (fgets(buff, sizeof(buff), fd) == NULL) {
     return 0;
