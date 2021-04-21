@@ -230,6 +230,7 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
   GstQeavbTsSrc *qeavbtssrc = GST_QEAVB_TS_SRC (basesrc);
 
   GST_INFO_OBJECT(qeavbtssrc,"qeavb ts src start");
+  kpi_place_marker("M - qeavbtssrc start");
   qeavbtssrc->eavb_fd = open("/dev/virt-eavb", O_RDWR);
   if (qeavbtssrc->eavb_fd < 0) {
     GST_ERROR_OBJECT (qeavbtssrc,"open eavb fd error, exit!");
@@ -263,8 +264,9 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
 
   // mmap
   qeavbtssrc->eavb_addr = mmap(NULL, qeavbtssrc->stream_info.max_buffer_size * qeavbtssrc->stream_info.pkts_per_wake, PROT_READ | PROT_WRITE, MAP_SHARED, qeavbtssrc->eavb_fd, 0);
-  GST_DEBUG_OBJECT (qeavbtssrc, "QEAVB ts source started");
   qeavbtssrc->started = TRUE;
+  kpi_place_marker("M - qeavbtssrc started successful");
+  GST_DEBUG_OBJECT (qeavbtssrc, "QEAVB ts source started");
   return TRUE;
 
 error_disconnect:
@@ -372,7 +374,8 @@ retry:
         g_usleep(sleep_us);
         goto retry;
       } else {
-        GST_ERROR_OBJECT (qeavbtssrc, "Failed to receive ts");
+        kpi_place_marker("E - qeavbtssrc recv data timeout!");
+        GST_ERROR_OBJECT (qeavbtssrc, "Failed to receive ts, timeout %dus X %d", sleep_us, retry_time);
         error = GST_FLOW_ERROR;
       }
     }

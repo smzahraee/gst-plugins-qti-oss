@@ -298,6 +298,7 @@ gst_qeavb_pcm_src_start (GstBaseSrc * basesrc)
   GstQeavbPcmSrc *qeavbpcmsrc = GST_QEAVB_PCM_SRC (basesrc);
 
   GST_INFO_OBJECT(qeavbpcmsrc,"qeavb pcm src start");
+  kpi_place_marker("M - qeavbpcmsrc start");
   qeavbpcmsrc->eavb_fd = open("/dev/virt-eavb", O_RDWR);
   if (qeavbpcmsrc->eavb_fd < 0) {
     GST_ERROR_OBJECT (qeavbpcmsrc,"open eavb fd error, exit!");
@@ -332,8 +333,9 @@ gst_qeavb_pcm_src_start (GstBaseSrc * basesrc)
                     qeavbpcmsrc->stream_info.num_pcm_channels, qeavbpcmsrc->stream_info.sample_rate, qeavbpcmsrc->stream_info.endianness);
   // mmap
   qeavbpcmsrc->eavb_addr = mmap(NULL, qeavbpcmsrc->stream_info.max_buffer_size * qeavbpcmsrc->stream_info.pkts_per_wake, PROT_READ | PROT_WRITE, MAP_SHARED, qeavbpcmsrc->eavb_fd, 0);
-  GST_DEBUG_OBJECT (qeavbpcmsrc, "QEAVB PCM source started");
   qeavbpcmsrc->started = TRUE;
+  kpi_place_marker("M - qeavbpcmsrc started successful");
+  GST_DEBUG_OBJECT (qeavbpcmsrc, "QEAVB PCM source started");
   return TRUE;
 
 error_disconnect:
@@ -442,7 +444,8 @@ retry:
         g_usleep(sleep_us);
         goto retry;
       } else {
-        GST_ERROR_OBJECT (qeavbpcmsrc, "Failed to receive audio pcm");
+        kpi_place_marker("E - qeavbpcmsrc recv data timeout!");
+        GST_ERROR_OBJECT (qeavbpcmsrc, "Failed to receive audio pcm, timeout %dus X %d", sleep_us, retry_time);
         error = GST_FLOW_ERROR;
       }
     }
