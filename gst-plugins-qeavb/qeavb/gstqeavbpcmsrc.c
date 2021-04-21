@@ -402,6 +402,10 @@ gst_qeavb_pcm_src_fill (GstPushSrc * pushsrc, GstBuffer * buffer)
   int err = 0;
   guint32 payload_size = 0;
 
+  if (qeavbpcmsrc->is_first_pcmpacket) {
+    kpi_place_marker("M - qeavbpcmsrc begin recv 1st pkt.");
+  }
+
   if(qeavbpcmsrc->stream_info.wakeup_period_us != 0)
     sleep_us = qeavbpcmsrc->stream_info.wakeup_period_us;
 
