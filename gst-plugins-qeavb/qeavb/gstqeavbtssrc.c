@@ -332,6 +332,10 @@ gst_qeavb_ts_src_fill (GstPushSrc * pushsrc, GstBuffer * buffer)
   int err = 0;
   guint32 payload_size = 0;
 
+  if (qeavbtssrc->is_first_tspacket) {
+    kpi_place_marker("M - qeavbtssrc begin recv 1st pkt.");
+  }
+
   if(qeavbtssrc->stream_info.wakeup_period_us != 0)
     sleep_us = qeavbtssrc->stream_info.wakeup_period_us;
 
