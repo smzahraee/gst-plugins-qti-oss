@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+* Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -36,9 +36,9 @@
 
 G_BEGIN_DECLS
 
-#define QMMFSRC_COMMON_IMAGE_CAPS          \
-    "width = (int) [ 16, 4000 ], "         \
-    "height = (int) [ 16, 4000 ], "        \
+#define QMMFSRC_COMMON_IMAGE_CAPS                             \
+    "width = (int) [ 16, " GST_IMAGE_MAX_WIDTH " ], "         \
+    "height = (int) [ 16," GST_IMAGE_MAX_HEIGHT " ], "        \
     "framerate = (fraction) [ 0/1, 30/1 ]"
 
 #define QMMFSRC_IMAGE_JPEG_CAPS \
@@ -140,7 +140,7 @@ GType qmmfsrc_image_pad_get_type(void);
 
 /// Allocates memory for a source image pad with given template, name and index.
 /// It will also set custom functions for query, event and activatemode.
-GstPad * qmmfsrc_request_image_pad (GstPadTemplate *templ, const gchar *name,
+GstPad * qmmfsrc_request_image_pad (GstPadTemplate * templ, const gchar * name,
                                     const guint index);
 
 /// Deactivates and releases the memory allocated for the source image pad.
