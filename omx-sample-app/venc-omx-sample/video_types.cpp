@@ -151,7 +151,7 @@ const char * FindColorNameByOmxFmt(int32_t omx_fmt_value) {
 }
 
 const int32_t FindOmxFmtByColorName(char * name) {
-  int32_t omx_fmt;
+  int32_t omx_fmt = 0;
   for (int i=0; i < sizeof(m_FormatMaps) / sizeof(struct FormatMap); i++) {
     if (!strncasecmp(name, m_FormatMaps[i].str, sizeof(m_FormatMaps[i].str))) {
       omx_fmt = m_FormatMaps[i].omx_fmt_value;
@@ -162,7 +162,7 @@ const int32_t FindOmxFmtByColorName(char * name) {
 }
 
 const int32_t FindIntraRefreshModeByName(char * name) {
-  int32_t refresh_mode;
+  int32_t refresh_mode = 0;
   for (int i=0; i < sizeof(m_IntraRefreshModeMaps) / sizeof(struct IntrarefreshModeMap); i++) {
     if (!strncasecmp(name, m_IntraRefreshModeMaps[i].str, sizeof(m_IntraRefreshModeMaps[i].str))) {
       refresh_mode = m_IntraRefreshModeMaps[i].omx_intrarefresh_mode;
@@ -173,7 +173,7 @@ const int32_t FindIntraRefreshModeByName(char * name) {
 }
 
 const int32_t FindResyncMarkerTypeByName(char * name) {
-  int32_t resync_marker_type;
+  int32_t resync_marker_type = 0;
   for (int i=0; i < sizeof(m_ResyncMarkerTypeMaps) / sizeof(struct ResyncmarkerTypeMap); i++) {
     if (!strncasecmp(name, m_ResyncMarkerTypeMaps[i].str, sizeof(m_ResyncMarkerTypeMaps[i].str))) {
       resync_marker_type = m_ResyncMarkerTypeMaps[i].resyncmarker_type;
