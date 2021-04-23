@@ -340,7 +340,9 @@ void getFreePmem();
 
 int kpi_place_marker(const char* str)
 {
-  int fd = open("/sys/kernel/debug/bootkpi/kpi_values", O_WRONLY);
+//#define KPI_MARKER_NODE "/sys/kernel/debug/bootkpi/kpi_values"
+#define KPI_MARKER_NODE "/sys/kernel/boot_kpi/kpi_values"	//TO DO: probably, it only fit for AGL/LXC-host case.
+  int fd = open(KPI_MARKER_NODE, O_WRONLY);
   if(fd >= 0) {
     int ret = write(fd, str, strlen(str));
     close(fd);
