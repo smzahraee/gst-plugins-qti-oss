@@ -88,6 +88,8 @@ G_BEGIN_DECLS
 #define GST_TYPE_QMMFSRC_ISO_MODE (gst_qmmfsrc_iso_mode_get_type())
 #define GST_TYPE_QMMFSRC_NOISE_REDUCTION \
     (gst_qmmfsrc_noise_reduction_get_type())
+#define GST_TYPE_QMMFSRC_TOF_RANGE_MODE  (gst_qmmfsrc_tof_range_mode_get_type())
+#define GST_TYPE_QMMFSRC_TOF_IMAGE_TYPE  (gst_qmmfsrc_tof_image_type_get_type())
 
 #define GST_BAYER_FORMAT_OFFSET 0x1000
 
@@ -219,6 +221,24 @@ enum
   NOISE_REDUCTION_HIGH_QUALITY,
 };
 
+enum
+{
+  TOF_RANGE_MODE_OFF = -1,
+  TOF_RANGE_MODE_SHORT,
+  TOF_RANGE_MODE_LONG,
+}TOF_RANGE_MODE;
+
+enum
+{
+  TOF_IMAGE_TYPE_OFF = -1,
+  TOF_IMAGE_TYPE_VGA_DEPTH_QVGA_IR_BG,
+  TOF_IMAGE_TYPE_QVGA_DEPTH_IR_BG,
+  TOF_IMAGE_TYPE_VGA_DEPTH_IR,
+  TOF_IMAGE_TYPE_VGA_IR_QVGA_DEPTH,
+  TOF_IMAGE_TYPE_VGA_IR_BG,
+  TOF_IMAGE_TYPE_MAX,
+}TOF_IMAGE_TYPE;
+
 GType gst_qmmfsrc_effect_mode_get_type (void);
 
 GType gst_qmmfsrc_scene_mode_get_type (void);
@@ -252,6 +272,10 @@ guchar gst_qmmfsrc_white_balance_mode_android_value (const guint value);
 guchar gst_qmmfsrc_focus_mode_android_value (const guint value);
 
 guchar gst_qmmfsrc_noise_reduction_android_value (const guint value);
+
+GType gst_qmmfsrc_tof_range_mode_get_type (void);
+
+GType gst_qmmfsrc_tof_image_type_get_type (void);
 
 /// org.quic.camera.defog
 static const gchar * gst_camera_defog_table[] =

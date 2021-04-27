@@ -74,6 +74,8 @@ GST_DEBUG_CATEGORY_STATIC (qmmfsrc_debug);
 #define DEFAULT_PROP_CAMERA_LOCAL_TONE_MAPPING        NULL
 #define DEFAULT_PROP_CAMERA_NOISE_REDUCTION_TUNING    NULL
 #define DEFAULT_PROP_CAMERA_SHARPNESS_STRENGTH        2
+#define DEFAULT_PROP_CAMERA_TOF_RANGE_MODE            TOF_RANGE_MODE_OFF
+#define DEFAULT_PROP_CAMERA_TOF_IMAGE_TYPE            TOF_IMAGE_TYPE_OFF
 
 static void gst_qmmfsrc_child_proxy_init (gpointer g_iface, gpointer data);
 
@@ -122,6 +124,8 @@ enum
   PROP_CAMERA_DEFOG_TABLE,
   PROP_CAMERA_LOCAL_TONE_MAPPING,
   PROP_CAMERA_SHARPNESS_STRENGTH,
+  PROP_CAMERA_TOF_RANGE_MODE,
+  PROP_CAMERA_TOF_IMAGE_TYPE,
 };
 
 static GstStaticPadTemplate qmmfsrc_video_src_template =
@@ -798,6 +802,14 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_SHARPNESS_STRENGTH, value);
       break;
+    case PROP_CAMERA_TOF_RANGE_MODE:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_TOF_RANGE_MODE, value);
+      break;
+    case PROP_CAMERA_TOF_IMAGE_TYPE:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_TOF_IMAGE_TYPE, value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -919,6 +931,14 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
     case PROP_CAMERA_SHARPNESS_STRENGTH:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_SHARPNESS_STRENGTH, value);
+      break;
+    case PROP_CAMERA_TOF_RANGE_MODE:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_TOF_RANGE_MODE, value);
+      break;
+    case PROP_CAMERA_TOF_IMAGE_TYPE:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_TOF_IMAGE_TYPE, value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -1138,7 +1158,16 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
           0, 6, DEFAULT_PROP_CAMERA_SHARPNESS_STRENGTH,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
-
+  g_object_class_install_property (gobject, PROP_CAMERA_TOF_RANGE_MODE,
+      g_param_spec_enum ("tof-range-mode", "TOF range mode",
+          "TOF camera range mode, refer to enum TOF_RANGE_MODE",
+          GST_TYPE_QMMFSRC_TOF_RANGE_MODE, DEFAULT_PROP_CAMERA_TOF_RANGE_MODE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject, PROP_CAMERA_TOF_IMAGE_TYPE,
+      g_param_spec_enum ("tof-image-type", "Tof image type",
+          "TOF camera image type, refer to enum TOF_IMAGE_TYPE",
+          GST_TYPE_QMMFSRC_TOF_IMAGE_TYPE, DEFAULT_PROP_CAMERA_TOF_IMAGE_TYPE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   signals[SIGNAL_CAPTURE_IMAGE] =
       g_signal_new_class_handler ("capture-image", G_TYPE_FROM_CLASS (klass),
