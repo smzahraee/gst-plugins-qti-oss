@@ -52,8 +52,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     An Open max test lite application ....
 */
 
-#define LOG_TAG "OMX-VDEC-TEST"
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -71,31 +69,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OMX_QCOMExtns.h"
 #include <sys/time.h>
 
-#ifndef _ANDROID_
-#define PROPERTY_VALUE_MAX 92
-#else
-#include <cutils/properties.h>
-#endif
-
-//#include <linux/android_pmem.h>
-
-#ifdef _ANDROID_
-#include <binder/MemoryHeapBase.h>
-
-extern "C"{
-#include<utils/Log.h>
-}
-#define DEBUG_PRINT printf
-#define DEBUG_PRINT_ERROR ALOGE
-
-//#define __DEBUG_DIVX__ // Define this macro to print (through logcat)
-                         // the kind of frames packed per buffer and
-                         // timestamps adjustments for divx.
-
-//#define TEST_TS_FROM_SEI // Define this macro to calculate the timestamps
-                           // from the SEI and VUI data for H264
-
-#else
 #include <glib.h>
 #define strlcpy g_strlcpy
 #define strlcat g_strlcat
@@ -122,7 +95,6 @@ enum {
 #define DEBUG_PRINT(fmt, args...) DEBUG_PRINT_CTL(PRIO_LOW, fmt, ##args)
 #define DEBUG_PRINT_ERROR(fmt,args...) DEBUG_PRINT_CTL(PRIO_ERROR, fmt, ##args)
 #define ALOGE DEBUG_PRINT_ERROR
-#endif /* _ANDROID_ */
 
 #include "OMX_Core.h"
 #include "OMX_Component.h"
@@ -130,25 +102,8 @@ enum {
 extern "C" {
 #include "queue.h"
 }
-#define WL_DISPLAY
-#include <inttypes.h>
-#ifdef FB_DISPLAY
-#include <linux/msm_mdp.h>
-#include <linux/fb.h>
-#elif defined WL_DISPLAY
-#include <poll.h>
-#include <wayland-client.h>
-#include "xdg-shell-client-protocol.h"
-#include "ivi-application-client-protocol.h"
-#include <drm_fourcc.h>
-#include <gl2.h>
-#include <egl.h>
-#include <eglext.h>
-#include <EGL/eglwaylandext.h>
 
-#include <gbm.h>
-#include <gbm_priv.h>
-#endif
+#include <inttypes.h>
 
 #ifdef USE_ION
 #include <linux/msm_ion.h>
@@ -162,23 +117,8 @@ extern "C" {
 /************************************************************************/
 /*              #DEFINES                            */
 /************************************************************************/
-#define DELAY 66
-//#define false 0
-//#define true 1
 #define H264_START_CODE 0x00000001
 #define H265_START_CODE 0x00000001
-#define VOP_START_CODE 0x000001B6
-#define SHORT_HEADER_START_CODE 0x00008000
-#define MPEG2_FRAME_START_CODE 0x00000100
-#define MPEG2_SEQ_START_CODE 0x000001B3
-#define VC1_START_CODE  0x00000100
-#define VC1_FRAME_START_CODE  0x0000010D
-#define VC1_FRAME_FIELD_CODE  0x0000010C
-#define VC1_SEQUENCE_START_CODE 0x0000010F
-#define VC1_ENTRY_POINT_START_CODE 0x0000010E
-#define NUMBER_OF_ARBITRARYBYTES_READ  (4 * 1024)
-#define VC1_SEQ_LAYER_SIZE_WITHOUT_STRUCTC 32
-#define VC1_SEQ_LAYER_SIZE_V1_WITHOUT_STRUCTC 16
 #define HEVC_NAL_UNIT_TYPE_MASK 0x7F
 #define HEVC_NAL_UNIT_TYPE_TRAIL_N 0x00
 #define HEVC_NAL_UNIT_TYPE_NONIDR 0x16
@@ -203,7 +143,7 @@ extern "C" {
 #define HEVC_NAL_UNIT_TYPE_SUFFIX_SEI 0x28
 #define HEVC_NAL_UNIT_TYPE_RESERVED_UNSPECIFIED 0x29
 #define HEVC_FIRST_MB_IN_SLICE_MASK 0x80
-static int previous_vc1_au = 0;
+
 #define CONFIG_VERSION_SIZE(param) \
     param.nVersion.nVersion = CURRENT_OMX_SPEC_VERSION;\
     param.nSize = sizeof(param);
@@ -213,27 +153,12 @@ static int previous_vc1_au = 0;
 #define SUCCEEDED(result) (result == OMX_ErrorNone)
 #define SWAPBYTES(ptrA, ptrB) { char t = *ptrA; *ptrA = *ptrB; *ptrB = t;}
 #define SIZE_NAL_FIELD_MAX  4
-#define MDP_DEINTERLACE 0x80000000
-
-#define ALLOCATE_BUFFER 1
-//#define USE_OUTPUT_BUFFER 1
-
-#define PMEM_DEVICE "/dev/ion"
-
-#ifdef USE_OUTPUT_BUFFER
-#define USE_EXTERN_PMEM_BUF
-#undef USE_EGL_IMAGE_TEST_APP
-#endif
 
 /************************************************************************/
 /*              GLOBAL DECLARATIONS                     */
 /************************************************************************/
-#ifdef _ANDROID_
-using namespace android;
-#endif
-
 #ifdef USE_ION
-#define MEM_DEVICE "/dev/ion"
+#define PMEM_DEVICE "/dev/ion"
 #define MEM_HEAP_ID ION_CP_MM_HEAP_ID
 
 struct vdec_ion {
@@ -242,87 +167,9 @@ struct vdec_ion {
   struct ion_allocation_data alloc_data;
 };
 
-struct vdec_ion *outPort_ion;
-
 bool alloc_map_ion_memory(OMX_U32 buffer_size, struct vdec_ion *ion_info, int flag);
 void free_ion_memory(struct vdec_ion *buf_ion_info);
 #endif
-
-typedef unsigned short int uint16;
-const uint16 CRC_INIT = 0xFFFF ;
-
-const uint16 crc_16_l_table[ 256 ] = {
-  0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf,
-  0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5, 0xe97e, 0xf8f7,
-  0x1081, 0x0108, 0x3393, 0x221a, 0x56a5, 0x472c, 0x75b7, 0x643e,
-  0x9cc9, 0x8d40, 0xbfdb, 0xae52, 0xdaed, 0xcb64, 0xf9ff, 0xe876,
-  0x2102, 0x308b, 0x0210, 0x1399, 0x6726, 0x76af, 0x4434, 0x55bd,
-  0xad4a, 0xbcc3, 0x8e58, 0x9fd1, 0xeb6e, 0xfae7, 0xc87c, 0xd9f5,
-  0x3183, 0x200a, 0x1291, 0x0318, 0x77a7, 0x662e, 0x54b5, 0x453c,
-  0xbdcb, 0xac42, 0x9ed9, 0x8f50, 0xfbef, 0xea66, 0xd8fd, 0xc974,
-  0x4204, 0x538d, 0x6116, 0x709f, 0x0420, 0x15a9, 0x2732, 0x36bb,
-  0xce4c, 0xdfc5, 0xed5e, 0xfcd7, 0x8868, 0x99e1, 0xab7a, 0xbaf3,
-  0x5285, 0x430c, 0x7197, 0x601e, 0x14a1, 0x0528, 0x37b3, 0x263a,
-  0xdecd, 0xcf44, 0xfddf, 0xec56, 0x98e9, 0x8960, 0xbbfb, 0xaa72,
-  0x6306, 0x728f, 0x4014, 0x519d, 0x2522, 0x34ab, 0x0630, 0x17b9,
-  0xef4e, 0xfec7, 0xcc5c, 0xddd5, 0xa96a, 0xb8e3, 0x8a78, 0x9bf1,
-  0x7387, 0x620e, 0x5095, 0x411c, 0x35a3, 0x242a, 0x16b1, 0x0738,
-  0xffcf, 0xee46, 0xdcdd, 0xcd54, 0xb9eb, 0xa862, 0x9af9, 0x8b70,
-  0x8408, 0x9581, 0xa71a, 0xb693, 0xc22c, 0xd3a5, 0xe13e, 0xf0b7,
-  0x0840, 0x19c9, 0x2b52, 0x3adb, 0x4e64, 0x5fed, 0x6d76, 0x7cff,
-  0x9489, 0x8500, 0xb79b, 0xa612, 0xd2ad, 0xc324, 0xf1bf, 0xe036,
-  0x18c1, 0x0948, 0x3bd3, 0x2a5a, 0x5ee5, 0x4f6c, 0x7df7, 0x6c7e,
-  0xa50a, 0xb483, 0x8618, 0x9791, 0xe32e, 0xf2a7, 0xc03c, 0xd1b5,
-  0x2942, 0x38cb, 0x0a50, 0x1bd9, 0x6f66, 0x7eef, 0x4c74, 0x5dfd,
-  0xb58b, 0xa402, 0x9699, 0x8710, 0xf3af, 0xe226, 0xd0bd, 0xc134,
-  0x39c3, 0x284a, 0x1ad1, 0x0b58, 0x7fe7, 0x6e6e, 0x5cf5, 0x4d7c,
-  0xc60c, 0xd785, 0xe51e, 0xf497, 0x8028, 0x91a1, 0xa33a, 0xb2b3,
-  0x4a44, 0x5bcd, 0x6956, 0x78df, 0x0c60, 0x1de9, 0x2f72, 0x3efb,
-  0xd68d, 0xc704, 0xf59f, 0xe416, 0x90a9, 0x8120, 0xb3bb, 0xa232,
-  0x5ac5, 0x4b4c, 0x79d7, 0x685e, 0x1ce1, 0x0d68, 0x3ff3, 0x2e7a,
-  0xe70e, 0xf687, 0xc41c, 0xd595, 0xa12a, 0xb0a3, 0x8238, 0x93b1,
-  0x6b46, 0x7acf, 0x4854, 0x59dd, 0x2d62, 0x3ceb, 0x0e70, 0x1ff9,
-  0xf78f, 0xe606, 0xd49d, 0xc514, 0xb1ab, 0xa022, 0x92b9, 0x8330,
-  0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
-};
-
-#ifdef ANDROID_JELLYBEAN_MR1
-//Since this is unavailable on Android 4.2.2, defining it in terms of base 10
-static inline float log2f(const float& x) {
-  return log(x) / log(2);
-}
-#endif
-
-uint16 crc_16_l_step_nv12 (uint16 seed, const void *buf_ptr,
-  unsigned int byte_len, unsigned int height, unsigned int width)
-{
-  uint16 crc_16 = ~seed;
-  char *buf = (char *)buf_ptr;
-  char *byte_ptr = buf;
-  int i, j;
-  const unsigned int width_align = 32;
-  const unsigned int height_align = 32;
-  unsigned int stride = (width + width_align -1) & (~(width_align-1));
-  unsigned int scan_lines = (height + height_align -1) & (~(height_align-1));
-  for (i = 0; i < height; i++) {
-    for (j = 0; j < stride; j++) {
-      if (j < width) {
-        crc_16 = crc_16_l_table[ (crc_16 ^ *byte_ptr) & 0x00ff ] ^ (crc_16 >> 8);
-      }
-      byte_ptr++;
-    }
-  }
-  byte_ptr = buf + (scan_lines * stride);
-  for (i = scan_lines; i < scan_lines + height/2;i++) {
-    for (j = 0; j < stride; j++) {
-      if (j < width) {
-        crc_16 = crc_16_l_table[ (crc_16 ^ *byte_ptr) & 0x00ff ] ^ (crc_16 >> 8);
-      }
-      byte_ptr++;
-    }
-  }
-  return( ~crc_16 );
-}
 
 typedef enum {
   CODEC_FORMAT_H264 = 1,
@@ -376,33 +223,15 @@ typedef enum {
   ERROR_STATE
 } test_status;
 
-typedef enum {
-  FREE_HANDLE_AT_LOADED = 1,
-  FREE_HANDLE_AT_IDLE,
-  FREE_HANDLE_AT_EXECUTING,
-  FREE_HANDLE_AT_PAUSE
-} freeHandle_test;
-
-struct temp_egl {
-  int pmem_fd;
-  int offset;
-};
-
 static int (*Read_Buffer)(OMX_BUFFERHEADERTYPE  *pBufHdr );
 
 int inputBufferFileFd;
 
 FILE * outputBufferFile;
-FILE * crcFile;
-FILE * seqFile;
 int takeYuvLog = 0;
-int displayYuv = 0;
-int displayWindow = 0;
-int realtime_display = 0;
 int num_frames_to_decode = 0;
-int thumbnailMode = 0;
 
-Queue *etb_queue = NULL;
+Queue *ebd_queue = NULL;
 Queue *fbd_queue = NULL;
 
 pthread_t ebd_thread_id;
@@ -410,7 +239,7 @@ pthread_t fbd_thread_id;
 void* ebd_thread(void*);
 void* fbd_thread(void*);
 
-pthread_mutex_t etb_lock;
+pthread_mutex_t ebd_lock;
 pthread_mutex_t fbd_lock;
 pthread_mutex_t lock;
 pthread_cond_t cond;
@@ -418,86 +247,22 @@ pthread_mutex_t eos_lock;
 pthread_cond_t eos_cond;
 pthread_mutex_t enable_lock;
 
-sem_t etb_sem;
+sem_t ebd_sem;
 sem_t fbd_sem;
-sem_t seq_sem;
-sem_t in_flush_sem, out_flush_sem;
 
 OMX_PARAM_PORTDEFINITIONTYPE portFmt;
 OMX_PORT_PARAM_TYPE portParam;
 OMX_ERRORTYPE error;
 OMX_COLOR_FORMATTYPE color_fmt;
-static bool input_use_buffer = false,output_use_buffer = false;
 QOMX_VIDEO_DECODER_PICTURE_ORDER picture_order;
 
-#ifdef MAX_RES_1080P
-unsigned int color_fmt_type = 1;
-#else
 unsigned int color_fmt_type = 0;
-#endif
-static char tempbuf[16];
-#ifdef FB_DISPLAY
-#define CLR_KEY  0xe8fd
-#define COLOR_BLACK_RGBA_8888 0x00000000
-#define FRAMEBUFFER_32
-static int fb_fd = -1;
-static struct fb_var_screeninfo vinfo;
-static struct fb_fix_screeninfo finfo;
-static struct mdp_overlay overlay, *overlayp;
-static struct msmfb_overlay_data ov_front;
-static int vid_buf_front_id;
-int overlay_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr);
-void overlay_set();
-void overlay_unset();
-void render_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr);
 
-#elif defined WL_DISPLAY
-struct display {
-  struct wl_display *display;
-  struct wl_event_queue *queue;
-  struct wl_registry *registry;
-  struct wl_compositor *compositor;
-  struct xdg_shell *shell;
-  struct wl_shm *shm;
-  uint32_t formats;
-  struct ivi_application *ivi_application;
-  GThread *thread;
-};
-struct window {
-  struct display *display;
-  int width, height;
-  struct wl_surface *surface;
-  struct xdg_surface *xdg_surface;
-  struct ivi_surface *ivi_surface;
-  struct wl_callback *callback;
-};
-struct eglimage {
-  /* EGL */
-  EGLDisplay egldpy;
-  PFNEGLCREATEIMAGEKHRPROC eglCreateImage;
-  PFNEGLDESTROYIMAGEKHRPROC eglDestroyImage;
-  PFNEGLCREATEWAYLANDBUFFERFROMIMAGEWL eglCreateWaylandBufferFromImage;
-};
-struct listen_buffer {
-  struct wl_buffer *wlbuf;
-  void *shm_data;
-  int busy;
-};
-
-struct display *display;
-struct window *window;
-struct eglimage *eglimage;
-GHashTable *buffer_table;
-static bool isdisplayopened = FALSE;
-static int
-wl_buf_render(struct OMX_BUFFERHEADERTYPE *pBufHdr);
-#endif
 int disable_output_port();
 int enable_output_port();
 int output_port_reconfig();
 void free_output_buffers();
-int open_display();
-void close_display();
+
 /************************************************************************/
 /*              GLOBAL INIT                 */
 /************************************************************************/
@@ -511,20 +276,14 @@ int ebd_cnt= 0, fbd_cnt = 0;
 int bInputEosReached = 0;
 int bOutputEosReached = 0;
 char in_filename[512];
-char crclogname[512];
-char seq_file_name[512];
-unsigned char seq_enabled = 0;
 bool anti_flickering = true;
-unsigned char flush_input_progress = 0, flush_output_progress = 0;
-unsigned cmd_data = ~(unsigned)0, etb_count = 0;
+unsigned etb_count = 0;
 
-char curr_seq_command[100];
 OMX_S64 timeStampLfile = 0;
 int fps = 30;
 unsigned int timestampInterval = 33333;
 codec_format  codec_format_option;
 file_type     file_type_option;
-freeHandle_test freeHandle_option;
 int nalSize = 0;
 int sent_disabled = 0;
 int waitForPortSettingsChanged = 1;
@@ -540,22 +299,7 @@ OMX_COMPONENTTYPE* dec_handle = 0;
 OMX_BUFFERHEADERTYPE  **pInputBufHdrs = NULL;
 OMX_BUFFERHEADERTYPE  **pOutYUVBufHdrs= NULL;
 
-static OMX_BOOL use_external_pmem_buf = OMX_FALSE;
-
-int rcv_v1=0;
-static struct temp_egl **p_eglHeaders = NULL;
-static unsigned char* use_buf_virt_addr[32];
-
-OMX_QCOM_PLATFORM_PRIVATE_LIST      *pPlatformList = NULL;
-OMX_QCOM_PLATFORM_PRIVATE_ENTRY     *pPlatformEntry = NULL;
-OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
 OMX_CONFIG_RECTTYPE crop_rect = {0,0,0,0};
-
-static int bHdrflag = 0;
-
-/* Performance related variable*/
-//QPERF_INIT(render_fb);
-//QPERF_INIT(client_decode);
 
 /************************************************************************/
 /*              GLOBAL FUNC DECL                        */
@@ -569,42 +313,14 @@ int run_tests();
 /**************************************************************************/
 static int video_playback_count = 1;
 static int open_video_file ();
-static int Read_Buffer_From_DAT_File(OMX_BUFFERHEADERTYPE  *pBufHdr );
 static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_ArbitraryBytes(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_Vop_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_Mpeg2_Start_Code(OMX_BUFFERHEADERTYPE  *pBufHdr);
 static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_RCV_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_VC1_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_DivX_4_5_6_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_DivX_311_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
 
 static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
                                        OMX_BUFFERHEADERTYPE  ***pBufHdrs,
                                        OMX_U32 nPortIndex,
                                        long bufCntMin, long bufSize);
-
-static OMX_ERRORTYPE use_input_buffer(OMX_COMPONENTTYPE      *dec_handle,
-                                OMX_BUFFERHEADERTYPE ***bufferHdr,
-                                OMX_U32              nPortIndex,
-                                OMX_U32              bufSize,
-                                long                 bufcnt);
-
-static OMX_ERRORTYPE use_output_buffer(OMX_COMPONENTTYPE      *dec_handle,
-                                OMX_BUFFERHEADERTYPE ***bufferHdr,
-                                OMX_U32              nPortIndex,
-                                OMX_U32              bufSize,
-                                long                 bufcnt);
-
-static OMX_ERRORTYPE use_output_buffer_multiple_fd(OMX_COMPONENTTYPE      *dec_handle,
-                                                   OMX_BUFFERHEADERTYPE ***bufferHdr,
-                                                   OMX_U32              nPortIndex,
-                                                   OMX_U32              bufSize,
-                                                   long                 bufcnt);
 
 static OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
                                   OMX_IN OMX_PTR pAppData,
@@ -620,16 +336,13 @@ static OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
 
 static void do_freeHandle_and_clean_up(bool isDueToError);
 
-#ifndef USE_ION
-static bool align_pmem_buffers(int pmem_fd, OMX_U32 buffer_size,
-                                  OMX_U32 alignment);
-#endif
 void getFreePmem();
-static int overlay_vsync_ctrl(int enable);
 
 int kpi_place_marker(const char* str)
 {
-  int fd = open("/sys/kernel/debug/bootkpi/kpi_values", O_WRONLY);
+//#define KPI_MARKER_NODE "/sys/kernel/debug/bootkpi/kpi_values"
+#define KPI_MARKER_NODE "/sys/kernel/boot_kpi/kpi_values"	//TO DO: probably, it only fit for AGL/LXC-host case.
+  int fd = open(KPI_MARKER_NODE, O_WRONLY);
   if(fd >= 0) {
     int ret = write(fd, str, strlen(str));
     close(fd);
@@ -638,16 +351,6 @@ int kpi_place_marker(const char* str)
   return -1;
 }
 
-static  int clip2(int x)
-{
-  x = x -1;
-  x = x | x >> 1;
-  x = x | x >> 2;
-  x = x | x >> 4;
-  x = x | x >> 16;
-  x = x + 1;
-  return x;
-}
 void wait_for_event(void)
 {
   DEBUG_PRINT("Waiting for event");
@@ -668,129 +371,6 @@ void event_complete(void)
     pthread_cond_broadcast(&cond);
   }
   pthread_mutex_unlock(&lock);
-}
-int get_next_command(FILE *seq_file)
-{
-  int i = -1;
-  do{
-      i++;
-      if(fread(&curr_seq_command[i], 1, 1, seq_file) != 1)
-        return -1;
-  }while(curr_seq_command[i] != '\n');
-  curr_seq_command[i] = 0;
-  DEBUG_PRINT("cmd_str = %s", curr_seq_command);
-  return 0;
-}
-
-int process_current_command(const char *seq_command)
-{
-  char *data_str = NULL;
-  unsigned int data = 0, bufCnt = 0, i = 0;
-  int frameSize;
-
-  if(strstr(seq_command, "pause") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   PAUSE    $$$$$");
-    data_str = (char*)seq_command + strlen("pause") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" After frame number %u", data);
-    cmd_data = data;
-    sem_wait(&seq_sem);
-    if (!bOutputEosReached && !bInputEosReached)
-    {
-      DEBUG_PRINT(" Sending PAUSE cmd to OMX compt");
-      OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StatePause,0);
-      wait_for_event();
-      DEBUG_PRINT(" EventHandler for PAUSE DONE");
-    }
-    else
-      seq_enabled = 0;
-  }
-  else if(strstr(seq_command, "sleep") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   SLEEP    $$$$$");
-    data_str = (char*)seq_command + strlen("sleep") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" Sleep Time = %u ms", data);
-    usleep(data*1000);
-  }
-  else if(strstr(seq_command, "resume") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   RESUME    $$$$$");
-    DEBUG_PRINT(" Immediate effect");
-    DEBUG_PRINT(" Sending RESUME cmd to OMX compt");
-    OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StateExecuting,0);
-    wait_for_event();
-    DEBUG_PRINT(" EventHandler for RESUME DONE");
-  }
-  else if(strstr(seq_command, "flush") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   FLUSH    $$$$$");
-    data_str = (char*)seq_command + strlen("flush") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" After frame number %u", data);
-    if (previous_vc1_au)
-    {
-      DEBUG_PRINT(" Flush not allowed on Field boundary");
-      return 0;
-    }
-    cmd_data = data;
-    sem_wait(&seq_sem);
-    if (!bOutputEosReached && !bInputEosReached)
-    {
-      DEBUG_PRINT(" Sending FLUSH cmd to OMX compt");
-      flush_input_progress = 1;
-      flush_output_progress = 1;
-      OMX_SendCommand(dec_handle, OMX_CommandFlush, OMX_ALL, 0);
-      wait_for_event();
-      DEBUG_PRINT(" EventHandler for FLUSH DONE");
-      DEBUG_PRINT(" Post EBD_thread flush sem");
-      sem_post(&in_flush_sem);
-      DEBUG_PRINT(" Post FBD_thread flush sem");
-      sem_post(&out_flush_sem);
-    }
-    else
-      seq_enabled = 0;
-  }
-  else if(strstr(seq_command, "disable_op") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   DISABLE OP PORT    $$$$$");
-    data_str = (char*)seq_command + strlen("disable_op") + 1;
-    data = atoi(data_str);
-    DEBUG_PRINT(" After frame number %u", data);
-    cmd_data = data;
-    sem_wait(&seq_sem);
-    DEBUG_PRINT(" Sending DISABLE OP cmd to OMX compt");
-    if (disable_output_port() != 0)
-    {
-      DEBUG_PRINT_ERROR(" ERROR: While DISABLE OP...");
-      do_freeHandle_and_clean_up(true);
-      return -1;
-    }
-    else
-      DEBUG_PRINT(" EventHandler for DISABLE OP");
-  }
-  else if(strstr(seq_command, "enable_op") == seq_command)
-  {
-    DEBUG_PRINT(" $$$$$   ENABLE OP PORT    $$$$$");
-    data_str = (char*)seq_command + strlen("enable_op") + 1;
-    DEBUG_PRINT(" Sending ENABLE OP cmd to OMX compt");
-    if (enable_output_port() != 0)
-    {
-      DEBUG_PRINT_ERROR(" ERROR: While ENABLE OP...");
-      do_freeHandle_and_clean_up(true);
-      return -1;
-    }
-    else
-      DEBUG_PRINT(" EventHandler for ENABLE OP");
-  }
-  else
-  {
-    DEBUG_PRINT(" $$$$$   INVALID CMD    $$$$$");
-    DEBUG_PRINT(" seq_command[%s] is invalid", seq_command);
-    seq_enabled = 0;
-  }
-  return 0;
 }
 
 void PrintFramePackArrangement(OMX_QCOM_FRAME_PACK_ARRANGEMENT framePackingArrangement)
@@ -832,6 +412,7 @@ void PrintFramePackArrangement(OMX_QCOM_FRAME_PACK_ARRANGEMENT framePackingArran
   DEBUG_PRINT("extension_flag (%d)",
      framePackingArrangement.extension_flag);
 }
+
 void* ebd_thread(void* pArg)
 {
   int signal_eos = 0;
@@ -840,20 +421,13 @@ void* ebd_thread(void* pArg)
     int readBytes =0;
     OMX_BUFFERHEADERTYPE* pBuffer = NULL;
 
-    if(flush_input_progress)
-    {
-        DEBUG_PRINT(" EBD_thread flush wait start");
-        sem_wait(&in_flush_sem);
-        DEBUG_PRINT(" EBD_thread flush wait complete");
-    }
-
-    sem_wait(&etb_sem);
-    pthread_mutex_lock(&etb_lock);
-    pBuffer = (OMX_BUFFERHEADERTYPE *) pop(etb_queue);
-    pthread_mutex_unlock(&etb_lock);
+    sem_wait(&ebd_sem);
+    pthread_mutex_lock(&ebd_lock);
+    pBuffer = (OMX_BUFFERHEADERTYPE *) pop(ebd_queue);
+    pthread_mutex_unlock(&ebd_lock);
     if(pBuffer == NULL)
     {
-      DEBUG_PRINT_ERROR("Error - No etb pBuffer to dequeue");
+      DEBUG_PRINT_ERROR("Error - No ebd pBuffer to dequeue");
       continue;
     }
 
@@ -889,28 +463,17 @@ void* fbd_thread(void* pArg)
   long unsigned act_time = 0, display_time = 0, render_time = 5e3, lipsync = 15e3;
   struct timeval t_avsync = {0, 0}, base_avsync = {0, 0};
   float total_time = 0;
-  int canDisplay = 1, contigous_drop_frame = 0, bytes_written = 0, ret = 0;
+  int contigous_drop_frame = 0, bytes_written = 0, ret = 0;
   OMX_S64 base_timestamp = 0, lastTimestamp = 0;
   OMX_BUFFERHEADERTYPE *pBuffer = NULL, *pPrevBuff = NULL;
-  char value[PROPERTY_VALUE_MAX] = {0};
-  OMX_U32 aspectratio_prop = 0;
   pthread_mutex_lock(&eos_lock);
   int stride,scanlines,stride_c,i;
   DEBUG_PRINT("First Inside %s", __FUNCTION__);
-#ifdef _ANDROID_
-  property_get("vidc.vdec.debug.aspectratio", value, "0");
-#endif
-  aspectratio_prop = atoi(value);
+
   while(currentStatus != ERROR_STATE && !bOutputEosReached)
   {
     pthread_mutex_unlock(&eos_lock);
     DEBUG_PRINT("Inside %s", __FUNCTION__);
-    if(flush_output_progress)
-    {
-      DEBUG_PRINT(" FBD_thread flush wait start");
-      sem_wait(&out_flush_sem);
-      DEBUG_PRINT(" FBD_thread flush wait complete");
-    }
     sem_wait(&fbd_sem);
     pthread_mutex_lock(&enable_lock);
     if (sent_disabled)
@@ -963,80 +526,6 @@ void* fbd_thread(void* pArg)
       fbd_cnt++;
       DEBUG_PRINT("%s: fbd_cnt(%d) Buf(%p) Timestamp(%lld)",
         __FUNCTION__, fbd_cnt, pBuffer, pBuffer->nTimeStamp);
-      canDisplay = 1;
-      if (realtime_display)
-      {
-        if (pBuffer->nTimeStamp != (lastTimestamp + timestampInterval))
-        {
-          DEBUG_PRINT("Unexpected timestamp[%lld]! Expected[%lld]",
-              pBuffer->nTimeStamp, lastTimestamp + timestampInterval);
-        }
-        lastTimestamp = pBuffer->nTimeStamp;
-        gettimeofday(&t_avsync, NULL);
-        if (!base_avsync.tv_sec && !base_avsync.tv_usec)
-        {
-          display_time = 0;
-          base_avsync = t_avsync;
-          base_timestamp = pBuffer->nTimeStamp;
-          DEBUG_PRINT("base_avsync Sec(%lu) uSec(%lu) base_timestamp(%lld)",
-              base_avsync.tv_sec, base_avsync.tv_usec, base_timestamp);
-        }
-        else
-        {
-          act_time = (t_avsync.tv_sec - base_avsync.tv_sec) * 1e6
-                     + t_avsync.tv_usec - base_avsync.tv_usec;
-          display_time = pBuffer->nTimeStamp - base_timestamp;
-          DEBUG_PRINT("%s: act_time(%lu) display_time(%lu)",
-              __FUNCTION__, act_time, display_time);
-               //Frame rcvd on time
-          if (((act_time + render_time) >= (display_time - lipsync) &&
-               (act_time + render_time) <= (display_time + lipsync)) ||
-               //Display late frame
-               (contigous_drop_frame > 5))
-            display_time = 0;
-          else if ((act_time + render_time) < (display_time - lipsync))
-            //Delaying early frame
-            display_time -= (lipsync + act_time + render_time);
-          else
-          {
-            //Dropping late frame
-            canDisplay = 0;
-            contigous_drop_frame++;
-          }
-        }
-      }
-#ifdef WL_DISPLAY
-      if ( displayYuv && isdisplayopened == FALSE)
-      {
-        if (open_display() != 0)
-        {
-          DEBUG_PRINT_ERROR(" Error opening display! Video won't be displayed...");
-          displayYuv = 0;
-        }
-        else
-        {
-          isdisplayopened = TRUE;
-        }
-      }
-#endif
-      if (displayYuv && canDisplay)
-      {
-        if (display_time)
-          usleep(display_time);
-#ifdef FB_DISPLAY
-        ret = overlay_fb(pBuffer);
-#elif defined WL_DISPLAY
-        ret = wl_buf_render(pBuffer);
-#endif
-        if (ret != 0)
-        {
-          DEBUG_PRINT_ERROR("ERROR in display, disabling display!");
-          close_display();
-          displayYuv = 0;
-        }
-        usleep(render_time);
-        contigous_drop_frame = 0;
-      }
 
       if (takeYuvLog)
       {
@@ -1074,15 +563,6 @@ void* fbd_thread(void* pArg)
                   bytes_written);
          }
       }
-      if (crcFile) {
-        uint16 crc_val;
-        crc_val = crc_16_l_step_nv12(CRC_INIT, pBuffer->pBuffer,
-            pBuffer->nFilledLen, height, width);
-        int num_bytes = fwrite(&crc_val, 1, sizeof(crc_val), crcFile);
-        if (num_bytes < sizeof(crc_val)) {
-          DEBUG_PRINT_ERROR("Failed to write CRC value into file");
-        }
-      }
       if (pBuffer->nFlags & OMX_BUFFERFLAG_EXTRADATA)
       {
         OMX_OTHER_EXTRADATATYPE *pExtra;
@@ -1112,13 +592,7 @@ void* fbd_thread(void* pArg)
               DEBUG_PRINT("OMX_ExtraDataFrameInfo: Buf(%p) TSmp(%lld) PicType(%u) IntT(%u) ConMB(%u)",
                 pBuffer->pBuffer, pBuffer->nTimeStamp, frame_info->ePicType,
                 frame_info->interlaceType, frame_info->nConcealedMacroblocks);
-              if (aspectratio_prop)
-                DEBUG_PRINT_ERROR(" FrmRate(%u), AspRatioX(%u), AspRatioY(%u) DispWidth(%u) DispHeight(%u)",
-                frame_info->nFrameRate, frame_info->aspectRatio.aspectRatioX,
-                frame_info->aspectRatio.aspectRatioY, frame_info->displayAspectRatio.displayHorizontalSize,
-                frame_info->displayAspectRatio.displayVerticalSize);
-              else
-                DEBUG_PRINT(" FrmRate(%u), AspRatioX(%u), AspRatioY(%u) DispWidth(%u) DispHeight(%u)",
+              DEBUG_PRINT(" FrmRate(%u), AspRatioX(%u), AspRatioY(%u) DispWidth(%u) DispHeight(%u)",
                 frame_info->nFrameRate, frame_info->aspectRatio.aspectRatioX,
                 frame_info->aspectRatio.aspectRatioY, frame_info->displayAspectRatio.displayHorizontalSize,
                 frame_info->displayAspectRatio.displayVerticalSize);
@@ -1235,7 +709,7 @@ void* fbd_thread(void* pArg)
     }
 
     pthread_mutex_lock(&enable_lock);
-    if (flush_output_progress || sent_disabled)
+    if (sent_disabled)
     {
       pBuffer->nFilledLen = 0;
       pBuffer->nFlags &= ~OMX_BUFFERFLAG_EXTRADATA;
@@ -1274,20 +748,9 @@ void* fbd_thread(void* pArg)
       }
     }
     pthread_mutex_unlock(&enable_lock);
-    if(cmd_data <= fbd_cnt)
-    {
-      sem_post(&seq_sem);
-      DEBUG_PRINT("Posted seq_sem Frm(%d) Req(%d)", fbd_cnt, cmd_data);
-      cmd_data = ~(unsigned)0;
-    }
     pthread_mutex_lock(&eos_lock);
   }
-  if(seq_enabled)
-  {
-    seq_enabled = 0;
-    sem_post(&seq_sem);
-    DEBUG_PRINT("Posted seq_sem in EOS ");
-  }
+
   pthread_cond_broadcast(&eos_cond);
   pthread_mutex_unlock(&eos_lock);
   return NULL;
@@ -1326,13 +789,8 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
         printf("*********************************************\n");
         printf("Received FLUSH Event Command Complete[%d]\n",nData2);
         printf("*********************************************\n");
-        if (nData2 == 0)
-          flush_input_progress = 0;
-        else if (nData2 == 1)
-          flush_output_progress = 0;
       }
-      if (!flush_input_progress && !flush_output_progress)
-        event_complete();
+      event_complete();
     break;
 
     case OMX_EventError:
@@ -1350,12 +808,6 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
           pthread_mutex_lock(&eos_lock);
           bOutputEosReached = true;
           pthread_mutex_unlock(&eos_lock);
-          if(seq_enabled)
-          {
-            seq_enabled = 0;
-            sem_post(&seq_sem);
-            DEBUG_PRINT(" Posted seq_sem in ERROR");
-          }
         }
       }
       if (waitForPortSettingsChanged)
@@ -1363,7 +815,7 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
         waitForPortSettingsChanged = 0;
         event_complete();
       }
-      sem_post(&etb_sem);
+      sem_post(&ebd_sem);
       sem_post(&fbd_sem);
       break;
     case OMX_EventPortSettingsChanged:
@@ -1411,12 +863,6 @@ OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
                 pthread_mutex_lock(&eos_lock);
                 bOutputEosReached = true;
                 pthread_mutex_unlock(&eos_lock);
-                if(seq_enabled)
-                {
-                    seq_enabled = 0;
-                    sem_post(&seq_sem);
-                    DEBUG_PRINT(" Posted seq_sem in OMX_EventBufferFlag");
-                }
             }
             else
             {
@@ -1449,14 +895,14 @@ OMX_ERRORTYPE EmptyBufferDone(OMX_IN OMX_HANDLETYPE hComponent,
     return OMX_ErrorNone;
   }
 
-  pthread_mutex_lock(&etb_lock);
-  if(push(etb_queue, (void *) pBuffer) < 0)
+  pthread_mutex_lock(&ebd_lock);
+  if(push(ebd_queue, (void *) pBuffer) < 0)
   {
     DEBUG_PRINT_ERROR("Error in enqueue  ebd data");
     return OMX_ErrorUndefined;
   }
-  pthread_mutex_unlock(&etb_lock);
-  sem_post(&etb_sem);
+  pthread_mutex_unlock(&ebd_lock);
+  sem_post(&ebd_sem);
 
   return OMX_ErrorNone;
 }
@@ -1474,10 +920,6 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
   if(waitForPortSettingsChanged)
   {
     waitForPortSettingsChanged = 0;
-#ifdef FB_DISPLAY
-    if(displayYuv)
-      overlay_set();
-#endif
     event_complete();
   }
 
@@ -1493,6 +935,25 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
   sem_post(&fbd_sem);
 
   return OMX_ErrorNone;
+}
+
+#define KPI_INDICATOR_STR "+kpi+"
+
+static void print_usage(char **argv)
+{
+  printf("%s <infile_path> <codec_type> <file_type> <output_op> <test_op> <num_frames>\n", argv[0]);
+  printf("<codec_type>\t1:h264, 9:h265\n");
+  printf("<file_type>\t4:byte-stream\n");
+  printf("<output_op>\t0:no output, 2:dump frames to yuvframes.yuv file under current dir\n");
+  printf("<test_op>\t1:decode till file end, 0:only decode <num_frame> frames\n");
+  printf("<num_frames>\t0:when test_op=1, N:num of frames to decode when test_op=0\n\n");
+
+  printf("Usage example(only verified h264 and h265):\n");
+  printf("For h264: %s xxx.h264 1 4 2 1 0\n", argv[0]);
+  printf("For h265: %s xxx.h265 9 4 2 1 0\n", argv[0]);
+  printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
+  printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
+  printf("kpi example: %s %s/data/xxx.h264 1 4 0 1 0\n\n", argv[0], KPI_INDICATOR_STR);
 }
 
 int main(int argc, char **argv)
@@ -1512,23 +973,30 @@ int main(int argc, char **argv)
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
-
-#define KPI_INDICATOR_STR "+kpi+"
-  if (argc < 2)
+  if (argc < 7)
   {
-    printf("Usage example(only verified h264 and h265):\n");
-    printf("For h264: %s xxx.h264 1 4 2 1 0 0 0\n", argv[0]);
-    printf("For h265: %s xxx.h265 9 4 2 1 0 0 0\n", argv[0]);
-    printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
-    printf("Also could try: %s <input_file>\n", argv[0]);
-    printf("It will show prompt, and help you input parameters interactively.\n\n");
-    printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
-    printf("kpi example: %s %s/data/xxx.h264 1 4 0 1 0 0 0\n\n", argv[0], KPI_INDICATOR_STR);
+    print_usage(argv);
     return -1;
+  }
+  else if(argc >= 7)
+  {
+    codec_format_option = (codec_format)atoi(argv[2]);
+    file_type_option = (file_type)atoi(argv[3]);
+    outputOption = atoi(argv[4]); /* 0: no output, 2: log yuv frames to file */
+    test_option = atoi(argv[5]);
+    if (0 == test_option) {
+      num_frames_to_decode = atoi(argv[6]);
+    } else if (1 == test_option) {
+      /* play the clip till the end */
+      num_frames_to_decode = 0;
+    }
+    printf("*******************************************************\n");
+    printf("*** codec=%d,file_type=%d,output=%d,test=%d,frames=%d\n",
+        codec_format_option, file_type_option,
+        outputOption, test_option, num_frames_to_decode);
   }
 
   {
-    FILE* file = NULL;
     char* infilename_argptr = NULL;
     if (0 == strncmp(argv[1], KPI_INDICATOR_STR, strlen(KPI_INDICATOR_STR))) {
       kpi_mode = 1;
@@ -1541,273 +1009,14 @@ int main(int argc, char **argv)
     }else{
       infilename_argptr = argv[1];
     }
+
     strlcpy(in_filename, infilename_argptr, sizeof(in_filename));
-    file = fopen(in_filename, "rb");
-    if (file == NULL) {
-      printf("Could not open input file %s !\n", in_filename);
-      return -1;
-    }else{
-      //Here, just confirm input file exist. Later, will open it formally.
-      fclose(file);
-    }
-    strlcpy(crclogname, infilename_argptr, sizeof(crclogname));
-    strlcat(crclogname, ".crc", sizeof(crclogname));
-  }
-
-  if(argc > 2)
-  {
-    codec_format_option = (codec_format)atoi(argv[2]);
-    // file_type, out_op, tst_op, nal_sz, disp_win, rt_dis, (fps), color, pic_order, num_frames_to_decode
-    int param[10] = {2, 1, 1, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
-    int next_arg = 3, idx = 0;
-    while (argc > next_arg && idx < 10)
-    {
-      if (strlen(argv[next_arg]) > 2)
-      {
-        strlcpy(seq_file_name, argv[next_arg], sizeof(seq_file_name));
-        next_arg = argc;
-      }
-      else
-        param[idx++] = atoi(argv[next_arg++]);
-    }
-    idx = 0;
-    file_type_option = (file_type)param[idx++];
-    if (codec_format_option == CODEC_FORMAT_H264 && file_type_option == 3)
-    {
-      nalSize = param[idx++];
-      if (nalSize != 2 && nalSize != 4)
-      {
-        DEBUG_PRINT_ERROR("Error - Can't pass NAL length size = %d", nalSize);
-        return -1;
-      }
-    }
-    outputOption = param[idx++];
-    test_option = param[idx++];
-    if ((outputOption == 1 || outputOption ==3) && test_option != 3) {
-      displayWindow = param[idx++];
-      if (displayWindow > 0)
-        DEBUG_PRINT("Only entire display window supported! Ignoring value");
-      realtime_display = param[idx++];
-    }
-    if (realtime_display)
-    {
-      takeYuvLog = 0;
-      if(param[idx] != 0xFF)
-      {
-        fps = param[idx++];
-        timestampInterval = 1e6 / fps;
-      }
-    }
-    color_fmt_type = (param[idx] != 0xFF)? param[idx++] : color_fmt_type;
-    if (test_option != 3) {
-      pic_order = (param[idx] != 0xFF)? param[idx++] : 0;
-      num_frames_to_decode = param[idx++];
-    }
-    DEBUG_PRINT("Executing DynPortReconfig QCIF 144 x 176 ");
-  }
-  else
-  {
-    printf("Command line argument is available\n");
-    printf("To use it: ./mm-vdec-omx-test <clip location> <codec_type> \n");
-    printf("           <input_type: 1. per AU(.dat), 2. arbitrary, 3.per NAL/frame>\n");
-    printf("           <output_type> <test_case> <size_nal if H264>\n\n\n");
-    printf(" *********************************************\n");
-    printf(" ENTER THE TEST CASE YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1--> H264\n");
-    printf(" 2--> MP4\n");
-    printf(" 3--> H263\n");
-    printf(" 4--> VC1\n");
-    printf(" 5--> DivX\n");
-    printf(" 6--> MPEG2\n");
-    printf(" 7--> VP8\n");
-    printf(" 8--> VP9\n");
-    printf(" 9--> HEVC\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&codec_format_option);
-    fflush(stdin);
-    if (codec_format_option > CODEC_FORMAT_MAX)
-    {
-      DEBUG_PRINT_ERROR(" Wrong test case...[%d] ", codec_format_option);
+    if (access(in_filename, R_OK) < 0) {
+      perror(in_filename);
       return -1;
     }
-    printf(" *********************************************\n");
-    printf(" ENTER THE TEST CASE YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1--> PER ACCESS UNIT CLIP (.dat). Clip only available for H264 and Mpeg4\n");
-    printf(" 2--> ARBITRARY BYTES (need .264/.264c/.m4v/.263/.rcv/.vc1/.m2v)\n");
-    if (codec_format_option == CODEC_FORMAT_H264)
-    {
-      printf(" 4--> START CODE BASED CLIP (.264/.h264)\n");
-    }
-    if (codec_format_option == CODEC_FORMAT_HEVC)
-    {
-      printf(" 4--> START CODE BASED CLIP (.265/.h265)\n");
-    }
-    else if ( (codec_format_option == CODEC_FORMAT_MP4) || (codec_format_option == CODEC_FORMAT_H263) )
-    {
-      printf(" 3--> MP4 VOP or H263 P0 SHORT HEADER START CODE CLIP (.m4v or .263)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_VC1)
-    {
-      printf(" 3--> VC1 clip Simple/Main Profile (.rcv)\n");
-      printf(" 4--> VC1 clip Advance Profile (.vc1)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_DIVX)
-    {
-      printf(" 3--> DivX 4, 5, 6 clip (.cmp)\n");
-#ifdef MAX_RES_1080P
-      printf(" 4--> DivX 3.11 clip \n");
-#endif
-    }
-    else if (codec_format_option == CODEC_FORMAT_MPEG2)
-    {
-      printf(" 3--> MPEG2 START CODE CLIP (.m2v)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_VP8)
-    {
-      printf(" 61--> VP8 START CODE CLIP (.ivf)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_VP9)
-    {
-      printf(" 61--> VP9 START CODE CLIP (.ivf)\n");
-    }
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&file_type_option);
-    if ( (codec_format_option == CODEC_FORMAT_VP8) || (codec_format_option == CODEC_FORMAT_VP9) )
-    {
-      file_type_option = FILE_TYPE_VP8;
-    }
-    fflush(stdin);
-    if (codec_format_option == CODEC_FORMAT_H264 && file_type_option == 3)
-    {
-      printf(" Enter Nal length size [2 or 4] \n");
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&nalSize);
-      if (nalSize != 2 && nalSize != 4)
-      {
-        DEBUG_PRINT_ERROR("Error - Can't pass NAL length size = %d", nalSize);
-        return -1;
-      }
-    }
-
-    printf(" *********************************************\n");
-    printf(" Output buffer option:\n");
-    printf(" *********************************************\n");
-    printf(" 0 --> No display and no YUV log\n");
-    printf(" 1 --> Diplay YUV\n");
-    printf(" 2 --> Take YUV log\n");
-    printf(" 3 --> Display YUV and take YUV log\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&outputOption);
-    fflush(stdin);
-
-    printf(" *********************************************\n");
-    printf(" ENTER THE TEST CASE YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1 --> Play the clip till the end\n");
-    printf(" 2 --> Run compliance test. Do NOT expect any display for most option. \n");
-    printf("       Please only see \"TEST SUCCESSFULL\" to indicate test pass\n");
-    printf(" 3 --> Thumbnail decode mode\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&test_option);
-    fflush(stdin);
-    if (test_option == 3)
-      thumbnailMode = 1;
-
-    if ((outputOption == 1 || outputOption == 3) && thumbnailMode == 0)
-    {
-      printf(" *********************************************\n");
-      printf(" ENTER THE PORTION OF DISPLAY TO USE\n");
-      printf(" *********************************************\n");
-      printf(" 0 --> Entire Screen\n");
-      printf(" 1 --> 1/4 th of the screen starting from top left corner to middle \n");
-      printf(" 2 --> 1/4 th of the screen starting from middle to top right corner \n");
-      printf(" 3 --> 1/4 th of the screen starting from middle to bottom left \n");
-      printf(" 4 --> 1/4 th of the screen starting from middle to bottom right \n");
-      printf("       Please only see \"TEST SUCCESSFULL\" to indidcate test pass\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&displayWindow);
-      fflush(stdin);
-      if(displayWindow > 0)
-      {
-        DEBUG_PRINT(" Curently display window 0 only supported; ignoring other values");
-        displayWindow = 0;
-      }
-    }
-
-    if ((outputOption == 1 || outputOption == 3) && thumbnailMode == 0)
-    {
-      printf(" *********************************************\n");
-      printf(" DO YOU WANT TEST APP TO RENDER in Real time \n");
-      printf(" 0 --> NO\n 1 --> YES\n");
-      printf(" Warning: For H264, it require one NAL per frame clip.\n");
-      printf("          For Arbitrary bytes option, Real time display is not recommended\n");
-      printf(" *********************************************\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&realtime_display);
-      fflush(stdin);
-    }
-
-    if (realtime_display)
-    {
-      printf(" *********************************************\n");
-      printf(" ENTER THE CLIP FPS\n");
-      printf(" Exception: Timestamp extracted from clips will be used.\n");
-      printf(" *********************************************\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&fps);
-      fflush(stdin);
-      timestampInterval = 1000000/fps;
-    }
-
-    printf(" *********************************************\n");
-    printf(" ENTER THE COLOR FORMAT \n");
-    printf(" 0 --> Semiplanar \n 1 --> Tile Mode\n");
-    printf(" *********************************************\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&color_fmt_type);
-    fflush(stdin);
-
-    if (thumbnailMode != 1) {
-      printf(" *********************************************\n");
-      printf(" Output picture order option: \n");
-      printf(" *********************************************\n");
-      printf(" 0 --> Display order\n 1 --> Decode order\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&pic_order);
-      fflush(stdin);
-
-      printf(" *********************************************\n");
-      printf(" Number of frames to decode: \n");
-      printf(" 0 ---> decode all frames: \n");
-      printf(" *********************************************\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&num_frames_to_decode);
-      fflush(stdin);
-    }
   }
+
   if (file_type_option >= FILE_TYPE_COMMON_CODEC_MAX)
   {
     switch (codec_format_option)
@@ -1815,26 +1024,12 @@ int main(int argc, char **argv)
       case CODEC_FORMAT_H264:
         file_type_option = (file_type)(FILE_TYPE_START_OF_H264_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
         break;
-      case CODEC_FORMAT_DIVX:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_DIVX_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_MP4:
-      case CODEC_FORMAT_H263:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_MP4_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_VC1:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_VC1_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_MPEG2:
-        file_type_option = (file_type)(FILE_TYPE_START_OF_MPEG2_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
-        break;
-      case CODEC_FORMAT_VP8:
-        break;
       case CODEC_FORMAT_HEVC:
         file_type_option = (file_type)(FILE_TYPE_START_OF_H265_SPECIFIC + file_type_option - FILE_TYPE_COMMON_CODEC_MAX);
         break;
       default:
         DEBUG_PRINT_ERROR("Error: Unknown code %d", codec_format_option);
+        return -1;
     }
   }
 
@@ -1843,50 +1038,10 @@ int main(int argc, char **argv)
   if (pic_order == 1)
     picture_order.eOutputPictureOrder = QOMX_VIDEO_DECODE_ORDER;
 
-  if (outputOption == 0)
-  {
-    displayYuv = 0;
-    takeYuvLog = 0;
-    realtime_display = 0;
-  }
-  else if (outputOption == 1)
-  {
-    displayYuv = 1;
-  }
-  else if (outputOption == 2)
+  takeYuvLog = 0;
+  if (outputOption == 2)
   {
     takeYuvLog = 1;
-    realtime_display = 0;
-  }
-  else if (outputOption == 3)
-  {
-    displayYuv = 1;
-    takeYuvLog = !realtime_display;
-  }
-  else
-  {
-    DEBUG_PRINT("Wrong option. Assume you want to see the YUV display");
-    displayYuv = 1;
-  }
-
-  if (test_option == 2)
-  {
-    printf(" *********************************************\n");
-    printf(" ENTER THE COMPLIANCE TEST YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1 --> Call Free Handle at the OMX_StateLoaded\n");
-    printf(" 2 --> Call Free Handle at the OMX_StateIdle\n");
-    printf(" 3 --> Call Free Handle at the OMX_StateExecuting\n");
-    printf(" 4 --> Call Free Handle at the OMX_StatePause\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&freeHandle_option);
-    fflush(stdin);
-  }
-  else
-  {
-    freeHandle_option = (freeHandle_test)0;
   }
 
   printf("Input values: inputfilename[%s]\n", in_filename);
@@ -1899,10 +1054,10 @@ int main(int argc, char **argv)
   pthread_cond_init(&eos_cond, 0);
   pthread_mutex_init(&eos_lock, 0);
   pthread_mutex_init(&lock, 0);
-  pthread_mutex_init(&etb_lock, 0);
+  pthread_mutex_init(&ebd_lock, 0);
   pthread_mutex_init(&fbd_lock, 0);
   pthread_mutex_init(&enable_lock, 0);
-  if (-1 == sem_init(&etb_sem, 0, 0))
+  if (-1 == sem_init(&ebd_sem, 0, 0))
   {
     DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
   }
@@ -1910,22 +1065,10 @@ int main(int argc, char **argv)
   {
     DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
   }
-  if (-1 == sem_init(&seq_sem, 0, 0))
+  ebd_queue = alloc_queue();
+  if (ebd_queue == NULL)
   {
-    DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
-  }
-  if (-1 == sem_init(&in_flush_sem, 0, 0))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
-  }
-  if (-1 == sem_init(&out_flush_sem, 0, 0))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_init failed %d", errno);
-  }
-  etb_queue = alloc_queue();
-  if (etb_queue == NULL)
-  {
-    DEBUG_PRINT_ERROR(" Error in Creating etb_queue");
+    DEBUG_PRINT_ERROR(" Error in Creating ebd_queue");
     return -1;
   }
 
@@ -1933,54 +1076,32 @@ int main(int argc, char **argv)
   if (fbd_queue == NULL)
   {
     DEBUG_PRINT_ERROR(" Error in Creating fbd_queue");
-    free_queue(etb_queue);
+    free_queue(ebd_queue);
     return -1;
   }
 
   if(0 != pthread_create(&fbd_thread_id, NULL, fbd_thread, NULL))
   {
     DEBUG_PRINT_ERROR(" Error in Creating fbd_thread ");
-    free_queue(etb_queue);
+    free_queue(ebd_queue);
     free_queue(fbd_queue);
     return -1;
   }
-#if 0 /* move to where we render the frame */
-    if (displayYuv)
-    {
-      if (open_display() != 0)
-      {
-        DEBUG_PRINT_ERROR(" Error opening display! Video won't be displayed...");
-        displayYuv = 0;
-      }
-    }
-#endif
+
   run_tests();
-  if (displayYuv)
-    close_display();
+
   pthread_cond_destroy(&cond);
   pthread_mutex_destroy(&lock);
-  pthread_mutex_destroy(&etb_lock);
+  pthread_mutex_destroy(&ebd_lock);
   pthread_mutex_destroy(&fbd_lock);
   pthread_mutex_destroy(&enable_lock);
   pthread_cond_destroy(&eos_cond);
   pthread_mutex_destroy(&eos_lock);
-  if (-1 == sem_destroy(&etb_sem))
+  if (-1 == sem_destroy(&ebd_sem))
   {
     DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
   }
   if (-1 == sem_destroy(&fbd_sem))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
-  }
-  if (-1 == sem_destroy(&seq_sem))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
-  }
-  if (-1 == sem_destroy(&in_flush_sem))
-  {
-    DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
-  }
-  if (-1 == sem_destroy(&out_flush_sem))
   {
     DEBUG_PRINT_ERROR("Error - sem_destroy failed %d", errno);
   }
@@ -1993,13 +1114,7 @@ int run_tests()
   DEBUG_PRINT("Inside %s", __FUNCTION__);
   waitForPortSettingsChanged = 1;
 
-  if(file_type_option == FILE_TYPE_DAT_PER_AU) {
-    Read_Buffer = Read_Buffer_From_DAT_File;
-  }
-  else if(file_type_option == FILE_TYPE_ARBITRARY_BYTES) {
-    Read_Buffer = Read_Buffer_ArbitraryBytes;
-  }
-  else if(codec_format_option == CODEC_FORMAT_H264) {
+  if(codec_format_option == CODEC_FORMAT_H264) {
     if (file_type_option == FILE_TYPE_264_NAL_SIZE_LENGTH) {
       Read_Buffer = Read_Buffer_From_Size_Nal;
     } else if (file_type_option == FILE_TYPE_264_START_CODE_BASED) {
@@ -2017,49 +1132,14 @@ int run_tests()
       return -1;
     }
   }
-  else if((codec_format_option == CODEC_FORMAT_H263) ||
-          (codec_format_option == CODEC_FORMAT_MP4)) {
-    Read_Buffer = Read_Buffer_From_Vop_Start_Code_File;
-  }
-  else if (codec_format_option == CODEC_FORMAT_MPEG2) {
-    Read_Buffer = Read_Buffer_From_Mpeg2_Start_Code;
-  }
-  else if(file_type_option == FILE_TYPE_DIVX_4_5_6) {
-    Read_Buffer = Read_Buffer_From_DivX_4_5_6_File;
-  }
-#ifdef MAX_RES_1080P
-  else if(file_type_option == FILE_TYPE_DIVX_311) {
-    Read_Buffer = Read_Buffer_From_DivX_311_File;
-  }
-#endif
-  else if(file_type_option == FILE_TYPE_RCV) {
-    Read_Buffer = Read_Buffer_From_RCV_File;
-  }
-  else if(file_type_option == FILE_TYPE_VP8) {
-    Read_Buffer = Read_Buffer_From_VP8_File;
-  }
-  else if(file_type_option == FILE_TYPE_VC1) {
-    Read_Buffer = Read_Buffer_From_VC1_File;
-  }
 
   DEBUG_PRINT("file_type_option %d!", file_type_option);
 
   switch(file_type_option)
   {
-    case FILE_TYPE_DAT_PER_AU:
-    case FILE_TYPE_ARBITRARY_BYTES:
     case FILE_TYPE_264_START_CODE_BASED:
     case FILE_TYPE_264_NAL_SIZE_LENGTH:
-    case FILE_TYPE_PICTURE_START_CODE:
-    case FILE_TYPE_MPEG2_START_CODE:
-    case FILE_TYPE_RCV:
-    case FILE_TYPE_VC1:
-    case FILE_TYPE_VP8:
     case FILE_TYPE_265_START_CODE_BASED:
-    case FILE_TYPE_DIVX_4_5_6:
-#ifdef MAX_RES_1080P
-    case FILE_TYPE_DIVX_311:
-#endif
       if(Init_Decoder()!= 0x00)
       {
         DEBUG_PRINT_ERROR("Error - Decoder Init failed");
@@ -2072,44 +1152,15 @@ int run_tests()
       break;
     default:
       DEBUG_PRINT_ERROR("Error - Invalid Entry...%d",file_type_option);
-      break;
+      return -1;
   }
 
   anti_flickering = true;
-  if(strlen(seq_file_name))
-  {
-    seqFile = fopen (seq_file_name, "rb");
-    if (seqFile == NULL)
-    {
-      DEBUG_PRINT_ERROR("Error - Seq file %s could NOT be opened",
-              seq_file_name);
-      return -1;
-    }
-    else
-    {
-      DEBUG_PRINT("Seq file %s is opened ", seq_file_name);
-      seq_enabled = 1;
-      anti_flickering = false;
-    }
-  }
 
   pthread_mutex_lock(&eos_lock);
   while (bOutputEosReached == false && cmd_error == 0)
   {
-    if(seq_enabled)
-    {
-      pthread_mutex_unlock(&eos_lock);
-      if(!get_next_command(seqFile))
-        cmd_error = process_current_command(curr_seq_command);
-      else
-      {
-        DEBUG_PRINT_ERROR(" Error in get_next_cmd or EOF");
-        seq_enabled = 0;
-      }
-      pthread_mutex_lock(&eos_lock);
-    }
-    else
-      pthread_cond_wait(&eos_cond, &eos_lock);
+    pthread_cond_wait(&eos_cond, &eos_lock);
 
     if (currentStatus == PORT_SETTING_CHANGE_STATE)
     {
@@ -2152,86 +1203,14 @@ int Init_Decoder()
     DEBUG_PRINT_ERROR("OpenMAX Core Init Done");
   }
 
-#if 0
-    /* Query for video decoders*/
-    OMX_GetComponentsOfRole(role, &total, 0);
-    DEBUG_PRINT("Total components of role=%s :%d", role, total);
-
-    if(total)
-    {
-        /* Allocate memory for pointers to component name */
-        OMX_U8** vidCompNames = (OMX_U8**)malloc((sizeof(OMX_U8*))*total);
-        if (vidCompNames == NULL) {
-            DEBUG_PRINT_ERROR("Failed to allocate vidCompNames");
-            return -1;
-        }
-
-        for (i = 0; i < total; ++i) {
-            vidCompNames[i] = (OMX_U8*)malloc(sizeof(OMX_U8)*OMX_MAX_STRINGNAME_SIZE);
-            if (vidCompNames[i] == NULL) {
-                DEBUG_PRINT_ERROR("Failed to allocate vidCompNames[%d]", i);
-                return -1;
-            }
-        }
-        OMX_GetComponentsOfRole(role, &total, vidCompNames);
-        DEBUG_PRINT("Components of Role:%s", role);
-        for (i = 0; i < total; ++i) {
-            DEBUG_PRINT("Component Name [%s]",vidCompNames[i]);
-            free(vidCompNames[i]);
-        }
-        free(vidCompNames);
-    }
-    else {
-        DEBUG_PRINT_ERROR("No components found with Role:%s", role);
-    }
-#endif
-
   if (codec_format_option == CODEC_FORMAT_H264)
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.avc", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_MP4)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg4", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_H263)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.h263", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_VC1)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vc1", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_MPEG2)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.mpeg2", sizeof(vdecCompNames));
-  }
-  else if (file_type_option == FILE_TYPE_RCV)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.wmv", sizeof(vdecCompNames));
-  }
-  else if (file_type_option == FILE_TYPE_DIVX_4_5_6)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_VP8)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp8", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_VP9)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.vp9", sizeof(vdecCompNames));
   }
   else if (codec_format_option == CODEC_FORMAT_HEVC)
   {
     strlcpy(vdecCompNames, "OMX.qcom.video.decoder.hevc", sizeof(vdecCompNames));
   }
-#ifdef MAX_RES_1080P
-  else if (file_type_option == FILE_TYPE_DIVX_311)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.divx311", sizeof(vdecCompNames));
-  }
-#endif
   else
   {
     DEBUG_PRINT_ERROR("Error: Unsupported codec %d", codec_format_option);
@@ -2282,27 +1261,6 @@ int Init_Decoder()
   {
     portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingAVC;
   }
-  else if (codec_format_option == CODEC_FORMAT_MP4)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingMPEG4;
-  }
-  else if (codec_format_option == CODEC_FORMAT_H263)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingH263;
-  }
-  else if (codec_format_option == CODEC_FORMAT_VC1)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingWMV;
-  }
-  else if (codec_format_option == CODEC_FORMAT_DIVX)
-  {
-    portFmt.format.video.eCompressionFormat =
-        (OMX_VIDEO_CODINGTYPE)QOMX_VIDEO_CodingDivx;
-  }
-  else if (codec_format_option == CODEC_FORMAT_MPEG2)
-  {
-    portFmt.format.video.eCompressionFormat = OMX_VIDEO_CodingMPEG2;
-  }
   else if (codec_format_option == CODEC_FORMAT_HEVC)
   {
     portFmt.format.video.eCompressionFormat = (OMX_VIDEO_CODINGTYPE)QOMX_VIDEO_CodingHevc;
@@ -2310,18 +1268,9 @@ int Init_Decoder()
   else
   {
     DEBUG_PRINT_ERROR("Error: Unsupported codec %d", codec_format_option);
+    return -1;
   }
 
-  if (thumbnailMode == 1) {
-    QOMX_ENABLETYPE thumbNailMode;
-    thumbNailMode.bEnable = OMX_TRUE;
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamVideoSyncFrameDecodingMode,
-              (OMX_PTR)&thumbNailMode);
-    DEBUG_PRINT("Enabled Thumbnail mode");
-  }
-#ifdef USE_OUTPUT_BUFFER
-  use_external_pmem_buf = OMX_TRUE;
-#endif
   return 0;
 }
 
@@ -2346,31 +1295,15 @@ int Play_Decoder()
   inputPortFmt.nPortIndex = 0;  // input port
   switch (file_type_option)
   {
-    case FILE_TYPE_DAT_PER_AU:
-    case FILE_TYPE_PICTURE_START_CODE:
-    case FILE_TYPE_MPEG2_START_CODE:
     case FILE_TYPE_264_START_CODE_BASED:
     case FILE_TYPE_265_START_CODE_BASED:
-    case FILE_TYPE_RCV:
-    case FILE_TYPE_VC1:
-#ifdef MAX_RES_1080P
-    case FILE_TYPE_DIVX_311:
-#endif
     {
       inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_OnlyOneCompleteFrame;
       break;
     }
-
-    case FILE_TYPE_ARBITRARY_BYTES:
     case FILE_TYPE_264_NAL_SIZE_LENGTH:
-    case FILE_TYPE_DIVX_4_5_6:
     {
       inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_Arbitrary;
-      break;
-    }
-    case FILE_TYPE_VP8:
-    {
-      inputPortFmt.nFramePackingFormat = OMX_QCOM_FramePacking_OnlyOneCompleteFrame;
       break;
     }
     default:
@@ -2378,53 +1311,13 @@ int Play_Decoder()
   }
   OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
              (OMX_PTR)&inputPortFmt);
-#ifdef USE_EXTERN_PMEM_BUF
-  OMX_QCOM_PARAM_PORTDEFINITIONTYPE outPortFmt;
-  memset(&outPortFmt, 0, sizeof(OMX_QCOM_PARAM_PORTDEFINITIONTYPE));
-  CONFIG_VERSION_SIZE(outPortFmt);
-  outPortFmt.nPortIndex = 1;  // output port
-  outPortFmt.nCacheAttr = OMX_QCOM_CacheAttrNone;
-  outPortFmt.nMemRegion = OMX_QCOM_MemRegionEBI1;
-  OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
-            (OMX_PTR)&outPortFmt);
 
-  OMX_QCOM_PLATFORMPRIVATE_EXTN outPltPvtExtn;
-  memset(&outPltPvtExtn, 0, sizeof(OMX_QCOM_PLATFORMPRIVATE_EXTN));
-  CONFIG_VERSION_SIZE(outPltPvtExtn);
-  outPltPvtExtn.nPortIndex = 1;  // output port
-  outPltPvtExtn.type = OMX_QCOM_PLATFORM_PRIVATE_PMEM;
-  OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexPlatformPvt,
-            (OMX_PTR)&outPltPvtExtn);
-  use_external_pmem_buf = OMX_TRUE;
-#endif
   QOMX_ENABLETYPE extra_data;
   extra_data.bEnable = OMX_TRUE;
-#if 0
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamInterlaceExtraData,
-                     (OMX_PTR)&extra_data);
-#endif
-#if 0
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamConcealMBMapExtraData,
-                     (OMX_PTR)&extra_data);
-#endif
-#if 1
+
   OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamFrameInfoExtraData,
            (OMX_PTR)&extra_data);
-#endif
-#ifdef TEST_TS_FROM_SEI
-  OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamH264TimeInfo,
-           (OMX_PTR)&extra_data);
-#endif
-#if 0
-    extra_data.bEnable = OMX_FALSE;
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamConcealMBMapExtraData,
-                     (OMX_PTR)&extra_data);
-#endif
-#if 0
-    extra_data.bEnable = OMX_TRUE;
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexEnableExtnUserData,
-                     (OMX_PTR)&extra_data);
-#endif
+
   /* Query the decoder outport's min buf requirements */
   CONFIG_VERSION_SIZE(portFmt);
 
@@ -2439,60 +1332,7 @@ int Play_Decoder()
     DEBUG_PRINT ("Dec: Expect Input Port");
     return -1;
   }
-#ifdef MAX_RES_1080P
-  if( (codec_format_option == CODEC_FORMAT_DIVX) &&
-    (file_type_option == FILE_TYPE_DIVX_311) ) {
 
-    int off;
-
-    if ( read(inputBufferFileFd, &width, 4 ) == -1 ) {
-      DEBUG_PRINT_ERROR("Failed to read width for divx");
-      return  -1;
-    }
-
-    DEBUG_PRINT("Width for DIVX = %d", width);
-
-    if ( read(inputBufferFileFd, &height, 4 ) == -1 ) {
-      DEBUG_PRINT_ERROR("Failed to read height for divx");
-      return  -1;
-    }
-
-    DEBUG_PRINT("Height for DIVX = %u", height);
-    sliceheight = height;
-    stride = width;
-  }
-#endif
-  if( (codec_format_option == CODEC_FORMAT_VC1) &&
-    (file_type_option == FILE_TYPE_RCV) ) {
-    //parse struct_A data to get height and width information
-    unsigned int temp;
-    lseek64(inputBufferFileFd, 0, SEEK_SET);
-    if (read(inputBufferFileFd, &temp, 4) < 0) {
-      DEBUG_PRINT_ERROR("Failed to read vc1 data");
-      return -1;
-    }
-    //Refer to Annex L of SMPTE 421M-2006 VC1 decoding standard
-    //We need to skip 12 bytes after 0xC5 in sequence layer data
-    //structure to read struct_A, which includes height and
-    //width information.
-    if ((temp & 0xFF000000) == 0xC5000000) {
-      lseek64(inputBufferFileFd, 12, SEEK_SET);
-
-      if ( read(inputBufferFileFd, &height, 4 ) < -1 ) {
-        DEBUG_PRINT_ERROR("Failed to read height for vc-1");
-        return  -1;
-      }
-      if ( read(inputBufferFileFd, &width, 4 ) == -1 ) {
-        DEBUG_PRINT_ERROR("Failed to read width for vc-1");
-        return  -1;
-      }
-      lseek64(inputBufferFileFd, 0, SEEK_SET);
-    }
-    if ((temp & 0xFF000000) == 0x85000000) {
-      lseek64(inputBufferFileFd, 0, SEEK_SET);
-    }
-    DEBUG_PRINT(" RCV clip width = %u height = %u ",width, height);
-  }
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
@@ -2566,7 +1406,6 @@ int Play_Decoder()
   input_buf_cnt = portFmt.nBufferCountActual;
   DEBUG_PRINT("Transition to Idle State succesful...");
 
-#if ALLOCATE_BUFFER
   // Allocate buffer on decoder's i/p port
   error = Allocate_Buffer(dec_handle, &pInputBufHdrs, portFmt.nPortIndex,
                 portFmt.nBufferCountActual, portFmt.nBufferSize);
@@ -2577,23 +1416,7 @@ int Play_Decoder()
   else {
     DEBUG_PRINT("OMX_AllocateBuffer Input buffer success");
   }
-#else
-  // Use buffer on decoder's i/p port
-  input_use_buffer = true;
-  DEBUG_PRINT_ERROR(" before OMX_UseBuffer %p", &pInputBufHdrs);
-  error =  use_input_buffer(dec_handle,
-                     &pInputBufHdrs,
-                     portFmt.nPortIndex,
-                     portFmt.nBufferSize,
-                     portFmt.nBufferCountActual);
-  if (error != OMX_ErrorNone) {
-    DEBUG_PRINT_ERROR("ERROR - OMX_UseBuffer Input buffer failed");
-    return -1;
-  }
-  else {
-    DEBUG_PRINT("OMX_UseBuffer Input buffer success");
-  }
-#endif
+
   portFmt.nPortIndex = portParam.nStartPortNumber+1;
   // Port for which the Client needs to obtain info
 
@@ -2619,22 +1442,9 @@ int Play_Decoder()
     }
   }
 
-#ifndef USE_EGL_IMAGE_TEST_APP
-  if (use_external_pmem_buf)
-  {
-    DEBUG_PRINT_ERROR(" Use External pmem buf: OMX_UseBuffer %p", &pInputBufHdrs);
-    error =  use_output_buffer_multiple_fd(dec_handle,
-                    &pOutYUVBufHdrs,
-                    portFmt.nPortIndex,
-                    portFmt.nBufferSize,
-                    portFmt.nBufferCountActual);
-  }
-  else
-  {
-    /* Allocate buffer on decoder's o/p port */
-    error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
-                    portFmt.nBufferCountActual, portFmt.nBufferSize);
-  }
+  /* Allocate buffer on decoder's o/p port */
+  error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
+                  portFmt.nBufferCountActual, portFmt.nBufferSize);
   free_op_buf_cnt = portFmt.nBufferCountActual;
   if (error != OMX_ErrorNone) {
     DEBUG_PRINT_ERROR("Error - OMX_AllocateBuffer Output buffer error");
@@ -2644,43 +1454,11 @@ int Play_Decoder()
   {
     DEBUG_PRINT("OMX_AllocateBuffer Output buffer success");
   }
-#else
-  DEBUG_PRINT_ERROR(" before OMX_UseBuffer %p", &pInputBufHdrs);
-  error =  use_output_buffer(dec_handle,
-                 &pOutYUVBufHdrs,
-                 portFmt.nPortIndex,
-                 portFmt.nBufferSize,
-                 portFmt.nBufferCountActual);
-  free_op_buf_cnt = portFmt.nBufferCountActual;
-  if (error != OMX_ErrorNone) {
-    DEBUG_PRINT_ERROR("ERROR - OMX_UseBuffer Input buffer failed");
-    return -1;
-  }
-  else {
-    DEBUG_PRINT("OMX_UseBuffer Input buffer success");
-  }
-#endif
+
   wait_for_event();
   if (currentStatus == ERROR_STATE)
   {
     do_freeHandle_and_clean_up(true);
-    return -1;
-  }
-
-  if (freeHandle_option == FREE_HANDLE_AT_IDLE)
-  {
-    OMX_STATETYPE state = OMX_StateInvalid;
-    OMX_GetState(dec_handle, &state);
-    if (state == OMX_StateIdle)
-    {
-      DEBUG_PRINT("Decoder is in OMX_StateIdle and trying to call OMX_FreeHandle ");
-      do_freeHandle_and_clean_up(false);
-    }
-    else
-    {
-      DEBUG_PRINT_ERROR("Error - Decoder is in state %d and trying to call OMX_FreeHandle ", state);
-      do_freeHandle_and_clean_up(true);
-    }
     return -1;
   }
 
@@ -2717,58 +1495,7 @@ int Play_Decoder()
   }
 
   used_ip_buf_cnt = input_buf_cnt;
-
-  rcv_v1 = 0;
-
-  //QPERF_START(client_decode);
-  if (codec_format_option == CODEC_FORMAT_VC1)
-  {
-    pInputBufHdrs[0]->nOffset = 0;
-    if(file_type_option == FILE_TYPE_RCV)
-    {
-      frameSize = Read_Buffer_From_RCV_File_Seq_Layer(pInputBufHdrs[0]);
-      pInputBufHdrs[0]->nFilledLen = frameSize;
-      DEBUG_PRINT("After Read_Buffer_From_RCV_File_Seq_Layer, "
-              "frameSize %d", frameSize);
-    }
-    else if(file_type_option == FILE_TYPE_VC1)
-    {
-      bHdrflag = 1;
-      pInputBufHdrs[0]->nFilledLen = Read_Buffer(pInputBufHdrs[0]);
-      bHdrflag = 0;
-      DEBUG_PRINT_ERROR("After 1st Read_Buffer for VC1, "
-             "pInputBufHdrs[0]->nFilledLen %d", pInputBufHdrs[0]->nFilledLen);
-    }
-    else
-    {
-      pInputBufHdrs[0]->nFilledLen = Read_Buffer(pInputBufHdrs[0]);
-      DEBUG_PRINT("After Read_Buffer pInputBufHdrs[0]->nFilledLen %d",
-             pInputBufHdrs[0]->nFilledLen);
-    }
-
-    pInputBufHdrs[0]->nInputPortIndex = 0;
-    pInputBufHdrs[0]->nOffset = 0;
-    ret = OMX_EmptyThisBuffer(dec_handle, pInputBufHdrs[0]);
-    if (ret != OMX_ErrorNone)
-    {
-      DEBUG_PRINT_ERROR("ERROR - OMX_EmptyThisBuffer failed with result %d", ret);
-      do_freeHandle_and_clean_up(true);
-      return -1;
-    }
-    else
-    {
-      etb_count++;
-      DEBUG_PRINT("OMX_EmptyThisBuffer success!");
-    }
-    i = 1;
-    pInputBufHdrs[0]->nFlags = 0;
-  }
-  else
-  {
-    i = 0;
-  }
-
-  for (i; i < used_ip_buf_cnt;i++) {
+  for (i = 0; i < used_ip_buf_cnt; i++) {
     pInputBufHdrs[i]->nInputPortIndex = 0;
     pInputBufHdrs[i]->nOffset = 0;
     if((frameSize = Read_Buffer(pInputBufHdrs[i])) <= 0 ){
@@ -2802,7 +1529,7 @@ int Play_Decoder()
   if(0 != pthread_create(&ebd_thread_id, NULL, ebd_thread, NULL))
   {
     DEBUG_PRINT_ERROR(" Error in Creating fbd_thread ");
-    free_queue(etb_queue);
+    free_queue(ebd_queue);
     free_queue(fbd_queue);
     return -1;
   }
@@ -2824,42 +1551,6 @@ int Play_Decoder()
       return -1;
   }
 
-  if (freeHandle_option == FREE_HANDLE_AT_EXECUTING)
-  {
-    OMX_STATETYPE state = OMX_StateInvalid;
-    OMX_GetState(dec_handle, &state);
-    if (state == OMX_StateExecuting)
-    {
-      DEBUG_PRINT("Decoder is in OMX_StateExecuting and trying to call OMX_FreeHandle ");
-      do_freeHandle_and_clean_up(false);
-    }
-    else
-    {
-      DEBUG_PRINT_ERROR("Error - Decoder is in state %d and trying to call OMX_FreeHandle ", state);
-      do_freeHandle_and_clean_up(true);
-    }
-    return -1;
-  }
-  else if (freeHandle_option == FREE_HANDLE_AT_PAUSE)
-  {
-    OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StatePause,0);
-    wait_for_event();
-
-    OMX_STATETYPE state = OMX_StateInvalid;
-    OMX_GetState(dec_handle, &state);
-    if (state == OMX_StatePause)
-    {
-      DEBUG_PRINT("Decoder is in OMX_StatePause and trying to call OMX_FreeHandle ");
-      do_freeHandle_and_clean_up(false);
-    }
-    else
-    {
-      DEBUG_PRINT_ERROR("Error - Decoder is in state %d and trying to call OMX_FreeHandle ", state);
-      do_freeHandle_and_clean_up(true);
-    }
-    return -1;
-  }
-
   return 0;
 }
 
@@ -2874,7 +1565,7 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
 
   DEBUG_PRINT("pBufHdrs = %x,bufCntMin = %d", pBufHdrs, bufCntMin);
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-      malloc(sizeof(OMX_BUFFERHEADERTYPE)*bufCntMin);
+      malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
 
   for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
     DEBUG_PRINT("OMX_AllocateBuffer No %d ", bufCnt);
@@ -2885,246 +1576,6 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
   return error;
 }
 
-static OMX_ERRORTYPE use_input_buffer ( OMX_COMPONENTTYPE *dec_handle,
-                                  OMX_BUFFERHEADERTYPE  ***pBufHdrs,
-                                  OMX_U32 nPortIndex,
-                                  OMX_U32 bufSize,
-                                  long bufCntMin)
-{
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  OMX_ERRORTYPE error=OMX_ErrorNone;
-  long bufCnt=0;
-  OMX_U8* pvirt = NULL;
-
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-         malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
-  if(*pBufHdrs == NULL){
-    DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-   }
-
-  for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
-    // allocate input buffers
-    DEBUG_PRINT("OMX_UseBuffer No %d %d ", bufCnt, bufSize);
-    pvirt = (OMX_U8*) malloc (bufSize);
-    if(pvirt == NULL){
-      DEBUG_PRINT_ERROR(" pvirt Allocation failed ");
-      return OMX_ErrorInsufficientResources;
-    }
-    error = OMX_UseBuffer(dec_handle, &((*pBufHdrs)[bufCnt]),
-              nPortIndex, NULL, bufSize, pvirt);
-  }
-  return error;
-}
-
-static OMX_ERRORTYPE use_output_buffer ( OMX_COMPONENTTYPE *dec_handle,
-                                  OMX_BUFFERHEADERTYPE  ***pBufHdrs,
-                                  OMX_U32 nPortIndex,
-                                  OMX_U32 bufSize,
-                                  long bufCntMin)
-{
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  OMX_ERRORTYPE error=OMX_ErrorNone;
-  long bufCnt=0;
-  OMX_U8* pvirt = NULL;
-
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-               malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
-  if(*pBufHdrs == NULL){
-    DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  output_use_buffer = true;
-  p_eglHeaders = (struct temp_egl **)
-             malloc(sizeof(struct temp_egl *)* bufCntMin);
-  if (!p_eglHeaders){
-    DEBUG_PRINT_ERROR(" EGL allocation failed");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
-    // allocate input buffers
-    DEBUG_PRINT("OMX_UseBuffer No %d %d ", bufCnt, bufSize);
-    p_eglHeaders[bufCnt] = (struct temp_egl*)
-                  malloc(sizeof(struct temp_egl));
-    if(!p_eglHeaders[bufCnt]) {
-      DEBUG_PRINT_ERROR(" EGL allocation failed");
-      return OMX_ErrorInsufficientResources;
-    }
-    p_eglHeaders[bufCnt]->pmem_fd = open(PMEM_DEVICE,O_RDWR);
-    p_eglHeaders[bufCnt]->offset = 0;
-    if(p_eglHeaders[bufCnt]->pmem_fd < 0) {
-      DEBUG_PRINT_ERROR(" open failed %s",PMEM_DEVICE);
-      return OMX_ErrorInsufficientResources;
-    }
-#ifndef USE_ION
-    /* TBD - this commenting is dangerous */
-    align_pmem_buffers(p_eglHeaders[bufCnt]->pmem_fd, bufSize,
-                                  8192);
-#endif
-    DEBUG_PRINT_ERROR(" allocation size %d pmem fd %d",bufSize,p_eglHeaders[bufCnt]->pmem_fd);
-    pvirt = (unsigned char *)mmap(NULL,bufSize,PROT_READ|PROT_WRITE,
-                MAP_SHARED,p_eglHeaders[bufCnt]->pmem_fd,0);
-    DEBUG_PRINT_ERROR(" Virtaul Address %p Size %d",pvirt,bufSize);
-    if (pvirt == MAP_FAILED) {
-      DEBUG_PRINT_ERROR(" mmap failed for buffers");
-      return OMX_ErrorInsufficientResources;
-    }
-    use_buf_virt_addr[bufCnt] = pvirt;
-    error = OMX_UseEGLImage(dec_handle, &((*pBufHdrs)[bufCnt]),
-                   nPortIndex, pvirt,(void *)p_eglHeaders[bufCnt]);
-  }
-  return error;
-}
-
-static OMX_ERRORTYPE use_output_buffer_multiple_fd ( OMX_COMPONENTTYPE *dec_handle,
-                                  OMX_BUFFERHEADERTYPE  ***pBufHdrs,
-                                  OMX_U32 nPortIndex,
-                                  OMX_U32 bufSize,
-                                  long bufCntMin)
-{
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  OMX_ERRORTYPE error=OMX_ErrorNone;
-  long bufCnt=0;
-  OMX_U8* pvirt = NULL;
-//#ifndef USE_OUTPUT_BUFFER
-#ifndef USE_ION
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-             malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
-  if(*pBufHdrs == NULL){
-    DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  pPlatformList = (OMX_QCOM_PLATFORM_PRIVATE_LIST *)
-  malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_LIST)* bufCntMin);
-
-  if(pPlatformList == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformList Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPlatformEntry = (OMX_QCOM_PLATFORM_PRIVATE_ENTRY *)
-  malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_ENTRY)* bufCntMin);
-
-  if(pPlatformEntry == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformEntry Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPMEMInfo = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
-    malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO)* bufCntMin);
-
-  if(pPMEMInfo == NULL){
-    DEBUG_PRINT_ERROR(" pPMEMInfo Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  //output_use_buffer = true;
-  for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
-    // allocate input buffers
-    DEBUG_PRINT("OMX_UseBuffer_multiple_fd No %d %d ", bufCnt, bufSize);
-
-    pPlatformEntry[bufCnt].type       = OMX_QCOM_PLATFORM_PRIVATE_PMEM;
-    pPlatformEntry[bufCnt].entry      = &pPMEMInfo[bufCnt];
-    // Initialize the Platform List
-    pPlatformList[bufCnt].nEntries    = 1;
-    pPlatformList[bufCnt].entryList   = &pPlatformEntry[bufCnt];
-    pPMEMInfo[bufCnt].offset          =  0;
-    pPMEMInfo[bufCnt].pmem_fd = open(PMEM_DEVICE,O_RDWR);
-    if(pPMEMInfo[bufCnt].pmem_fd < 0) {
-      DEBUG_PRINT_ERROR(" open failed %s",PMEM_DEVICE);
-      return OMX_ErrorInsufficientResources;
-    }
-#ifndef USE_ION
-    /* TBD - this commenting is dangerous */
-    align_pmem_buffers(pPMEMInfo[bufCnt].pmem_fd, bufSize,
-                                8192);
-#endif
-    DEBUG_PRINT(" allocation size %d pmem fd 0x%x",bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    pvirt = (unsigned char *)mmap(NULL,bufSize,PROT_READ|PROT_WRITE,
-                    MAP_SHARED,pPMEMInfo[bufCnt].pmem_fd,0);
-    getFreePmem();
-    DEBUG_PRINT(" Virtual Address %p Size %d pmem_fd=0x%x",pvirt,bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    if (pvirt == MAP_FAILED) {
-      DEBUG_PRINT_ERROR(" mmap failed for buffers");
-      return OMX_ErrorInsufficientResources;
-    }
-    use_buf_virt_addr[bufCnt] = pvirt;
-    error = OMX_UseBuffer(dec_handle, &((*pBufHdrs)[bufCnt]),
-                          nPortIndex, &pPlatformList[bufCnt], bufSize, pvirt);
-  }
-#else
-  struct vdec_ion vdecion = {0};
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-                malloc(sizeof(OMX_BUFFERHEADERTYPE)* bufCntMin);
-  if(*pBufHdrs == NULL){
-    DEBUG_PRINT_ERROR(" m_inp_heap_ptr Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  pPlatformList = (OMX_QCOM_PLATFORM_PRIVATE_LIST *)
-      malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_LIST)* bufCntMin);
-
-  if(pPlatformList == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformList Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPlatformEntry = (OMX_QCOM_PLATFORM_PRIVATE_ENTRY *)
-    malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_ENTRY)* bufCntMin);
-
-  if(pPlatformEntry == NULL){
-    DEBUG_PRINT_ERROR(" pPlatformEntry Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-
-  pPMEMInfo = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
-      malloc(sizeof(OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO)* bufCntMin);
-
-  if(pPMEMInfo == NULL){
-    DEBUG_PRINT_ERROR(" pPMEMInfo Allocation failed ");
-    return OMX_ErrorInsufficientResources;
-  }
-  outPort_ion = (struct vdec_ion *)calloc(sizeof(struct vdec_ion), bufCntMin);
-  if(!outPort_ion)
-    return OMX_ErrorInsufficientResources;
-
-  //output_use_buffer = true;
-  for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
-    // allocate input buffers
-    DEBUG_PRINT("OMX_UseBuffer_multiple_fd No %d %d ", bufCnt, bufSize);
-
-    pPlatformEntry[bufCnt].type       = OMX_QCOM_PLATFORM_PRIVATE_PMEM;
-    pPlatformEntry[bufCnt].entry      = &pPMEMInfo[bufCnt];
-    // Initialize the Platform List
-    pPlatformList[bufCnt].nEntries    = 1;
-    pPlatformList[bufCnt].entryList   = &pPlatformEntry[bufCnt];
-    pPMEMInfo[bufCnt].offset          =  0;
-
-    bool status =  alloc_map_ion_memory(bufSize, &vdecion, 0);
-    if (status == false) {
-      return OMX_ErrorInsufficientResources;
-    }
-    pPMEMInfo[bufCnt].pmem_fd  = vdecion.data_fd;
-
-    outPort_ion[bufCnt].dev_fd = vdecion.dev_fd;
-    outPort_ion[bufCnt].alloc_data = vdecion.alloc_data;
-    outPort_ion[bufCnt].data_fd = vdecion.data_fd;
-
-    DEBUG_PRINT(" allocation size %d pmem fd 0x%x",bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    pvirt = (unsigned char *)mmap(NULL,bufSize,PROT_READ|PROT_WRITE,
-                  MAP_SHARED,pPMEMInfo[bufCnt].pmem_fd,0);
-    DEBUG_PRINT(" Virtual Address %p Size %d pmem_fd=0x%x",pvirt,bufSize,pPMEMInfo[bufCnt].pmem_fd);
-    if (pvirt == MAP_FAILED) {
-      DEBUG_PRINT_ERROR(" mmap failed for buffers");
-      return OMX_ErrorInsufficientResources;
-    }
-    use_buf_virt_addr[bufCnt] = pvirt;
-    error = OMX_UseBuffer(dec_handle, &((*pBufHdrs)[bufCnt]),
-                        nPortIndex, &pPlatformList[bufCnt], bufSize, pvirt);
-  }
-#endif
-  return error;
-}
 static void do_freeHandle_and_clean_up(bool isDueToError)
 {
   int bufCnt = 0;
@@ -3143,12 +1594,6 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
     OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StateLoaded, 0);
     for(bufCnt=0; bufCnt < input_buf_cnt; ++bufCnt)
     {
-      if (pInputBufHdrs[bufCnt]->pBuffer && input_use_buffer)
-      {
-        free(pInputBufHdrs[bufCnt]->pBuffer);
-        pInputBufHdrs[bufCnt]->pBuffer = NULL;
-        DEBUG_PRINT_ERROR("Free(pInputBufHdrs[%d]->pBuffer)",bufCnt);
-      }
       OMX_FreeBuffer(dec_handle, 0, pInputBufHdrs[bufCnt]);
     }
     if (pInputBufHdrs)
@@ -3157,55 +1602,7 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
       pInputBufHdrs = NULL;
     }
     for(bufCnt = 0; bufCnt < portFmt.nBufferCountActual; ++bufCnt) {
-      if (output_use_buffer && p_eglHeaders) {
-        if(p_eglHeaders[bufCnt]) {
-          munmap (pOutYUVBufHdrs[bufCnt]->pBuffer,
-                  pOutYUVBufHdrs[bufCnt]->nAllocLen);
-          close(p_eglHeaders[bufCnt]->pmem_fd);
-          p_eglHeaders[bufCnt]->pmem_fd = -1;
-          free(p_eglHeaders[bufCnt]);
-          p_eglHeaders[bufCnt] = NULL;
-        }
-      }
-      if (use_external_pmem_buf)
-      {
-        DEBUG_PRINT("Freeing in external pmem case: buffer=0x%x, pmem_fd=0x%d",
-                              pOutYUVBufHdrs[bufCnt]->pBuffer,
-                              pPMEMInfo[bufCnt].pmem_fd);
-        if (pOutYUVBufHdrs[bufCnt]->pBuffer)
-        {
-          munmap (pOutYUVBufHdrs[bufCnt]->pBuffer,
-                    pOutYUVBufHdrs[bufCnt]->nAllocLen);
-        }
-        if (&pPMEMInfo[bufCnt])
-        {
-          close(pPMEMInfo[bufCnt].pmem_fd);
-          pPMEMInfo[bufCnt].pmem_fd = -1;
-        }
-      }
       OMX_FreeBuffer(dec_handle, 1, pOutYUVBufHdrs[bufCnt]);
-    }
-    if(p_eglHeaders) {
-      free(p_eglHeaders);
-      p_eglHeaders = NULL;
-    }
-    if (pPMEMInfo)
-    {
-      DEBUG_PRINT("Freeing in external pmem case:PMEM");
-      free(pPMEMInfo);
-      pPMEMInfo = NULL;
-    }
-    if (pPlatformEntry)
-    {
-      DEBUG_PRINT("Freeing in external pmem case:ENTRY");
-      free(pPlatformEntry);
-      pPlatformEntry = NULL;
-    }
-    if (pPlatformList)
-    {
-      DEBUG_PRINT("Freeing in external pmem case:LIST");
-      free(pPlatformList);
-      pPlatformList = NULL;
     }
     wait_for_event();
   }
@@ -3235,18 +1632,14 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
     fclose(outputBufferFile);
     outputBufferFile = NULL;
   }
-  if (crcFile) {
-    fclose(crcFile);
-    crcFile = NULL;
-  }
   DEBUG_PRINT("[OMX Vdec Test] - after free outputfile");
 
-  if(etb_queue)
+  if(ebd_queue)
   {
-    free_queue(etb_queue);
-    etb_queue = NULL;
+    free_queue(ebd_queue);
+    ebd_queue = NULL;
   }
-  DEBUG_PRINT("[OMX Vdec Test] - after free etb_queue ");
+  DEBUG_PRINT("[OMX Vdec Test] - after free ebd_queue ");
   if(fbd_queue)
   {
     free_queue(fbd_queue);
@@ -3259,52 +1652,6 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
   else
     printf("**********...TEST SUCCESSFULL...*********\n");
   printf("*****************************************\n");
-}
-
-static int Read_Buffer_From_DAT_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  long frameSize=0;
-  char temp_buffer[10];
-  char temp_byte;
-  int bytes_read=0;
-  int i=0;
-  unsigned char *read_buffer=NULL;
-  char c = '1'; //initialize to anything except '\0'(0)
-  char inputFrameSize[12];
-  int count =0; char cnt =0;
-  memset(temp_buffer, 0, sizeof(temp_buffer));
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  while (cnt < 10)
-  /* Check the input file format, may result in infinite loop */
-  {
-    DEBUG_PRINT("loop[%d] count[%d]",cnt,count);
-    count = read( inputBufferFileFd, &inputFrameSize[cnt], 1);
-    if(inputFrameSize[cnt] == '\0' )
-      break;
-      cnt++;
-  }
-  inputFrameSize[cnt]='\0';
-  frameSize = atoi(inputFrameSize);
-  pBufHdr->nFilledLen = 0;
-
-  /* get the frame length */
-  lseek64(inputBufferFileFd, -1, SEEK_CUR);
-  bytes_read = read(inputBufferFileFd, pBufHdr->pBuffer, frameSize);
-
-  DEBUG_PRINT("Actual frame Size [%d] bytes_read using fread[%d]",
-                  frameSize, bytes_read);
-
-  if(bytes_read == 0 || bytes_read < frameSize ) {
-    DEBUG_PRINT("Bytes read Zero After Read frame Size ");
-    DEBUG_PRINT("Checking VideoPlayback Count:video_playback_count is:%d",
-                       video_playback_count);
-    return 0;
-  }
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-  return bytes_read;
 }
 
 static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
@@ -3379,17 +1726,8 @@ static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
       }
     }
   } while (1);
-
-#ifdef TEST_TS_FROM_SEI
-  if (timeStampLfile == 0)
-    pBufHdr->nTimeStamp = 0;
-  else
-    pBufHdr->nTimeStamp = LLONG_MAX;
-#else
   pBufHdr->nTimeStamp = timeStampLfile;
-#endif
   timeStampLfile += timestampInterval;
-
   return cnt;
 }
 static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
@@ -3474,180 +1812,10 @@ static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
       }
     }
   } while (1);
-
-#ifdef TEST_TS_FROM_SEI
-  if (timeStampLfile == 0)
-    pBufHdr->nTimeStamp = 0;
-  else
-    pBufHdr->nTimeStamp = LLONG_MAX;
-#else
   pBufHdr->nTimeStamp = timeStampLfile;
-#endif
   timeStampLfile += timestampInterval;
-
   return cnt;
 }
-
-static int Read_Buffer_ArbitraryBytes(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  int bytes_read=0;
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  bytes_read = read(inputBufferFileFd, pBufHdr->pBuffer, NUMBER_OF_ARBITRARYBYTES_READ);
-  if(bytes_read == 0) {
-    DEBUG_PRINT("Bytes read Zero After Read frame Size ");
-    DEBUG_PRINT("Checking VideoPlayback Count:video_playback_count is:%d",
-                  video_playback_count);
-    return 0;
-  }
-#ifdef TEST_TS_FROM_SEI
-  if (timeStampLfile == 0)
-    pBufHdr->nTimeStamp = 0;
-  else
-    pBufHdr->nTimeStamp = LLONG_MAX;
-#else
-  pBufHdr->nTimeStamp = timeStampLfile;
-#endif
-  timeStampLfile += timestampInterval;
-  return bytes_read;
-}
-
-static int Read_Buffer_From_Vop_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0;
-  int bytes_read = 0;
-  unsigned int code = 0;
-  pBufHdr->nFilledLen = 0;
-  static unsigned int header_code = 0;
-
-  DEBUG_PRINT("Inside %s", __FUNCTION__);
-
-  do
-  {
-    //Start codes are always byte aligned.
-    bytes_read = read(inputBufferFileFd, &pBufHdr->pBuffer[readOffset], 1);
-    if(bytes_read == 0 || bytes_read == -1)
-    {
-      DEBUG_PRINT("Bytes read Zero ");
-      break;
-    }
-    code <<= 8;
-    code |= (0x000000FF & pBufHdr->pBuffer[readOffset]);
-    //VOP start code comparision
-    if (readOffset>3)
-    {
-      if(!header_code ){
-        if( VOP_START_CODE == code)
-        {
-          header_code = VOP_START_CODE;
-        }
-        else if ( (0xFFFFFC00 & code) == SHORT_HEADER_START_CODE )
-        {
-          header_code = SHORT_HEADER_START_CODE;
-        }
-      }
-      if ((header_code == VOP_START_CODE) && (code == VOP_START_CODE))
-      {
-        //Seek backwards by 4
-        lseek64(inputBufferFileFd, -4, SEEK_CUR);
-        readOffset-=3;
-        break;
-      }
-      else if (( header_code == SHORT_HEADER_START_CODE ) && ( SHORT_HEADER_START_CODE == (code & 0xFFFFFC00)))
-      {
-        //Seek backwards by 4
-        lseek64(inputBufferFileFd, -4, SEEK_CUR);
-        readOffset-=3;
-        break;
-      }
-    }
-    readOffset++;
-  }while (1);
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-  return readOffset;
-}
-static int Read_Buffer_From_Mpeg2_Start_Code(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0;
-  int bytesRead = 0;
-  unsigned int code = 0;
-  pBufHdr->nFilledLen = 0;
-  static unsigned int firstParse = true;
-  unsigned int seenFrame = false;
-
-  DEBUG_PRINT("Inside %s", __FUNCTION__);
-
-  /* Read one byte at a time. Construct the code every byte in order to
-   * compare to the start codes. Keep looping until we've read in a complete
-   * frame, which can be either just a picture start code + picture, or can
-   * include the sequence header as well
-   */
-  while (1) {
-    bytesRead = read(inputBufferFileFd, &pBufHdr->pBuffer[readOffset], 1);
-
-    /* Exit the loop if we can't read any more bytes */
-    if (bytesRead == 0 || bytesRead == -1) {
-      break;
-    }
-
-    /* Construct the code one byte at a time */
-    code <<= 8;
-    code |= (0x000000FF & pBufHdr->pBuffer[readOffset]);
-
-    /* Can't compare the code to MPEG2 start codes until we've read the
-     * first four bytes
-     */
-    if (readOffset >= 3) {
-
-      /* If this is the first time we're reading from the file, then we
-       * need to throw away the system start code information at the
-       * beginning. We can just look for the first sequence header.
-       */
-      if (firstParse) {
-        if (code == MPEG2_SEQ_START_CODE) {
-          /* Seek back by 4 bytes and reset code so that we can skip
-           * down to the common case below.
-           */
-          lseek(inputBufferFileFd, -4, SEEK_CUR);
-          code = 0;
-          readOffset -= 3;
-          firstParse = false;
-          continue;
-        }
-      }
-
-      /* If we have already parsed a frame and we see a sequence header, then
-       * the sequence header is part of the next frame so we seek back and
-       * break.
-       */
-      if (code == MPEG2_SEQ_START_CODE) {
-        if (seenFrame) {
-          lseek(inputBufferFileFd, -4, SEEK_CUR);
-          readOffset -= 3;
-          break;
-        }
-        /* If we haven't seen a frame yet, then read in all the data until we
-         * either see another frame start code or sequence header start code.
-         */
-      } else if (code == MPEG2_FRAME_START_CODE) {
-        if (!seenFrame) {
-          seenFrame = true;
-        } else {
-          lseek(inputBufferFileFd, -4, SEEK_CUR);
-          readOffset -= 3;
-          break;
-        }
-      }
-    }
-
-    readOffset++;
-  }
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-  return readOffset;
-}
-
 
 static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr)
 {
@@ -3691,480 +1859,6 @@ static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr)
   return bytes_read + nalSize;
 }
 
-static int Read_Buffer_From_RCV_File_Seq_Layer(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0, size_struct_C = 0;
-  unsigned int startcode = 0;
-  pBufHdr->nFilledLen = 0;
-  pBufHdr->nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  if (read(inputBufferFileFd, &startcode, 4) <= 0)
-    DEBUG_PRINT_ERROR("Error while reading");
-
-  /* read size of struct C as it need not be 4 always*/
-  if (read(inputBufferFileFd, &size_struct_C, 4) <= 0)
-    DEBUG_PRINT_ERROR("Error while reading");
-
-  if ((startcode & 0xFF000000) == 0xC5000000)
-  {
-
-    DEBUG_PRINT("Read_Buffer_From_RCV_File_Seq_Layer size_struct_C: %d", size_struct_C);
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, size_struct_C);
-    lseek64(inputBufferFileFd, 24, SEEK_CUR);
-  }
-  else if((startcode & 0xFF000000) == 0x85000000)
-  {
-    // .RCV V1 file
-
-    rcv_v1 = 1;
-
-    DEBUG_PRINT("Read_Buffer_From_RCV_File_Seq_Layer size_struct_C: %d", size_struct_C);
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer, size_struct_C);
-    lseek64(inputBufferFileFd, 8, SEEK_CUR);
-
-  }
-  else
-  {
-    DEBUG_PRINT_ERROR("Error: Unknown VC1 clip format %x", startcode);
-  }
-
-#if 0
-    {
-      int i=0;
-      DEBUG_PRINT("Read_Buffer_From_RCV_File, length %d readOffset %d", readOffset, readOffset);
-      for (i=0; i<36; i++)
-      {
-        DEBUG_PRINT("0x%.2x ", pBufHdr->pBuffer[i]);
-        if (i%16 == 15) {
-          printf("\n");
-        }
-      }
-      printf("\n");
-    }
-#endif
-  return readOffset;
-}
-
-static int Read_Buffer_From_RCV_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  unsigned int readOffset = 0;
-  unsigned int len = 0;
-  unsigned int key = 0;
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  DEBUG_PRINT("Read_Buffer_From_RCV_File - nOffset %d", pBufHdr->nOffset);
-  if(rcv_v1)
-  {
-    /* for the case of RCV V1 format, the frame header is only of 4 bytes and has
-       only the frame size information */
-    readOffset = read(inputBufferFileFd, &len, 4);
-    DEBUG_PRINT("Read_Buffer_From_RCV_File - framesize %d %x", len, len);
-
-  }
-  else
-  {
-    /* for a regular RCV file, 3 bytes comprise the frame size and 1 byte for key*/
-    readOffset = read(inputBufferFileFd, &len, 3);
-    DEBUG_PRINT("Read_Buffer_From_RCV_File - framesize %d %x", len, len);
-
-    readOffset = read(inputBufferFileFd, &key, 1);
-    if ( (key & 0x80) == false)
-    {
-      DEBUG_PRINT("Read_Buffer_From_RCV_File - Non IDR frame key %x", key);
-    }
-
-  }
-
-  if(!rcv_v1)
-  {
-    /* There is timestamp field only for regular RCV format and not for RCV V1 format*/
-    readOffset = read(inputBufferFileFd, &pBufHdr->nTimeStamp, 4);
-    DEBUG_PRINT("Read_Buffer_From_RCV_File - timeStamp %d", pBufHdr->nTimeStamp);
-    pBufHdr->nTimeStamp *= 1000;
-  }
-  else
-  {
-    pBufHdr->nTimeStamp = timeStampLfile;
-    timeStampLfile += timestampInterval;
-  }
-
-  if(len > pBufHdr->nAllocLen)
-  {
-    DEBUG_PRINT_ERROR("Error in sufficient buffer framesize %d, allocalen %d noffset %d",len,pBufHdr->nAllocLen, pBufHdr->nOffset);
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer+pBufHdr->nOffset,
-                     pBufHdr->nAllocLen - pBufHdr->nOffset);
-
-    loff_t off = (len - readOffset)*1LL;
-    lseek64(inputBufferFileFd, off ,SEEK_CUR);
-    return readOffset;
-  }
-  else {
-    readOffset = read(inputBufferFileFd, pBufHdr->pBuffer+pBufHdr->nOffset, len);
-  }
-  if (readOffset != len)
-  {
-    DEBUG_PRINT("EOS reach or Reading error %d, %s ", readOffset, strerror( errno ));
-    return 0;
-  }
-
-#if 0
-    {
-      int i=0;
-      DEBUG_PRINT("Read_Buffer_From_RCV_File, length %d readOffset %d", len, readOffset);
-      for (i=0; i<64; i++)
-      {
-        DEBUG_PRINT("0x%.2x ", pBufHdr->pBuffer[i]);
-        if (i%16 == 15) {
-          printf("\n");
-        }
-      }
-      printf("\n");
-    }
-#endif
-
-  return readOffset;
-}
-
-static int Read_Buffer_From_VC1_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  static int timeStampLfile = 0;
-  OMX_U8 *pBuffer = pBufHdr->pBuffer + pBufHdr->nOffset;
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-  unsigned int readOffset = 0;
-  int bytes_read = 0;
-  unsigned int code = 0, total_bytes = 0;
-  int startCode_cnt = 0;
-  int bSEQflag = 0;
-  int bEntryflag = 0;
-  unsigned int SEQbytes = 0;
-  int numStartcodes = 0;
-
-  numStartcodes = bHdrflag?1:2;
-
-  do
-  {
-    if (total_bytes == pBufHdr->nAllocLen)
-    {
-      DEBUG_PRINT_ERROR("Buffer overflow!");
-      break;
-    }
-    //Start codes are always byte aligned.
-    bytes_read = read(inputBufferFileFd, &pBuffer[readOffset],1 );
-
-    if(!bytes_read)
-    {
-      DEBUG_PRINT(" Bytes read Zero ");
-      break;
-    }
-    total_bytes++;
-    code <<= 8;
-    code |= (0x000000FF & pBufHdr->pBuffer[readOffset]);
-
-    if(!bSEQflag && (code == VC1_SEQUENCE_START_CODE)) {
-      if(startCode_cnt) bSEQflag = 1;
-    }
-
-    if(!bEntryflag && ( code == VC1_ENTRY_POINT_START_CODE)) {
-      if(startCode_cnt) bEntryflag = 1;
-    }
-
-    if(code == VC1_FRAME_START_CODE || code == VC1_FRAME_FIELD_CODE)
-    {
-      startCode_cnt++ ;
-    }
-
-    //VOP start code comparision
-    if(startCode_cnt == numStartcodes)
-    {
-      if (VC1_FRAME_START_CODE == (code & 0xFFFFFFFF) ||
-        VC1_FRAME_FIELD_CODE == (code & 0xFFFFFFFF))
-      {
-        previous_vc1_au = 0;
-        if(VC1_FRAME_FIELD_CODE == (code & 0xFFFFFFFF))
-        {
-          previous_vc1_au = 1;
-        }
-
-        if(!bHdrflag && (bSEQflag || bEntryflag)) {
-          lseek(inputBufferFileFd,-(SEQbytes+4),SEEK_CUR);
-          readOffset -= (SEQbytes+3);
-        }
-        else {
-          //Seek backwards by 4
-          lseek64(inputBufferFileFd, -4, SEEK_CUR);
-          readOffset-=3;
-        }
-
-        while(pBufHdr->pBuffer[readOffset-1] == 0)
-         readOffset--;
-
-        break;
-      }
-    }
-    readOffset++;
-    if(bSEQflag || bEntryflag) {
-      SEQbytes++;
-    }
-  }while (1);
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-
-#if 0
-    {
-      int i=0;
-      DEBUG_PRINT("Read_Buffer_From_VC1_File, readOffset %d", readOffset);
-      for (i=0; i<64; i++)
-      {
-        DEBUG_PRINT("0x%.2x ", pBufHdr->pBuffer[i]);
-        if (i%16 == 15) {
-          printf("\n");
-        }
-      }
-      printf("\n");
-    }
-#endif
-
-  return readOffset;
-}
-
-static int Read_Buffer_From_DivX_4_5_6_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-#define MAX_NO_B_FRMS 3 // Number of non-b-frames packed in each buffer
-#define N_PREV_FRMS_B 1 // Number of previous non-b-frames packed
-                        // with a set of consecutive b-frames
-#define FRM_ARRAY_SIZE (MAX_NO_B_FRMS + N_PREV_FRMS_B)
-  char *p_buffer = NULL;
-  unsigned int offset_array[FRM_ARRAY_SIZE];
-  int byte_cntr, pckt_end_idx;
-  unsigned int read_code = 0, bytes_read, byte_pos = 0, frame_type;
-  unsigned int i, b_frm_idx, b_frames_found = 0, vop_set_cntr = 0;
-  bool pckt_ready = false;
-#ifdef __DEBUG_DIVX__
-  char pckt_type[20];
-  int pckd_frms = 0;
-  static unsigned long long int total_bytes = 0;
-  static unsigned long long int total_frames = 0;
-#endif //__DEBUG_DIVX__
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  do {
-    p_buffer = (char *)pBufHdr->pBuffer + byte_pos;
-
-    bytes_read = read(inputBufferFileFd, p_buffer, NUMBER_OF_ARBITRARYBYTES_READ);
-    byte_pos += bytes_read;
-    for (byte_cntr = 0; byte_cntr < bytes_read && !pckt_ready; byte_cntr++) {
-      read_code <<= 8;
-      ((char*)&read_code)[0] = p_buffer[byte_cntr];
-      if (read_code == VOP_START_CODE) {
-        if (++byte_cntr < bytes_read) {
-          frame_type = p_buffer[byte_cntr];
-          frame_type &= 0x000000C0;
-#ifdef __DEBUG_DIVX__
-          switch (frame_type) {
-            case 0x00: pckt_type[pckd_frms] = 'I'; break;
-            case 0x40: pckt_type[pckd_frms] = 'P'; break;
-            case 0x80: pckt_type[pckd_frms] = 'B'; break;
-            default: pckt_type[pckd_frms] = 'X';
-          }
-          pckd_frms++;
-#endif // __DEBUG_DIVX__
-          offset_array[vop_set_cntr] = byte_pos - bytes_read + byte_cntr - 4;
-          if (frame_type == 0x80) { // B Frame found!
-            if (!b_frames_found) {
-              // Try to packet N_PREV_FRMS_B previous frames
-              // with the next consecutive B frames
-              i = N_PREV_FRMS_B;
-              while ((vop_set_cntr - i) < 0 && i > 0) i--;
-              b_frm_idx = vop_set_cntr - i;
-              if (b_frm_idx > 0) {
-                pckt_end_idx = b_frm_idx;
-                pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-                pckt_type[b_frm_idx] = '\0';
-                total_frames += b_frm_idx;
-#endif //__DEBUG_DIVX__
-              }
-            }
-            b_frames_found++;
-          } else if (b_frames_found) {
-            pckt_end_idx = vop_set_cntr;
-            pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-            pckt_type[pckd_frms - 1] = '\0';
-            total_frames += pckd_frms - 1;
-#endif //__DEBUG_DIVX__
-          } else if (vop_set_cntr == (FRM_ARRAY_SIZE -1)) {
-            pckt_end_idx = MAX_NO_B_FRMS;
-            pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-            pckt_type[pckt_end_idx] = '\0';
-            total_frames += pckt_end_idx;
-#endif //__DEBUG_DIVX__
-          } else
-            vop_set_cntr++;
-        } else {
-          // The vop start code was found in the last 4 bytes,
-          // seek backwards by 4 to include this start code
-          // with the next buffer.
-          lseek64(inputBufferFileFd, -4, SEEK_CUR);
-          byte_pos -= 4;
-#ifdef __DEBUG_DIVX__
-          pckd_frms--;
-#endif //__DEBUG_DIVX__
-        }
-      }
-    }
-    if (pckt_ready) {
-      loff_t off = (byte_pos - offset_array[pckt_end_idx]);
-      if ( lseek64(inputBufferFileFd, -1LL*off , SEEK_CUR) == -1 ){
-        DEBUG_PRINT_ERROR("lseek64 with offset = %lld failed with errno %d"
-                       ", current position =0x%llx", -1LL*off,
-                       errno, lseek64(inputBufferFileFd, 0, SEEK_CUR));
-      }
-    }
-    else {
-      char eofByte;
-      int ret = read(inputBufferFileFd, &eofByte, 1 );
-      if ( ret == 0 ) {
-        offset_array[vop_set_cntr] = byte_pos;
-        pckt_end_idx = vop_set_cntr;
-        pckt_ready = true;
-#ifdef __DEBUG_DIVX__
-        pckt_type[pckd_frms] = '\0';
-        total_frames += pckd_frms;
-#endif //__DEBUG_DIVX__
-      }
-      else if (ret == 1){
-        if ( lseek64(inputBufferFileFd, -1, SEEK_CUR ) == -1 ){
-          DEBUG_PRINT_ERROR("lseek64 failed with errno = %d, "
-                           "current fileposition = %llx",
-                            errno,
-                            lseek64(inputBufferFileFd, 0, SEEK_CUR));
-        }
-      }
-      else {
-        DEBUG_PRINT_ERROR("Error when checking for EOF");
-      }
-    }
-  } while (!pckt_ready);
-  pBufHdr->nFilledLen = offset_array[pckt_end_idx];
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
-#ifdef __DEBUG_DIVX__
-  total_bytes += pBufHdr->nFilledLen;
-  ALOGE("[DivX] Packet: Type[%s] Size[%u] TS[%lld] TB[%llx] NFrms[%lld]",
-    pckt_type, pBufHdr->nFilledLen, pBufHdr->nTimeStamp,
-    total_bytes, total_frames);
-#endif //__DEBUG_DIVX__
-  return pBufHdr->nFilledLen;
-}
-
-static int Read_Buffer_From_DivX_311_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  static OMX_S64 timeStampLfile = 0;
-  char *p_buffer = NULL;
-  bool pkt_ready = false;
-  unsigned int frame_type = 0;
-  unsigned int bytes_read = 0;
-  unsigned int frame_size = 0;
-  unsigned int num_bytes_size = 4;
-  unsigned int num_bytes_frame_type = 1;
-  unsigned int n_offset = 0;
-
-  if (pBufHdr != NULL)
-  {
-    p_buffer = (char *)pBufHdr->pBuffer + pBufHdr->nOffset;
-  }
-  else
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: pBufHdr is NULL");
-    return 0;
-  }
-
-  n_offset = pBufHdr->nOffset;
-
-  DEBUG_PRINT("Inside %s ", __FUNCTION__);
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-
-  if (p_buffer == NULL)
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: p_bufhdr is NULL");
-    return 0;
-  }
-
-  //Read first frame based on size
-  //DivX 311 frame - 4 byte header with size followed by the frame
-
-  bytes_read = read(inputBufferFileFd, &frame_size, num_bytes_size);
-
-  DEBUG_PRINT("Read_Buffer_From_DivX_311_File: Frame size = %d", frame_size);
-  n_offset += read(inputBufferFileFd, p_buffer, frame_size);
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-
-  timeStampLfile += timestampInterval;
-
-  //the packet is ready to be sent
-  DEBUG_PRINT("Returning Read Buffer from Divx 311: TS=[%ld], Offset=[%d]",
-       (long int)pBufHdr->nTimeStamp,
-       n_offset );
-
-  return n_offset;
-}
-static int Read_Buffer_From_VP8_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
-{
-  static OMX_S64 timeStampLfile = 0;
-  char *p_buffer = NULL;
-  bool pkt_ready = false;
-  unsigned int frame_type = 0;
-  unsigned int bytes_read = 0;
-  unsigned int frame_size = 0;
-  unsigned int num_bytes_size = 4;
-  unsigned int num_bytes_frame_type = 1;
-  unsigned long long time_stamp;
-  unsigned int n_offset = 0;
-  static int ivf_header_read;
-
-  if (pBufHdr != NULL)
-  {
-    p_buffer = (char *)pBufHdr->pBuffer + pBufHdr->nOffset;
-  }
-  else
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: pBufHdr is NULL");
-    return 0;
-  }
-  n_offset = pBufHdr->nOffset;
-
-  if (p_buffer == NULL)
-  {
-    DEBUG_PRINT(" ERROR:Read_Buffer_From_DivX_311_File: p_bufhdr is NULL");
-    return 0;
-  }
-
-  if(ivf_header_read == 0) {
-    bytes_read = read(inputBufferFileFd, p_buffer, 32);
-    ivf_header_read = 1;
-    if(p_buffer[0] == 'D' && p_buffer[1] == 'K' && p_buffer[2] == 'I' && p_buffer[3] == 'F')
-    {
-      DEBUG_PRINT("  IVF header found  ");
-    } else
-    {
-      DEBUG_PRINT("  No IVF header found  ");
-      lseek(inputBufferFileFd, -32, SEEK_CUR);
-    }
-  }
-  bytes_read = read(inputBufferFileFd, &frame_size, 4);
-  bytes_read = read(inputBufferFileFd, &time_stamp, 8);
-  n_offset += read(inputBufferFileFd, p_buffer, frame_size);
-  pBufHdr->nTimeStamp = time_stamp;
-  return n_offset;
-}
 static int open_video_file ()
 {
   int error_code = 0;
@@ -4193,730 +1887,9 @@ static int open_video_file ()
       DEBUG_PRINT("O/p file %s is opened ", outputfilename);
     }
   }
-  /*if (!crcFile) {
-      crcFile = fopen(crclogname, "ab");
-      if (!crcFile) {
-        DEBUG_PRINT("Failed to open CRC file");
-        error_code = -1;
-      }
-    }*/
+
   return error_code;
 }
-
-void swap_byte(char *pByte, int nbyte)
-{
-  int i=0;
-
-  for (i=0; i<nbyte/2; i++)
-  {
-    pByte[i] ^= pByte[nbyte-i-1];
-    pByte[nbyte-i-1] ^= pByte[i];
-    pByte[i] ^= pByte[nbyte-i-1];
-  }
-}
-
-#ifdef FB_DISPLAY
-int drawBG(void)
-{
-  int result;
-  int i;
-#ifdef FRAMEBUFFER_32
-  long * p;
-#else
-  short * p;
-#endif
-  void *fb_buf = mmap (NULL, finfo.smem_len,PROT_READ|PROT_WRITE, MAP_SHARED, fb_fd, 0);
-
-  if (fb_buf == MAP_FAILED)
-  {
-    DEBUG_PRINT_ERROR("ERROR: Framebuffer MMAP failed!");
-    close(fb_fd);
-    return -1;
-  }
-
-  vinfo.yoffset = 0;
-  p = (long *)fb_buf;
-
-  for (i=0; i < vinfo.xres * vinfo.yres; i++)
-  {
-  #ifdef FRAMEBUFFER_32
-    *p++ = COLOR_BLACK_RGBA_8888;
-  #else
-    *p++ = CLR_KEY;
-  #endif
-  }
-
-  if (ioctl(fb_fd, FBIOPAN_DISPLAY, &vinfo) < 0)
-  {
-    DEBUG_PRINT_ERROR("ERROR: FBIOPAN_DISPLAY failed! line=%d", __LINE__);
-    return -1;
-  }
-
-  DEBUG_PRINT("drawBG success!");
-  return 0;
-}
-
-static int overlay_vsync_ctrl(int enable)
-{
-  int ret;
-  int vsync_en = enable;
-  ret = ioctl(fb_fd, MSMFB_OVERLAY_VSYNC_CTRL, &vsync_en);
-  if (ret)
-    DEBUG_PRINT(" MSMFB_OVERLAY_VSYNC_CTRL failed! (Line %d)",
-            __LINE__);
-  return ret;
-}
-
-
-
-void overlay_set()
-{
-  overlayp = &overlay;
-  overlayp->src.width  = stride;
-  overlayp->src.height = sliceheight;
-#ifdef MAX_RES_720P
-  overlayp->src.format = MDP_Y_CRCB_H2V2;
-  if(color_fmt == (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FormatYUV420PackedSemiPlanar64x32Tile2m8ka)
-  {
-    overlayp->src.format = MDP_Y_CRCB_H2V2_TILE;
-  }
-#endif
-#ifdef MAX_RES_1080P
-  overlayp->src.format = MDP_Y_CBCR_H2V2_TILE;
-#endif
-  overlayp->src.format = MDP_Y_CBCR_H2V2_VENUS;
-  overlayp->src_rect.x = 0;
-  overlayp->src_rect.y = 0;
-  overlayp->src_rect.w = width;
-  overlayp->src_rect.h = height;
-
-  if(width >= vinfo.xres)
-  {
-    overlayp->dst_rect.x = 0;
-    overlayp->dst_rect.w = vinfo.xres;
-  }
-  else
-  {
-    overlayp->dst_rect.x = (vinfo.xres - width)/2;
-    overlayp->dst_rect.w = width;
-  }
-
-  if(height >= vinfo.yres)
-  {
-    overlayp->dst_rect.h = (overlayp->dst_rect.w * height)/width;
-    overlayp->dst_rect.y = 0;
-    if (overlayp->dst_rect.h < vinfo.yres)
-      overlayp->dst_rect.y = (vinfo.yres - overlayp->dst_rect.h)/2;
-    else
-      overlayp->dst_rect.h = vinfo.yres;
-  }
-  else
-  {
-    overlayp->dst_rect.y = (vinfo.yres - height)/2;
-    overlayp->dst_rect.h = height;
-  }
-
-  //Decimation + MDP Downscale
-  overlayp->horz_deci = 0;
-  overlayp->vert_deci = 0;
-  int minHorDeci = 0;
-  if(overlayp->src_rect.w > 2048) {
-    //If the client sends us something > what a layer mixer supports
-    //then it means it doesn't want to use split-pipe but wants us to
-    //decimate. A minimum decimation of 2 will ensure that the width is
-    //always within layer mixer limits.
-    minHorDeci = 2;
-  }
-
-  float horDscale = ceilf((float)overlayp->src_rect.w /
-  (float)overlayp->dst_rect.w);
-  float verDscale = ceilf((float)overlayp->src_rect.h /
-  (float)overlayp->dst_rect.h);
-
-  //Next power of 2, if not already
-  horDscale = powf(2.0f, ceilf(log2f(horDscale)));
-  verDscale = powf(2.0f, ceilf(log2f(verDscale)));
-
-  //Since MDP can do 1/4 dscale and has better quality, split the task
-  //between decimator and MDP downscale
-  horDscale /= 4.0f;
-  verDscale /= 4.0f;
-
-  if(horDscale < minHorDeci)
-    horDscale = minHorDeci;
-  if((int)horDscale)
-    overlayp->horz_deci = (int)log2f(horDscale);
-
-  if((int)verDscale)
-    overlayp->vert_deci = (int)log2f(verDscale);
-
-  DEBUG_PRINT("overlayp->src.width = %u ", overlayp->src.width);
-  DEBUG_PRINT("overlayp->src.height = %u ", overlayp->src.height);
-  DEBUG_PRINT("overlayp->src_rect.x = %u ", overlayp->src_rect.x);
-  DEBUG_PRINT("overlayp->src_rect.y = %u ", overlayp->src_rect.y);
-  DEBUG_PRINT("overlayp->src_rect.w = %u ", overlayp->src_rect.w);
-  DEBUG_PRINT("overlayp->src_rect.h = %u ", overlayp->src_rect.h);
-  DEBUG_PRINT("overlayp->dst_rect.x = %u ", overlayp->dst_rect.x);
-  DEBUG_PRINT("overlayp->dst_rect.y = %u ", overlayp->dst_rect.y);
-  DEBUG_PRINT("overlayp->dst_rect.w = %u ", overlayp->dst_rect.w);
-  DEBUG_PRINT("overlayp->dst_rect.h = %u ", overlayp->dst_rect.h);
-  DEBUG_PRINT("overlayp->vert_deci = %u ", overlayp->vert_deci);
-  DEBUG_PRINT("overlayp->horz_deci = %u ", overlayp->horz_deci);
-
-  overlayp->z_order = 3;//"z_order=3" means, this is top overlay
-  overlayp->alpha = 0xff;
-  overlayp->transp_mask = 0xFFFFFFFF;
-  overlayp->flags = 0;
-  overlayp->is_fg = 1;
-
-  overlayp->id = MSMFB_NEW_REQUEST;
-
-  overlay_vsync_ctrl(OMX_TRUE);
-  drawBG();
-  vid_buf_front_id = ioctl(fb_fd, MSMFB_OVERLAY_SET, overlayp);
-  if (vid_buf_front_id < 0)
-  {
-    DEBUG_PRINT_ERROR("ERROR: MSMFB_OVERLAY_SET failed! line=%d", __LINE__);
-  }
-  vid_buf_front_id = overlayp->id;
-  DEBUG_PRINT(" vid_buf_front_id = %u", vid_buf_front_id);
-  displayYuv = 2;
-}
-
-int overlay_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
-{
-  OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
-  struct msmfb_overlay_data ov_front;
-  memset(&ov_front, 0, sizeof(struct msmfb_overlay_data));
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
-  MemoryHeapBase *vheap = NULL;
-#endif
-
-  DEBUG_PRINT("overlay_fb:");
-  ov_front.id = overlayp->id;
-  if (pBufHdr->pPlatformPrivate == NULL)
-  {
-    ALOGE("overlay_fb: pPlatformPrivate is null");
-    return -1;
-  }
-  pPMEMInfo  = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
-               ((OMX_QCOM_PLATFORM_PRIVATE_LIST *)
-               pBufHdr->pPlatformPrivate)->entryList->entry;
-  if (pPMEMInfo == NULL)
-  {
-
-    ALOGE("overlay_fb: pmem_info is null");
-    return -1;
-  }
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
-  vheap = (MemoryHeapBase*)pPMEMInfo->pmem_fd;
-#endif
-
-  ov_front.data.memory_id = pPMEMInfo->pmem_fd;
-
-  ov_front.data.offset = pPMEMInfo->offset;
-
-  DEBUG_PRINT(" ov_front.data.memory_id = %d", ov_front.data.memory_id);
-  DEBUG_PRINT(" ov_front.data.offset = %u", ov_front.data.offset);
-  if (ioctl(fb_fd, MSMFB_OVERLAY_PLAY, (void*)&ov_front))
-  {
-    DEBUG_PRINT_ERROR("ERROR! MSMFB_OVERLAY_PLAY failed at frame (Line %d)",
-        __LINE__);
-    return -1;
-  }
-  if (ioctl(fb_fd, FBIOPAN_DISPLAY, &vinfo) < 0)
-  {
-    DEBUG_PRINT_ERROR("ERROR: FBIOPAN_DISPLAY failed! line=%d", __LINE__);
-    return -1;
-  }
-
-  DEBUG_PRINT("MSMFB_OVERLAY_PLAY successfull");
-  return 0;
-}
-
-void overlay_unset()
-{
-  if (ioctl(fb_fd, MSMFB_OVERLAY_UNSET, &vid_buf_front_id))
-  {
-    DEBUG_PRINT_ERROR("ERROR! MSMFB_OVERLAY_UNSET failed! (Line %d)", __LINE__);
-  }
-}
-
-void render_fb(struct OMX_BUFFERHEADERTYPE *pBufHdr)
-{
-  size_t addr = 0;
-  OMX_OTHER_EXTRADATATYPE *pExtraData = 0;
-  OMX_QCOM_EXTRADATA_FRAMEINFO *pExtraFrameInfo = 0;
-  OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
-  unsigned int destx, desty,destW, destH;
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
-  MemoryHeapBase *vheap = NULL;
-#endif
-
-  size_t end = (size_t)(pBufHdr->pBuffer + pBufHdr->nAllocLen);
-
-  struct mdp_blit_req *e;
-  union {
-    char dummy[sizeof(struct mdp_blit_req_list) +
-           sizeof(struct mdp_blit_req) * 1];
-    struct mdp_blit_req_list list;
-  } img;
-
-  if (fb_fd < 0)
-  {
-    DEBUG_PRINT_ERROR("Warning: /dev/fb0 is not opened!");
-    return;
-  }
-
-  img.list.count = 1;
-  e = &img.list.req[0];
-
-  addr = (size_t)(pBufHdr->pBuffer + pBufHdr->nFilledLen);
-  // align to a 4 byte boundary
-  addr = (addr + 3) & (~3);
-
-  // read to the end of existing extra data sections
-  pExtraData = (OMX_OTHER_EXTRADATATYPE*)addr;
-
-  while (addr < end && (OMX_QCOM_EXTRADATATYPE) (pExtraData->eType) != OMX_ExtraDataFrameInfo)
-  {
-    addr += pExtraData->nSize;
-    pExtraData = (OMX_OTHER_EXTRADATATYPE*)addr;
-  }
-
-  if ((OMX_QCOM_EXTRADATATYPE) (pExtraData->eType) != OMX_ExtraDataFrameInfo)
-  {
-    DEBUG_PRINT_ERROR("pExtraData->eType %d pExtraData->nSize %d",pExtraData->eType,pExtraData->nSize);
-  }
-  pExtraFrameInfo = (OMX_QCOM_EXTRADATA_FRAMEINFO *)pExtraData->data;
-
-  pPMEMInfo  = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
-               ((OMX_QCOM_PLATFORM_PRIVATE_LIST *)
-               pBufHdr->pPlatformPrivate)->entryList->entry;
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
-  vheap = (MemoryHeapBase *)pPMEMInfo->pmem_fd;
-#endif
-
-
-  DEBUG_PRINT_ERROR("DecWidth %d DecHeight %d",portFmt.format.video.nStride,portFmt.format.video.nSliceHeight);
-  DEBUG_PRINT_ERROR("DispWidth %d DispHeight %d",portFmt.format.video.nFrameWidth,portFmt.format.video.nFrameHeight);
-
-
-
-  e->src.width = portFmt.format.video.nStride;
-  e->src.height = portFmt.format.video.nSliceHeight;
-  e->src.format = MDP_Y_CBCR_H2V2;
-  e->src.offset = pPMEMInfo->offset;
-#if defined(_ANDROID_) && !defined(USE_EGL_IMAGE_TEST_APP) && !defined(USE_EXTERN_PMEM_BUF)
-  e->src.memory_id = vheap->getHeapID();
-#else
-  e->src.memory_id = pPMEMInfo->pmem_fd;
-#endif
-
-  DEBUG_PRINT_ERROR("pmemOffset %d pmemID %d",e->src.offset,e->src.memory_id);
-
-  e->dst.width = vinfo.xres;
-  e->dst.height = vinfo.yres;
-  e->dst.format = MDP_RGB_565;
-  e->dst.offset = 0;
-  e->dst.memory_id = fb_fd;
-
-  e->transp_mask = 0xffffffff;
-  DEBUG_PRINT("Frame interlace type %d!", pExtraFrameInfo->interlaceType);
-  if(pExtraFrameInfo->interlaceType != OMX_QCOM_InterlaceFrameProgressive)
-  {
-    DEBUG_PRINT("Interlaced Frame!");
-    e->flags = MDP_DEINTERLACE;
-  }
-  else
-    e->flags = 0;
-  e->alpha = 0xff;
-
-  switch(displayWindow)
-  {
-    case 1: destx = 0;
-            desty = 0;
-            destW = vinfo.xres/2;
-            destH = vinfo.yres/2;
-            break;
-    case 2: destx = vinfo.xres/2;
-            desty = 0;
-            destW = vinfo.xres/2;
-            destH = vinfo.yres/2;
-            break;
-
-    case 3: destx = 0;
-            desty = vinfo.yres/2;
-            destW = vinfo.xres/2;
-            destH = vinfo.yres/2;
-            break;
-     case 4: destx = vinfo.xres/2;
-            desty = vinfo.yres/2;
-            destW = vinfo.xres/2;
-            destH = vinfo.yres/2;
-            break;
-     case 0:
-     default:
-            destx = 0;
-            desty = 0;
-            destW = vinfo.xres;
-            destH = vinfo.yres;
-  }
-
-
-  if(portFmt.format.video.nFrameWidth < destW)
-    destW = portFmt.format.video.nFrameWidth ;
-
-
-  if(portFmt.format.video.nFrameHeight < destH)
-    destH = portFmt.format.video.nFrameHeight;
-
-  e->dst_rect.x = destx;
-  e->dst_rect.y = desty;
-  e->dst_rect.w = destW;
-  e->dst_rect.h = destH;
-
-  //e->dst_rect.w = 800;
-  //e->dst_rect.h = 480;
-
-  e->src_rect.x = 0;
-  e->src_rect.y = 0;
-  e->src_rect.w = portFmt.format.video.nFrameWidth;
-  e->src_rect.h = portFmt.format.video.nFrameHeight;
-
-  //e->src_rect.w = portFmt.format.video.nStride;
-  //e->src_rect.h = portFmt.format.video.nSliceHeight;
-
-  if (ioctl(fb_fd, MSMFB_BLIT, &img)) {
-    DEBUG_PRINT_ERROR("MSMFB_BLIT ioctl failed!");
-    return;
-  }
-
-  if (ioctl(fb_fd, FBIOPAN_DISPLAY, &vinfo) < 0) {
-    DEBUG_PRINT_ERROR("FBIOPAN_DISPLAY failed! line=%d", __LINE__);
-    return;
-  }
-
-  DEBUG_PRINT("render_fb complete!");
-}
-#elif defined WL_DISPLAY
-static gpointer
-mm_vidc_display_thread_run (gpointer data)
-{
-  int ret =0;
-  struct display *display =(struct display *) data;
-  struct pollfd fds[] = {
-    { wl_display_get_fd(display->display), POLLIN },
-  };
-  while(1) {
-    while (wl_display_prepare_read_queue (display->display, display->queue) != 0)
-    {
-      wl_display_dispatch_queue_pending (display->display, display->queue);
-    }
-
-    wl_display_flush (display->display);
-
-    ret = poll(fds, 1, 1000);
-    if (ret > 0)
-    {
-      wl_display_read_events (display->display);
-      wl_display_dispatch_queue_pending (display->display, display->queue);
-    }
-    else
-    {
-      DEBUG_PRINT_ERROR("poll failed ret %d",ret);
-      wl_display_cancel_read (display->display);
-      break;
-    }
-  }
-  return NULL;
-}
-static void
-shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
-{
-  struct display *d = (struct display *)data;
-
-  d->formats |= (1 << format);
-}
-
-struct wl_shm_listener shm_listener = {
-  shm_format
-};
-
-static void
-xdg_shell_ping(void *data, struct xdg_shell *shell, uint32_t serial)
-{
-  xdg_shell_pong(shell, serial);
-}
-
-static const struct xdg_shell_listener xdg_shell_listener = {
-  xdg_shell_ping,
-};
-#define XDG_VERSION 5 /* The version of xdg-shell that we implement */
-static void
-registry_handle_global(void *data, struct wl_registry *registry,
-           uint32_t id, const char *interface, uint32_t version)
-{
-  struct display *d = (struct display *)data;
-  if (strcmp(interface, "wl_compositor") == 0) {
-    d->compositor =(struct wl_compositor *)
-        wl_registry_bind(registry,
-        id, &wl_compositor_interface, 1);
-  } else if (strcmp(interface, "xdg_shell") == 0) {
-    d->shell = (struct xdg_shell *)wl_registry_bind(registry,
-        id, &xdg_shell_interface, 1);
-    xdg_shell_use_unstable_version(d->shell, XDG_VERSION);
-
-    xdg_shell_add_listener(d->shell, &xdg_shell_listener, d);
-
-  } else if (strcmp(interface, "wl_shm") == 0) {
-    d->shm = (struct wl_shm *)wl_registry_bind(registry,
-      id, &wl_shm_interface, 1);
-    wl_shm_add_listener(d->shm, &shm_listener, d);
-  } else if (strcmp(interface, "ivi_application") == 0) {
-    d->ivi_application = (struct ivi_application *)
-       wl_registry_bind(registry, id,
-       &ivi_application_interface, 1);
-  }
-
-}
-
-static void
-registry_handle_global_remove(void *data, struct wl_registry *registry,
-          uint32_t name)
-{
-}
-
-static const struct wl_registry_listener registry_listener = {
- registry_handle_global,
- registry_handle_global_remove
-};
- static struct display *create_display(void)
-{
-  struct display *display;
-  GError *err = NULL;
-  display = (struct display *)g_malloc(sizeof *display);
-  if (display == NULL) {
-    DEBUG_PRINT_ERROR("display alloc error");
-    return NULL;
-  }
-  display->display = NULL;
-
-  /*wait for display being connected*/
-  while (display->display == NULL)
-  {
-    display->display = wl_display_connect(NULL);
-    if(display->display == NULL)
-    {
-      DEBUG_PRINT_ERROR("wl_display_connect is NULL reconnecting ....");
-      usleep(10000);
-    }
-  }
-
-  display->formats = 0;
-  display->queue = wl_display_create_queue(display->display);
-  display->registry = wl_display_get_registry(display->display);
-  wl_registry_add_listener(display->registry,
-      &registry_listener, display);
-  wl_display_roundtrip(display->display);
-  if (display->shm == NULL) {
-    DEBUG_PRINT_ERROR("display->shm not exist");
-    return NULL;
-  }
-
-  wl_display_roundtrip(display->display);
-
-  if (!(display->formats & (1 << WL_SHM_FORMAT_XRGB8888))) {
-    DEBUG_PRINT_ERROR("WL_SHM_FORMAT_XRGB8888 not support");
-    return NULL;
-  }
-  display->thread = g_thread_try_new ("mm-vidc-display", mm_vidc_display_thread_run,
-      display,&err);
-  if (err) {
-    DEBUG_PRINT_ERROR("g_thread_try_new mm-vidc-display error");
-    return NULL;
-  }
-  return display;
-}
-static void
-destroy_display(struct display *display)
-{
-  if (display->thread)
-    g_thread_join (display->thread);
-
-  if (buffer_table)
-     g_hash_table_remove_all(buffer_table);
-  if (buffer_table)
-    g_hash_table_destroy(buffer_table);
-  buffer_table = NULL;
-
-  if (display->shm)
-    wl_shm_destroy(display->shm);
-
-  if (display->shell)
-    xdg_shell_destroy(display->shell);
-
-  if (display->compositor)
-    wl_compositor_destroy(display->compositor);
-
-  if (display->registry)
-    wl_registry_destroy(display->registry);
-
-  if (display->queue)
-    wl_event_queue_destroy (display->queue);
-
-  if (display->display) {
-    wl_display_flush(display->display);
-    wl_display_disconnect(display->display);
-  }
-  g_free(display);
-}
-
-static void
-buffer_release(void *data, struct wl_buffer *buffer)
-{
-  struct listen_buffer *listen_buf =(listen_buffer *)data;
-  DEBUG_PRINT("buffer_release listen_buf = %p",listen_buf);
-  listen_buf->busy = 0;
-}
-
-static const struct wl_buffer_listener buffer_listener = {
-  buffer_release
-};
-static  struct wl_buffer *
-gst_wayland_sink_create_wl_buffer(int w,int h, int fd, int offset)
-{
-  EGLImageKHR eglimg;
-  struct wl_buffer *wlbuf;
-  EGLint attribs[] = {
-    EGL_WIDTH, 0,
-    EGL_HEIGHT, 0,
-    EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_NV12,
-    EGL_DMA_BUF_PLANE0_FD_EXT, 0,
-    EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
-    EGL_DMA_BUF_PLANE1_FD_EXT, 0,
-    EGL_DMA_BUF_PLANE1_OFFSET_EXT, 0,
-    EGL_NONE};
-
-  attribs[1]  = w;
-  attribs[3]  = h;
-  attribs[7]  = fd;
-  attribs[9] = offset;
-  attribs[11] = fd;
-  /* MSM8996: Updated the offset with correct width allignment */
-  attribs[13] = offset + ((w + 127) & ~127) * ((h + 31) & ~31);
-
-  eglimg = eglimage->eglCreateImage(eglimage->egldpy, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
-  if (eglimg == EGL_NO_IMAGE_KHR) {
-    DEBUG_PRINT_ERROR("failed to create EGLImage");
-    return NULL;
-  }
-  wlbuf = eglimage->eglCreateWaylandBufferFromImage(eglimage->egldpy, eglimg);
-  if(wlbuf)
-  {
-    struct listen_buffer *lstbuf =(struct listen_buffer *) g_malloc (sizeof *lstbuf);
-    lstbuf->wlbuf = wlbuf;
-    wl_proxy_set_queue((struct wl_proxy*)wlbuf, display->queue);
-    wl_buffer_add_listener (wlbuf, &buffer_listener, lstbuf);
-    eglimage->eglDestroyImage(eglimage->egldpy, eglimg);
-    return wlbuf;
-  }
-
-  return NULL;
-
-}
-
-static void
-destroy_wl_buffer(gpointer data)
-{
-  struct wl_buffer *wlbuf = (struct wl_buffer *)data;
-  struct listen_buffer *lstenbuf = (struct listen_buffer *)wl_buffer_get_user_data(wlbuf);
-  DEBUG_PRINT("destroy_listen_buffer = %p",lstenbuf);
-  g_free(lstenbuf);
-  wl_buffer_destroy(wlbuf);
-}
-static struct wl_buffer *
-gst_wayland_sink_get_wl_buffer(int w, int h, int fd, int offset)
-{
-  struct wl_buffer *wlbuf;
-  gint64 key;
-  if (!buffer_table) {
-    buffer_table = g_hash_table_new_full (g_int64_hash, g_int64_equal, g_free, destroy_wl_buffer);
-  }
-  /* put fd and offset into a int64 key*/
-  key = ((gint64)(fd & 0xFFFFFFFF) << 32) | (offset & 0xFFFFFFFF);
-
-  wlbuf = (struct wl_buffer*) g_hash_table_lookup(buffer_table, &key);
-  if ( !wlbuf) {
-    /* create a new wl_buffer */
-    gint64 *bufkey = (gint64 *)g_malloc(sizeof(*bufkey));
-    *bufkey = key;
-    wlbuf = gst_wayland_sink_create_wl_buffer(w, h, fd, offset);
-    if (wlbuf)
-      g_hash_table_insert(buffer_table, bufkey, wlbuf);
-  }
-  else {
-    listen_buffer *lstbuf = (struct listen_buffer *)wl_buffer_get_user_data(wlbuf);
-    if(lstbuf->busy ==TRUE)
-    {
-      DEBUG_PRINT_ERROR("listen_buf %p is busy",lstbuf);
-      return NULL;
-    }
-  }
-  return wlbuf;
-}
-static void
-frame_redraw_callback (void *data, struct wl_callback *callback, uint32_t time)
-{
-  DEBUG_PRINT("frame_redraw_callback");
-
-  wl_callback_destroy (callback);
-}
-
-static const struct wl_callback_listener frame_callback_listener = {
-  frame_redraw_callback
-};
-static int
-wl_buf_render(struct OMX_BUFFERHEADERTYPE *pBufHdr)
-{
-  struct wl_surface *surface = window->surface;;
-  struct wl_buffer  *wlbuf;
-
-  OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo = NULL;
-
-  pPMEMInfo  = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
-              ((OMX_QCOM_PLATFORM_PRIVATE_LIST *)
-                pBufHdr->pPlatformPrivate)->entryList->entry;
-  if (pPMEMInfo == NULL) {
-    DEBUG_PRINT_ERROR("pmem_info is null");
-    return -1;
-  }
-  DEBUG_PRINT("wl_buf_render pmem_fd =%d width height %d %d",pPMEMInfo->pmem_fd,width,height);
-
-  wlbuf = gst_wayland_sink_get_wl_buffer(width, height, pPMEMInfo->pmem_fd,pPMEMInfo->offset);
-  if (!wlbuf)
-  {
-    DEBUG_PRINT_ERROR("wlbuf is null");
-    goto done;
-  }
-  wl_surface_attach (surface, wlbuf, 0, 0);
-  wl_surface_damage (surface, 0, 0, width, height);
-
-  window->callback = wl_surface_frame (surface);
-  wl_proxy_set_queue((struct wl_proxy *) window->callback, display->queue);
-  wl_callback_add_listener (window->callback, &frame_callback_listener, window);
-
-  wl_surface_commit (surface);
-  {
-    listen_buffer *lstbuf = (struct listen_buffer *)wl_buffer_get_user_data(wlbuf);
-    lstbuf->busy  = TRUE;
-  }
-  wl_display_flush (display->display);
-
-done:
-  return 0;
-}
-#endif
 
 int disable_output_port()
 {
@@ -4928,28 +1901,6 @@ int disable_output_port()
   pthread_mutex_unlock(&enable_lock);
   // wait for Disable event to come back
   wait_for_event();
-  if(p_eglHeaders) {
-    free(p_eglHeaders);
-    p_eglHeaders = NULL;
-  }
-  if (pPMEMInfo)
-  {
-    DEBUG_PRINT("Freeing in external pmem case:PMEM");
-    free(pPMEMInfo);
-    pPMEMInfo = NULL;
-  }
-  if (pPlatformEntry)
-  {
-    DEBUG_PRINT("Freeing in external pmem case:ENTRY");
-    free(pPlatformEntry);
-    pPlatformEntry = NULL;
-  }
-  if (pPlatformList)
-  {
-    DEBUG_PRINT("Freeing in external pmem case:LIST");
-    free(pPlatformList);
-    pPlatformList = NULL;
-  }
   if (currentStatus == ERROR_STATE)
   {
     do_freeHandle_and_clean_up(true);
@@ -4966,7 +1917,7 @@ int enable_output_port()
   DEBUG_PRINT("ENABLING OP PORT");
   // Send Enable command
   OMX_SendCommand(dec_handle, OMX_CommandPortEnable, 1, 0);
-#ifndef USE_EGL_IMAGE_TEST_APP
+
   /* Allocate buffer on decoder's o/p port */
   portFmt.nPortIndex = 1;
 
@@ -4984,20 +1935,8 @@ int enable_output_port()
     }
   }
 
-  if (use_external_pmem_buf)
-  {
-    DEBUG_PRINT("Enable op port: calling use_buffer_mult_fd");
-    error =  use_output_buffer_multiple_fd(dec_handle,
-                                           &pOutYUVBufHdrs,
-                                           portFmt.nPortIndex,
-                                           portFmt.nBufferSize,
-                                           portFmt.nBufferCountActual);
-  }
-  else
-  {
-    error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
-                            portFmt.nBufferCountActual, portFmt.nBufferSize);
-  }
+  error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
+                          portFmt.nBufferCountActual, portFmt.nBufferSize);
   if (error != OMX_ErrorNone) {
     DEBUG_PRINT_ERROR("Error - OMX_AllocateBuffer Output buffer error");
     return -1;
@@ -5007,22 +1946,7 @@ int enable_output_port()
     DEBUG_PRINT("OMX_AllocateBuffer Output buffer success");
     free_op_buf_cnt = portFmt.nBufferCountActual;
   }
-#else
-  error =  use_output_buffer(dec_handle,
-                       &pOutYUVBufHdrs,
-                        portFmt.nPortIndex,
-                        portFmt.nBufferSize,
-                        portFmt.nBufferCountActual);
-  free_op_buf_cnt = portFmt.nBufferCountActual;
-  if (error != OMX_ErrorNone) {
-    DEBUG_PRINT_ERROR("ERROR - OMX_UseBuffer Input buffer failed");
-    return -1;
-  }
-  else {
-    DEBUG_PRINT("OMX_UseBuffer Input buffer success");
-  }
 
-#endif
   // wait for enable event to come back
   wait_for_event();
   if (currentStatus == ERROR_STATE)
@@ -5080,22 +2004,6 @@ int output_port_reconfig()
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
-#ifdef FB_DISPLAY
-  if (displayYuv == 2)
-  {
-    DEBUG_PRINT("Reconfiguration at middle of playback...");
-    close_display();
-    if (open_display() != 0)
-    {
-      DEBUG_PRINT_ERROR(" Error opening display! Video won't be displayed...");
-      displayYuv = 0;
-    }
-  }
-
-  if (displayYuv)
-    overlay_set();
-#endif
-
   if (enable_output_port() != 0)
     return -1;
   DEBUG_PRINT("PORT_SETTING_CHANGE DONE!");
@@ -5104,291 +2012,13 @@ int output_port_reconfig()
 
 void free_output_buffers()
 {
-  int index = 0;
+  DEBUG_PRINT(" pOutYUVBufHdrs %p", pOutYUVBufHdrs);
   OMX_BUFFERHEADERTYPE *pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   while (pBuffer) {
-    DEBUG_PRINT(" pOutYUVBufHdrs %p p_eglHeaders %p output_use_buffer %d",
-           pOutYUVBufHdrs,p_eglHeaders,output_use_buffer);
-    if(pOutYUVBufHdrs && p_eglHeaders && output_use_buffer)
-    {
-      index = pBuffer - pOutYUVBufHdrs[0];
-      DEBUG_PRINT(" Index of free buffer %d",index);
-      DEBUG_PRINT(" Address freed %p size freed %d",pBuffer->pBuffer,
-                  pBuffer->nAllocLen);
-      munmap((void *)use_buf_virt_addr[index],pBuffer->nAllocLen);
-      if(p_eglHeaders[index])
-      {
-        close(p_eglHeaders[index]->pmem_fd);
-        free(p_eglHeaders[index]);
-        p_eglHeaders[index] = NULL;
-      }
-    }
-
-    if (pOutYUVBufHdrs && use_external_pmem_buf)
-    {
-      index = pBuffer - pOutYUVBufHdrs[0];
-      DEBUG_PRINT(" Address freed %p size freed %d,virt=%p,pmem_fd=0x%x",
-                              pBuffer->pBuffer,
-                              pBuffer->nAllocLen,
-                              use_buf_virt_addr[index],
-                              pPMEMInfo[index].pmem_fd);
-      munmap((void *)use_buf_virt_addr[index],pBuffer->nAllocLen);
-      getFreePmem();
-      use_buf_virt_addr[index] = NULL;
-      if (&pPMEMInfo[index])
-      {
-        close(pPMEMInfo[index].pmem_fd);
-        pPMEMInfo[index].pmem_fd = -1;
-      }
-//#ifdef USE_OUTPUT_BUFFER
-#ifdef USE_ION
-      free_ion_memory(&outPort_ion[index]);
-#endif
-    }
-    DEBUG_PRINT(" Free output buffer");
+    DEBUG_PRINT(" Free output buffer %p", pBuffer);
     OMX_FreeBuffer(dec_handle, 1, pBuffer);
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   }
-//#ifdef USE_OUTPUT_BUFFER
-#ifdef USE_ION
-  if (outPort_ion) {
-    free(outPort_ion);
-    outPort_ion = NULL;
-  }
-#endif
-}
-
-#ifndef USE_ION
-static bool align_pmem_buffers(int pmem_fd, OMX_U32 buffer_size,
-                                  OMX_U32 alignment)
-{
-  struct pmem_allocation allocation;
-  allocation.size = buffer_size;
-  allocation.align = clip2(alignment);
-
-  if (allocation.align < 4096)
-  {
-    allocation.align = 4096;
-  }
-  if (ioctl(pmem_fd, PMEM_ALLOCATE_ALIGNED, &allocation) < 0)
-  {
-    DEBUG_PRINT_ERROR(" Aligment failed with pmem driver");
-    return false;
-  }
-  return true;
-}
-#endif
-#ifdef WL_DISPLAY
-#define IVI_SURFACE_ID 9000
-static void
-handle_surface_configure(void *data, struct xdg_surface *surface,
-      int32_t width, int32_t height,
-      struct wl_array *states, uint32_t serial)
-{
-  xdg_surface_ack_configure(surface, serial);
-}
-
-static void
-handle_surface_delete(void *data, struct xdg_surface *xdg_surface)
-{
-//  running = 0;
-}
-
-static const struct xdg_surface_listener xdg_surface_listener = {
-  handle_surface_configure,
-  handle_surface_delete,
-};
-
-static void
-handle_ivi_surface_configure(void *data, struct ivi_surface *ivi_surface,
-                             int32_t width, int32_t height)
-{
-}
-
-static const struct ivi_surface_listener ivi_surface_listener = {
-        handle_ivi_surface_configure,
-};
-static struct window *
-create_window(struct display *display, int width, int height)
-{
-  struct window *window;
-
-  window =(struct window *) calloc(1, sizeof *window);
-  if (!window)
-  return NULL;
-
-  window->callback = NULL;
-  window->display = display;
-  window->width = width;
-  window->height = height;
-  window->surface = wl_compositor_create_surface(display->compositor);
-
-  if (display->shell) {
-    window->xdg_surface =
-         xdg_shell_get_xdg_surface(display->shell,
-         window->surface);
-
-    g_assert(window->xdg_surface);
-
-    xdg_surface_add_listener(window->xdg_surface,
-         &xdg_surface_listener, window);
-
-    xdg_surface_set_title(window->xdg_surface, "mm-vidc-display");
-    xdg_surface_set_fullscreen(window->xdg_surface,NULL);
-    wl_display_roundtrip(display->display);
-
-  } else if (display->ivi_application) {
-    uint32_t id_ivisurf = IVI_SURFACE_ID + (uint32_t)getpid();
-    window->ivi_surface =
-    ivi_application_surface_create(display->ivi_application,
-        id_ivisurf, window->surface);
-
-    if (window->ivi_surface == NULL) {
-       DEBUG_PRINT_ERROR("Failed to create ivi_client_surface\n");
-       return NULL;
-    }
-
-    ivi_surface_add_listener(window->ivi_surface,
-    &ivi_surface_listener, window);
-  } else {
-     g_assert(0);
-  }
-
-  return window;
-}
-static void
-destroy_window(struct window *window)
-{
-  if (window)
-  {
-    if (window->xdg_surface)
-      xdg_surface_destroy(window->xdg_surface);
-    if (window->display->ivi_application) {
-      ivi_surface_destroy(window->ivi_surface);
-      ivi_application_destroy(window->display->ivi_application);
-    }
-    if (window->surface)
-      wl_surface_destroy(window->surface);
-    free(window);
-  }
-}
-static struct eglimage *
-create_egl (struct display *display)
-{
-  if (display->display) {
-    struct eglimage *eglimage;
-    int major = 0, minor = 0;
-    eglimage =(struct eglimage *) calloc(1, sizeof *eglimage);
-    if (!eglimage)
-    return NULL;
-
-    /* Setup EGL */
-    eglimage->egldpy = eglGetDisplay(display->display);
-    if (! eglInitialize(eglimage->egldpy, &major, &minor)) {
-      eglimage->egldpy = EGL_NO_DISPLAY;
-      DEBUG_PRINT_ERROR("Failed to initialise EGLDisplay");
-      return NULL;
-    }
-
-    eglimage->eglCreateImage =
-      (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
-    eglimage->eglDestroyImage =
-      (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
-    eglimage->eglCreateWaylandBufferFromImage =
-      (PFNEGLCREATEWAYLANDBUFFERFROMIMAGEWL)
-        eglGetProcAddress("eglCreateWaylandBufferFromImageWL");
-
-    if (eglimage->eglCreateImage == NULL || eglimage->eglDestroyImage == NULL) {
-      DEBUG_PRINT_ERROR( "Failed to get EGL_KHR_image_base");
-    }
-
-    if (eglimage->eglCreateWaylandBufferFromImage == NULL) {
-      DEBUG_PRINT_ERROR("Failed to get EGL_WL_create_wayland_buffer_from_image");
-    }
-    return eglimage;
-  }
-  return NULL;
-}
-static void destroy_egl (struct eglimage * eglimage)
-{
-  if (eglimage)
-  {
-    if (eglimage->egldpy)
-      eglTerminate(eglimage->egldpy);
-    free(eglimage);
-  }
-}
-#endif
-int open_display()
-{
-#ifdef FB_DISPLAY
-#ifdef _ANDROID_
-  DEBUG_PRINT(" Opening /dev/graphics/fb0");
-  fb_fd = open("/dev/graphics/fb0", O_RDWR);
-#else
-  DEBUG_PRINT(" Opening /dev/fb0");
-  fb_fd = open("/dev/fb0", O_RDWR);
-#endif
-  if (fb_fd < 0) {
-    DEBUG_PRINT_ERROR("[omx_vdec_test] - ERROR - can't open framebuffer!");
-    return -1;
-  }
-
-  DEBUG_PRINT(" fb_fd = %d", fb_fd);
-  if (ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo) < 0)
-  {
-    DEBUG_PRINT_ERROR("[omx_vdec_test] - ERROR - can't retrieve fscreenInfo!");
-    close(fb_fd);
-    return -1;
-  }
-  if (ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo) < 0)
-  {
-    DEBUG_PRINT_ERROR("[omx_vdec_test] - ERROR - can't retrieve vscreenInfo!");
-    close(fb_fd);
-    return -1;
-  }
-  DEBUG_PRINT("Display xres = %d, yres = %d ", vinfo.xres, vinfo.yres);
-  return 0;
-#elif defined WL_DISPLAY
- int major = 0, minor = 0;
-  int idx = -1;
-  display = create_display();
-  if (!display) {
-    DEBUG_PRINT_ERROR("create_display failed\n");
-    goto display_error;
-  }
-  eglimage = create_egl (display);
-  if (!eglimage) {
-    DEBUG_PRINT_ERROR("create_egl failed\n");
-    goto eglimage_error;
-  }
-  window = create_window(display, 480, 360);
-  if (!window) {
-    DEBUG_PRINT_ERROR("create_window failed\n");
-    goto window_error;
-  }
-  return 0;
-window_error:
-  destroy_egl(eglimage);
-eglimage_error:
-  destroy_display(display);
-display_error:
-  return -1;
-#endif
-}
-
-void close_display()
-{
-#ifdef FB_DISPLAY
-  overlay_unset();
-  overlay_vsync_ctrl(OMX_FALSE);
-  close(fb_fd);
-  fb_fd = -1;
-#elif defined WL_DISPLAY
-  destroy_window(window);
-  destroy_egl(eglimage);
-  destroy_display(display);
-#endif
 }
 
 void getFreePmem()

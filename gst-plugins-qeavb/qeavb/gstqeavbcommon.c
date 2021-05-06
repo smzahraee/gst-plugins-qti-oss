@@ -36,6 +36,8 @@ static int qeavb_read_line(char *buffer, int maxSize, FILE *fp)
   int i = 0;
   int readSize = 0;
   int not_done = 1;
+  if (maxSize <= 0)
+    return 0;
   while( i < maxSize && not_done){
     readSize = fread(&tmp, sizeof(char), 1, fp);
     if(readSize == 1){ //read successful and not eof
@@ -828,3 +830,13 @@ error:
   return err;
 }
 
+int kpi_place_marker(const char* str)
+{
+  int fd = open("/dev/mpm", O_WRONLY);
+  if(fd >= 0) {
+    int ret = write(fd, str, strlen(str));
+    close(fd);
+    return ret;
+  }
+  return -1;
+}
