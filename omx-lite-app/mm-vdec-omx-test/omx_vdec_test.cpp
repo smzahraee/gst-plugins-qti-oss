@@ -223,24 +223,13 @@ typedef enum {
   ERROR_STATE
 } test_status;
 
-typedef enum {
-  FREE_HANDLE_AT_LOADED = 1,
-  FREE_HANDLE_AT_IDLE,
-  FREE_HANDLE_AT_EXECUTING,
-  FREE_HANDLE_AT_PAUSE
-} freeHandle_test;
-
 static int (*Read_Buffer)(OMX_BUFFERHEADERTYPE  *pBufHdr );
 
 int inputBufferFileFd;
 
 FILE * outputBufferFile;
 int takeYuvLog = 0;
-int displayYuv = 0;
-int displayWindow = 0;
-int realtime_display = 0;
 int num_frames_to_decode = 0;
-int thumbnailMode = 0;
 
 Queue *ebd_queue = NULL;
 Queue *fbd_queue = NULL;
@@ -269,8 +258,6 @@ QOMX_VIDEO_DECODER_PICTURE_ORDER picture_order;
 
 unsigned int color_fmt_type = 0;
 
-static char tempbuf[16];
-
 int disable_output_port();
 int enable_output_port();
 int output_port_reconfig();
@@ -297,7 +284,6 @@ int fps = 30;
 unsigned int timestampInterval = 33333;
 codec_format  codec_format_option;
 file_type     file_type_option;
-freeHandle_test freeHandle_option;
 int nalSize = 0;
 int sent_disabled = 0;
 int waitForPortSettingsChanged = 1;
@@ -354,7 +340,9 @@ void getFreePmem();
 
 int kpi_place_marker(const char* str)
 {
-  int fd = open("/sys/kernel/debug/bootkpi/kpi_values", O_WRONLY);
+//#define KPI_MARKER_NODE "/sys/kernel/debug/bootkpi/kpi_values"
+#define KPI_MARKER_NODE "/sys/kernel/boot_kpi/kpi_values"	//TO DO: probably, it only fit for AGL/LXC-host case.
+  int fd = open(KPI_MARKER_NODE, O_WRONLY);
   if(fd >= 0) {
     int ret = write(fd, str, strlen(str));
     close(fd);
@@ -949,6 +937,25 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
   return OMX_ErrorNone;
 }
 
+#define KPI_INDICATOR_STR "+kpi+"
+
+static void print_usage(char **argv)
+{
+  printf("%s <infile_path> <codec_type> <file_type> <output_op> <test_op> <num_frames>\n", argv[0]);
+  printf("<codec_type>\t1:h264, 9:h265\n");
+  printf("<file_type>\t4:byte-stream\n");
+  printf("<output_op>\t0:no output, 2:dump frames to yuvframes.yuv file under current dir\n");
+  printf("<test_op>\t1:decode till file end, 0:only decode <num_frame> frames\n");
+  printf("<num_frames>\t0:when test_op=1, N:num of frames to decode when test_op=0\n\n");
+
+  printf("Usage example(only verified h264 and h265):\n");
+  printf("For h264: %s xxx.h264 1 4 2 1 0\n", argv[0]);
+  printf("For h265: %s xxx.h265 9 4 2 1 0\n", argv[0]);
+  printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
+  printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
+  printf("kpi example: %s %s/data/xxx.h264 1 4 0 1 0\n\n", argv[0], KPI_INDICATOR_STR);
+}
+
 int main(int argc, char **argv)
 {
   int i=0;
@@ -966,23 +973,30 @@ int main(int argc, char **argv)
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
-
-#define KPI_INDICATOR_STR "+kpi+"
-  if (argc < 2)
+  if (argc < 7)
   {
-    printf("Usage example(only verified h264 and h265):\n");
-    printf("For h264: %s xxx.h264 1 4 2 1 0 0 0\n", argv[0]);
-    printf("For h265: %s xxx.h265 9 4 2 1 0 0 0\n", argv[0]);
-    printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
-    printf("Also could try: %s <input_file>\n", argv[0]);
-    printf("It will show prompt, and help you input parameters interactively.\n\n");
-    printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
-    printf("kpi example: %s %s/data/xxx.h264 1 4 0 1 0 0 0\n\n", argv[0], KPI_INDICATOR_STR);
+    print_usage(argv);
     return -1;
+  }
+  else if(argc >= 7)
+  {
+    codec_format_option = (codec_format)atoi(argv[2]);
+    file_type_option = (file_type)atoi(argv[3]);
+    outputOption = atoi(argv[4]); /* 0: no output, 2: log yuv frames to file */
+    test_option = atoi(argv[5]);
+    if (0 == test_option) {
+      num_frames_to_decode = atoi(argv[6]);
+    } else if (1 == test_option) {
+      /* play the clip till the end */
+      num_frames_to_decode = 0;
+    }
+    printf("*******************************************************\n");
+    printf("*** codec=%d,file_type=%d,output=%d,test=%d,frames=%d\n",
+        codec_format_option, file_type_option,
+        outputOption, test_option, num_frames_to_decode);
   }
 
   {
-    FILE* file = NULL;
     char* infilename_argptr = NULL;
     if (0 == strncmp(argv[1], KPI_INDICATOR_STR, strlen(KPI_INDICATOR_STR))) {
       kpi_mode = 1;
@@ -995,265 +1009,14 @@ int main(int argc, char **argv)
     }else{
       infilename_argptr = argv[1];
     }
+
     strlcpy(in_filename, infilename_argptr, sizeof(in_filename));
-    file = fopen(in_filename, "rb");
-    if (file == NULL) {
-      printf("Could not open input file %s !\n", in_filename);
-      return -1;
-    }else{
-      //Here, just confirm input file exist. Later, will open it formally.
-      fclose(file);
-    }
-  }
-
-  if(argc > 2)
-  {
-    codec_format_option = (codec_format)atoi(argv[2]);
-    // file_type, out_op, tst_op, nal_sz, disp_win, rt_dis, (fps), color, pic_order, num_frames_to_decode
-    int param[10] = {2, 1, 1, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
-    int next_arg = 3, idx = 0;
-    while (argc > next_arg && idx < 10)
-    {
-      param[idx++] = atoi(argv[next_arg++]);
-    }
-    idx = 0;
-    file_type_option = (file_type)param[idx++];
-    if (codec_format_option == CODEC_FORMAT_H264 && file_type_option == 3)
-    {
-      nalSize = param[idx++];
-      if (nalSize != 2 && nalSize != 4)
-      {
-        DEBUG_PRINT_ERROR("Error - Can't pass NAL length size = %d", nalSize);
-        return -1;
-      }
-    }
-    outputOption = param[idx++];
-    test_option = param[idx++];
-    if ((outputOption == 1 || outputOption ==3) && test_option != 3) {
-      displayWindow = param[idx++];
-      if (displayWindow > 0)
-        DEBUG_PRINT("Only entire display window supported! Ignoring value");
-      realtime_display = param[idx++];
-    }
-    if (realtime_display)
-    {
-      takeYuvLog = 0;
-      if(param[idx] != 0xFF)
-      {
-        fps = param[idx++];
-        timestampInterval = 1e6 / fps;
-      }
-    }
-    color_fmt_type = (param[idx] != 0xFF)? param[idx++] : color_fmt_type;
-    if (test_option != 3) {
-      pic_order = (param[idx] != 0xFF)? param[idx++] : 0;
-      num_frames_to_decode = param[idx++];
-    }
-    DEBUG_PRINT("Executing DynPortReconfig QCIF 144 x 176 ");
-  }
-  else
-  {
-    printf("Command line argument is available\n");
-    printf("To use it: ./mm-vdec-omx-test <clip location> <codec_type> \n");
-    printf("           <input_type: 1. per AU(.dat), 2. arbitrary, 3.per NAL/frame>\n");
-    printf("           <output_type> <test_case> <size_nal if H264>\n\n\n");
-    printf(" *********************************************\n");
-    printf(" ENTER THE TEST CASE YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1--> H264\n");
-    printf(" 2--> MP4\n");
-    printf(" 3--> H263\n");
-    printf(" 4--> VC1\n");
-    printf(" 5--> DivX\n");
-    printf(" 6--> MPEG2\n");
-    printf(" 7--> VP8\n");
-    printf(" 8--> VP9\n");
-    printf(" 9--> HEVC\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&codec_format_option);
-    fflush(stdin);
-    if (codec_format_option > CODEC_FORMAT_MAX)
-    {
-      DEBUG_PRINT_ERROR(" Wrong test case...[%d] ", codec_format_option);
+    if (access(in_filename, R_OK) < 0) {
+      perror(in_filename);
       return -1;
     }
-    printf(" *********************************************\n");
-    printf(" ENTER THE TEST CASE YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1--> PER ACCESS UNIT CLIP (.dat). Clip only available for H264 and Mpeg4\n");
-    printf(" 2--> ARBITRARY BYTES (need .264/.264c/.m4v/.263/.rcv/.vc1/.m2v)\n");
-    if (codec_format_option == CODEC_FORMAT_H264)
-    {
-      printf(" 4--> START CODE BASED CLIP (.264/.h264)\n");
-    }
-    if (codec_format_option == CODEC_FORMAT_HEVC)
-    {
-      printf(" 4--> START CODE BASED CLIP (.265/.h265)\n");
-    }
-    else if ( (codec_format_option == CODEC_FORMAT_MP4) || (codec_format_option == CODEC_FORMAT_H263) )
-    {
-      printf(" 3--> MP4 VOP or H263 P0 SHORT HEADER START CODE CLIP (.m4v or .263)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_VC1)
-    {
-      printf(" 3--> VC1 clip Simple/Main Profile (.rcv)\n");
-      printf(" 4--> VC1 clip Advance Profile (.vc1)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_DIVX)
-    {
-      printf(" 3--> DivX 4, 5, 6 clip (.cmp)\n");
-#ifdef MAX_RES_1080P
-      printf(" 4--> DivX 3.11 clip \n");
-#endif
-    }
-    else if (codec_format_option == CODEC_FORMAT_MPEG2)
-    {
-      printf(" 3--> MPEG2 START CODE CLIP (.m2v)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_VP8)
-    {
-      printf(" 61--> VP8 START CODE CLIP (.ivf)\n");
-    }
-    else if (codec_format_option == CODEC_FORMAT_VP9)
-    {
-      printf(" 61--> VP9 START CODE CLIP (.ivf)\n");
-    }
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&file_type_option);
-    if ( (codec_format_option == CODEC_FORMAT_VP8) || (codec_format_option == CODEC_FORMAT_VP9) )
-    {
-      file_type_option = FILE_TYPE_VP8;
-    }
-    fflush(stdin);
-    if (codec_format_option == CODEC_FORMAT_H264 && file_type_option == 3)
-    {
-      printf(" Enter Nal length size [2 or 4] \n");
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&nalSize);
-      if (nalSize != 2 && nalSize != 4)
-      {
-        DEBUG_PRINT_ERROR("Error - Can't pass NAL length size = %d", nalSize);
-        return -1;
-      }
-    }
-
-    printf(" *********************************************\n");
-    printf(" Output buffer option:\n");
-    printf(" *********************************************\n");
-    printf(" 0 --> No display and no YUV log\n");
-    printf(" 1 --> Diplay YUV\n");
-    printf(" 2 --> Take YUV log\n");
-    printf(" 3 --> Display YUV and take YUV log\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&outputOption);
-    fflush(stdin);
-
-    printf(" *********************************************\n");
-    printf(" ENTER THE TEST CASE YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1 --> Play the clip till the end\n");
-    printf(" 2 --> Run compliance test. Do NOT expect any display for most option. \n");
-    printf("       Please only see \"TEST SUCCESSFULL\" to indicate test pass\n");
-    printf(" 3 --> Thumbnail decode mode\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&test_option);
-    fflush(stdin);
-    if (test_option == 3)
-      thumbnailMode = 1;
-
-    if ((outputOption == 1 || outputOption == 3) && thumbnailMode == 0)
-    {
-      printf(" *********************************************\n");
-      printf(" ENTER THE PORTION OF DISPLAY TO USE\n");
-      printf(" *********************************************\n");
-      printf(" 0 --> Entire Screen\n");
-      printf(" 1 --> 1/4 th of the screen starting from top left corner to middle \n");
-      printf(" 2 --> 1/4 th of the screen starting from middle to top right corner \n");
-      printf(" 3 --> 1/4 th of the screen starting from middle to bottom left \n");
-      printf(" 4 --> 1/4 th of the screen starting from middle to bottom right \n");
-      printf("       Please only see \"TEST SUCCESSFULL\" to indidcate test pass\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&displayWindow);
-      fflush(stdin);
-      if(displayWindow > 0)
-      {
-        DEBUG_PRINT(" Curently display window 0 only supported; ignoring other values");
-        displayWindow = 0;
-      }
-    }
-
-    if ((outputOption == 1 || outputOption == 3) && thumbnailMode == 0)
-    {
-      printf(" *********************************************\n");
-      printf(" DO YOU WANT TEST APP TO RENDER in Real time \n");
-      printf(" 0 --> NO\n 1 --> YES\n");
-      printf(" Warning: For H264, it require one NAL per frame clip.\n");
-      printf("          For Arbitrary bytes option, Real time display is not recommended\n");
-      printf(" *********************************************\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&realtime_display);
-      fflush(stdin);
-    }
-
-    if (realtime_display)
-    {
-      printf(" *********************************************\n");
-      printf(" ENTER THE CLIP FPS\n");
-      printf(" Exception: Timestamp extracted from clips will be used.\n");
-      printf(" *********************************************\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&fps);
-      fflush(stdin);
-      timestampInterval = 1000000/fps;
-    }
-
-    printf(" *********************************************\n");
-    printf(" ENTER THE COLOR FORMAT \n");
-    printf(" 0 --> Semiplanar \n 1 --> Tile Mode\n");
-    printf(" *********************************************\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&color_fmt_type);
-    fflush(stdin);
-
-    if (thumbnailMode != 1) {
-      printf(" *********************************************\n");
-      printf(" Output picture order option: \n");
-      printf(" *********************************************\n");
-      printf(" 0 --> Display order\n 1 --> Decode order\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&pic_order);
-      fflush(stdin);
-
-      printf(" *********************************************\n");
-      printf(" Number of frames to decode: \n");
-      printf(" 0 ---> decode all frames: \n");
-      printf(" *********************************************\n");
-      fflush(stdin);
-      if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-        DEBUG_PRINT_ERROR("Error while reading");
-      sscanf(tempbuf,"%d",&num_frames_to_decode);
-      fflush(stdin);
-    }
   }
+
   if (file_type_option >= FILE_TYPE_COMMON_CODEC_MAX)
   {
     switch (codec_format_option)
@@ -1275,50 +1038,10 @@ int main(int argc, char **argv)
   if (pic_order == 1)
     picture_order.eOutputPictureOrder = QOMX_VIDEO_DECODE_ORDER;
 
-  if (outputOption == 0)
-  {
-    displayYuv = 0;
-    takeYuvLog = 0;
-    realtime_display = 0;
-  }
-  else if (outputOption == 1)
-  {
-    displayYuv = 1;
-  }
-  else if (outputOption == 2)
+  takeYuvLog = 0;
+  if (outputOption == 2)
   {
     takeYuvLog = 1;
-    realtime_display = 0;
-  }
-  else if (outputOption == 3)
-  {
-    displayYuv = 1;
-    takeYuvLog = !realtime_display;
-  }
-  else
-  {
-    DEBUG_PRINT("Wrong option. Assume you want to see the YUV display");
-    displayYuv = 1;
-  }
-
-  if (test_option == 2)
-  {
-    printf(" *********************************************\n");
-    printf(" ENTER THE COMPLIANCE TEST YOU WOULD LIKE TO EXECUTE\n");
-    printf(" *********************************************\n");
-    printf(" 1 --> Call Free Handle at the OMX_StateLoaded\n");
-    printf(" 2 --> Call Free Handle at the OMX_StateIdle\n");
-    printf(" 3 --> Call Free Handle at the OMX_StateExecuting\n");
-    printf(" 4 --> Call Free Handle at the OMX_StatePause\n");
-    fflush(stdin);
-    if (fgets(tempbuf,sizeof(tempbuf),stdin) <= 0)
-      DEBUG_PRINT_ERROR("Error while reading");
-    sscanf(tempbuf,"%d",&freeHandle_option);
-    fflush(stdin);
-  }
-  else
-  {
-    freeHandle_option = (freeHandle_test)0;
   }
 
   printf("Input values: inputfilename[%s]\n", in_filename);
@@ -1548,14 +1271,6 @@ int Init_Decoder()
     return -1;
   }
 
-  if (thumbnailMode == 1) {
-    QOMX_ENABLETYPE thumbNailMode;
-    thumbNailMode.bEnable = OMX_TRUE;
-    OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamVideoSyncFrameDecodingMode,
-              (OMX_PTR)&thumbNailMode);
-    DEBUG_PRINT("Enabled Thumbnail mode");
-  }
-
   return 0;
 }
 
@@ -1747,23 +1462,6 @@ int Play_Decoder()
     return -1;
   }
 
-  if (freeHandle_option == FREE_HANDLE_AT_IDLE)
-  {
-    OMX_STATETYPE state = OMX_StateInvalid;
-    OMX_GetState(dec_handle, &state);
-    if (state == OMX_StateIdle)
-    {
-      DEBUG_PRINT("Decoder is in OMX_StateIdle and trying to call OMX_FreeHandle ");
-      do_freeHandle_and_clean_up(false);
-    }
-    else
-    {
-      DEBUG_PRINT_ERROR("Error - Decoder is in state %d and trying to call OMX_FreeHandle ", state);
-      do_freeHandle_and_clean_up(true);
-    }
-    return -1;
-  }
-
   DEBUG_PRINT("OMX_SendCommand Decoder -> Executing");
   OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StateExecuting,0);
   wait_for_event();
@@ -1851,42 +1549,6 @@ int Play_Decoder()
   {
     if (output_port_reconfig() != 0)
       return -1;
-  }
-
-  if (freeHandle_option == FREE_HANDLE_AT_EXECUTING)
-  {
-    OMX_STATETYPE state = OMX_StateInvalid;
-    OMX_GetState(dec_handle, &state);
-    if (state == OMX_StateExecuting)
-    {
-      DEBUG_PRINT("Decoder is in OMX_StateExecuting and trying to call OMX_FreeHandle ");
-      do_freeHandle_and_clean_up(false);
-    }
-    else
-    {
-      DEBUG_PRINT_ERROR("Error - Decoder is in state %d and trying to call OMX_FreeHandle ", state);
-      do_freeHandle_and_clean_up(true);
-    }
-    return -1;
-  }
-  else if (freeHandle_option == FREE_HANDLE_AT_PAUSE)
-  {
-    OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StatePause,0);
-    wait_for_event();
-
-    OMX_STATETYPE state = OMX_StateInvalid;
-    OMX_GetState(dec_handle, &state);
-    if (state == OMX_StatePause)
-    {
-      DEBUG_PRINT("Decoder is in OMX_StatePause and trying to call OMX_FreeHandle ");
-      do_freeHandle_and_clean_up(false);
-    }
-    else
-    {
-      DEBUG_PRINT_ERROR("Error - Decoder is in state %d and trying to call OMX_FreeHandle ", state);
-      do_freeHandle_and_clean_up(true);
-    }
-    return -1;
   }
 
   return 0;
