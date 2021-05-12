@@ -38,7 +38,10 @@
 GST_DEBUG_CATEGORY_EXTERN (gst_qticodec2wrapper_debug);
 #define GST_CAT_DEFAULT gst_qticodec2wrapper_debug
 
-#define MAX_PENDING_WORK 8
+/* Currently, size of input queue is 6 in video driver.
+ * If count of pending works are more than 6, it causes queue overflow issue.
+ */
+#define MAX_PENDING_WORK 6
 
 using namespace std::chrono_literals;
 
@@ -172,6 +175,7 @@ c2_status_t C2ComponentAdapter::prepareC2Buffer (std::shared_ptr<C2Buffer> *c2Bu
             }
             destBuffer = view.base();
             memcpy(destBuffer, rawBuffer, frameSize);
+            linear_block->mSize = frameSize;
             buf = createLinearBuffer(linear_block);
         } else if (poolType == C2BlockPool::BASIC_GRAPHIC) {
           if (mGraphicPool) {
@@ -518,6 +522,9 @@ void C2ComponentAdapter::handleWorkDone(
             else {
                 LOG_ERROR("Incorrect number of output buffers: %lu", worklet->output.buffers.size());
             }
+            std::unique_lock<std::mutex> ul(mLock);
+            mNumPendingWorks --;
+            mCondition.notify_one();
             break;
         }
     }
