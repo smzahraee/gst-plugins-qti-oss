@@ -301,6 +301,9 @@ int main(int argc, char **argv)
 #endif
   g_free(appsrc_struct);
 
-  fclose(fp);
+  if (fp) {
+    fclose(fp);
+    fp = NULL;
+  }
   return 0;
 }
