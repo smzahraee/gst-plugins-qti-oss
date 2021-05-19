@@ -500,13 +500,14 @@ void* ebd_thread(void* pArg)
 
 static bool dump_yuv_frame_to_file(const uint8_t *data, size_t size)
 {
+  DEBUG_PRINT("format: 0x%x width: %d height: %d size: %u", color_fmt, crop_rect.nWidth, crop_rect.nHeight, size);
+
   if (NULL == data)
     return false;
 
   size_t n_written = 0;
 
   if (color_fmt == (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m) {
-    DEBUG_PRINT(" width: %d height: %d", crop_rect.nWidth, crop_rect.nHeight);
     unsigned int stride = VENUS_Y_STRIDE(COLOR_FMT_NV12, portFmt.format.video.nFrameWidth);
     unsigned int scanlines = VENUS_Y_SCANLINES(COLOR_FMT_NV12, portFmt.format.video.nFrameHeight);
     const uint8_t *temp = data;
@@ -922,7 +923,7 @@ static struct mode_desc modes[] = {
 
 #define NUM_MODES ARRAY_SIZE(modes)
 
-int parse_argv1(const char *argv1)
+int parse_argv1_mode_and_infile(const char *argv1)
 {
   const char *filename;
   int i;
@@ -968,12 +969,40 @@ int parse_argv1(const char *argv1)
   return 0;
 }
 
+static void parse_argv4_output_option(const char *argv4)
+{
+  int output_option = atoi(argv4);
+  int format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
+
+  takeYuvLog = 0;
+
+  switch (output_option) {
+  case 0: break;
+  case 2: takeYuvLog = 1; break;
+  case 8:
+    format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed;
+    break;
+  case 10:
+    takeYuvLog = 1;
+    format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed;
+    break;
+  default:
+    DEBUG_PRINT_ERROR("Output option %d unknown", output_option);
+    break;
+  }
+
+  color_fmt = (OMX_COLOR_FORMATTYPE)format;
+  DEBUG_PRINT("takeYuvLog=%d, color_fmt=0x%x", takeYuvLog, color_fmt);
+}
+
 static void print_usage(char **argv)
 {
   printf("%s <infile_path> <codec_type> <file_type> <output_op> <test_op> <num_frames>\n", argv[0]);
   printf("<codec_type>\t1:h264, 9:h265\n");
   printf("<file_type>\t4:byte-stream\n");
-  printf("<output_op>\t0:no output, 2:dump frames to yuvframes.yuv file under current dir\n");
+  printf("<output_op>\t"
+    "0: decoded as linear yuv but no output, 2: decoded as linear yuv but dump frames to yuvframes.yuv file under current dir\n\t\t"
+    "8: decoded as UBWC yuv but no output,  10: decoded as UBWC yuv but dump frames to yuvframes.yuv file under current dir\n");
   printf("<test_op>\t1:decode till file end, 0:only decode <num_frame> frames\n");
   printf("<num_frames>\t0:when test_op=1, N:num of frames to decode when test_op=0\n\n");
 
@@ -991,7 +1020,6 @@ static void print_usage(char **argv)
 
 int main(int argc, char **argv)
 {
-  int outputOption = 0;
   int test_option = 0;
   int pic_order = 0;
   OMX_ERRORTYPE result;
@@ -1003,6 +1031,8 @@ int main(int argc, char **argv)
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
+  omx_debug_level_init();
+
   if (argc < 7)
   {
     print_usage(argv);
@@ -1012,7 +1042,7 @@ int main(int argc, char **argv)
   {
     codec_format_option = (codec_format)atoi(argv[2]);
     file_type_option = (file_type)atoi(argv[3]);
-    outputOption = atoi(argv[4]); /* 0: no output, 2: log yuv frames to file */
+    parse_argv4_output_option(argv[4]);
     test_option = atoi(argv[5]);
     if (0 == test_option) {
       num_frames_to_decode = atoi(argv[6]);
@@ -1023,13 +1053,11 @@ int main(int argc, char **argv)
     printf("*******************************************************\n");
     printf("*** codec=%d,file_type=%d,output=%d,test=%d,frames=%d\n",
         codec_format_option, file_type_option,
-        outputOption, test_option, num_frames_to_decode);
+        atoi(argv[4]), test_option, num_frames_to_decode);
   }
 
-  if (parse_argv1(argv[1]))
+  if (parse_argv1_mode_and_infile(argv[1]))
     return -1;
-
-  omx_debug_level_init();
 
   if (file_type_option >= FILE_TYPE_COMMON_CODEC_MAX)
   {
@@ -1051,12 +1079,6 @@ int main(int argc, char **argv)
   picture_order.eOutputPictureOrder = QOMX_VIDEO_DISPLAY_ORDER;
   if (pic_order == 1)
     picture_order.eOutputPictureOrder = QOMX_VIDEO_DECODE_ORDER;
-
-  takeYuvLog = 0;
-  if (outputOption == 2)
-  {
-    takeYuvLog = 1;
-  }
 
   printf("Input values: inputfilename[%s]\n", in_filename);
   printf("*******************************************************\n");
@@ -1415,9 +1437,7 @@ int Play_Decoder(bool secure)
   DEBUG_PRINT("Dec: New Min Buffer Count %d", portFmt.nBufferCountMin);
   CONFIG_VERSION_SIZE(videoportFmt);
 
-  color_fmt = (OMX_COLOR_FORMATTYPE)
-       QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
-
+  /* enumerate to set color format */
   while (ret == OMX_ErrorNone)
   {
     videoportFmt.nPortIndex = 1;
