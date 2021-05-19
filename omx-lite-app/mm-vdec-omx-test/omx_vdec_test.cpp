@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2010 - 2013, 2016 - 2018, The Linux Foundation. All rights reserved.
+Copyright (c) 2010 - 2013, 2016 - 2021, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -49,8 +49,38 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * DEALINGS IN THE SOFTWARE.
 --------------------------------------------------------------------------*/
 /*
-    An Open max test lite application ....
+    An Openmax IL test lite application ....
 */
+
+/*
+ * OpenMAX call sequence for secure decoding:
+ * 1. OMX_Init() // Initialize OpenMAX Core.
+ * 2. OMX_GetHandle() // Append ".secure" to component name to initialize it
+ *    as secure decoding, and set OMX_CALLBACKTYPE to OMX for client to handle
+ *    OMX events. If this call succeeds, then enter OMX_StateLoaded.
+ * 3. OMX_GetParameter(OMX_IndexParamVideoInit) // Get in/out port numbers.
+ * 4. OMX_SetParameter(OMX_IndexParamPortDefinition) // Set in port definitions
+ *    i.e. OMX_VIDEO_CodingAVC/width/height/fps etc.
+ * 5. OMX_SetParameter(OMX_IndexParamVideoPortFormat) // Enumerate to set color
+ *    format as like YUV NV12 or NV12_UBWC to output.
+ * 6. OMX_SetParameter(OMX_QcomIndexParamVideoDecoderPictureOrder) // Set
+ *    decoder output picture order as QOMX_VIDEO_DISPLAY_ORDER.
+ * 7. OMX_SetConfig(OMX_IndexConfigVideoNalSize) // set NAL size as 0 since it
+ *    only suppurts to read in H.264 or H.265 Start Code File currently.
+ * 8. OMX_SendCommand(OMX_CommandStateSet) // Enter OMX_StateIdle.
+ * 9. OMX_AllocateBuffer(inPort) // Allocate secure input ION pmem buffers.
+ * 10.alloc_nonsecure_buffer(in) // Allocate system memory to read in frame
+ *    and copy it into secure input buffer for OMX to do secure decodeing.
+ * 11.OMX_AllocateBuffer(outPort) // Allocate secure output GBM pmem buffers.
+ * 12.OMX_SendCommand(OMX_CommandStateSet) // Enter OMX_StateExecuting.
+ * 13.OMX_FillThisBuffer() // Drive OMX fill output buffers.
+ * 14.OMX_EmptyThisBuffer() // Read frames from file and feed them into OMX.
+ * 15.Wait for OMX_EventPortSettingsChanged to reconfigure output port per
+ *    actual video info got by codec parsing video frame.
+ * 16.alloc_nonsecure_buffer(out) // Allocate system memory to copy frame from
+ *    secure output GBM buffer and dump it to a file for correctness checking.
+ * 17.Wait for EOS event to free system resource and exit.
+ */
 
 #include <stdio.h>
 #include <string.h>
