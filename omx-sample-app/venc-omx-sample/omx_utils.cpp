@@ -1044,25 +1044,6 @@ bool EnablePrependSPSPPSToIDRFrame(int32_t enable) {
   return true;
 }
 
-bool EnableAuDelimitersForVideoStream(int32_t enable) {
-  OMX_ERRORTYPE result = OMX_ErrorNone;
-
-  FUNCTION_ENTER();
-
-  VLOGD("enable:%d", enable);
-
-  OMX_QCOM_VIDEO_CONFIG_AUD param_aud;
-  OMX_INIT_STRUCT(&param_aud, OMX_QCOM_VIDEO_CONFIG_AUD);
-  param_aud.bEnable = (OMX_BOOL)enable;  // default: OMX_FALSE
-  result = OMX_SetParameter(m_Handle,
-      (OMX_INDEXTYPE)OMX_QcomIndexParamAUDelimiter,
-      (OMX_PTR)&param_aud);
-  CHECK_RESULT("set AU delimiter:", result);
-
-  FUNCTION_EXIT();
-  return true;
-}
-
 bool SetIntraPeriod(OMX_U32 idr_period, OMX_U32 pframes, OMX_U32 bframes) {
   OMX_ERRORTYPE result = OMX_ErrorNone;
 
@@ -1796,16 +1777,16 @@ bool StartProcessThread() {
 
   FUNCTION_ENTER();
 
-  if (pthread_create(&m_InputProcessThreadId, NULL,
-        InputBufferProcessThread, NULL)) {
-    VLOGE("create input event process thread failed: %s", strerror(errno));
+  if (pthread_create(&m_OutPutProcessThreadId, NULL,
+        OutputBufferProcessThread, NULL)) {
+    VLOGE("create output event process thread failed: %s", strerror(errno));
     FUNCTION_EXIT();
     return false;
   }
 
-  if (pthread_create(&m_OutPutProcessThreadId, NULL,
-        OutputBufferProcessThread, NULL)) {
-    VLOGE("create output event process thread failed: %s", strerror(errno));
+  if (pthread_create(&m_InputProcessThreadId, NULL,
+        InputBufferProcessThread, NULL)) {
+    VLOGE("create input event process thread failed: %s", strerror(errno));
     FUNCTION_EXIT();
     return false;
   }
@@ -2287,9 +2268,6 @@ bool ConfigEncoder(VideoCodecSetting_t *codec_settings) {
     ret = EnablePrependSPSPPSToIDRFrame(
         codec_settings->bPrependSPSPPSToIDRFrame);
     CHECK_BOOL("set Prepend SPS/PPS failed", ret);
-    ret = EnableAuDelimitersForVideoStream(
-        codec_settings->bAuDelimiters);
-    CHECK_BOOL("set Au Delimiters failed", ret);
   }
 
   if (codec_settings->eCodec == OMX_VIDEO_CodingHEVC) {
@@ -2387,12 +2365,12 @@ bool StartEncoding() {
   ret = SetState(OMX_StateExecuting, OMX_TRUE);
   CHECK_BOOL("set state to executing failed", ret);
 
+  StartProcessThread();
+
   for (i = 0; i < m_OutputBufferCount; i++) {
     result = OMX_FillThisBuffer(m_Handle, m_OutputBufferHeaders[i]);
     CHECK_RESULT("request fill this buffer failed", result);
   }
-
-  StartProcessThread();
 
   for (i = 0; i < m_InputBufferCount; i++) {
     BufferMessage_t buffer_msg;
