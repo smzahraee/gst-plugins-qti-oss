@@ -188,8 +188,8 @@ OMX_CONFIG_RECTTYPE crop_rect = {0, 0, 0, 0};
 static VideoCodecSetting_t *settings;
 
 int64_t m_DecodeDuration = 0; // in usec
-timeval m_DecodeFrameStartTime[OMX_BUFFERS_NUM] = {};  // used to compute encode frame performance
-timeval m_DecodeFrameEndTime[OMX_BUFFERS_NUM] = {};  // used to compute encode frame performance
+timeval m_DecodeFrameStartTime[OMX_BUFFERS_NUM] = {};  // used to compute decode frame performance
+timeval m_DecodeFrameEndTime[OMX_BUFFERS_NUM] = {};  // used to compute decode frame performance
 
 // For Statistical data
 static int32_t m_decodeFrameNum = 0;
@@ -1987,13 +1987,6 @@ bool ConfigureCodec(VideoCodecSetting_t *codecSettings)
   return true;
 }
 
-bool StoreEncodedDataForPerformanceTest() {
-  FUNCTION_ENTER();
-
-  FUNCTION_EXIT();
-  return true;
-}
-
 bool StoreDecodedDataToFile(unsigned char * pBuffer, int32_t dataLen)
 {
   bool status = false;
@@ -2104,9 +2097,6 @@ bool StoreDecodedData(unsigned char * pBuffer, int32_t dataLen) {
   switch (m_TestMode) {
     case MODE_FILE_DECODE:
       status = StoreDecodedDataToFile(pBuffer, dataLen);
-      break;
-    case MODE_PROFILE:
-      status = StoreEncodedDataForPerformanceTest();
       break;
     default:
       VLOGE("bad test mode: %d", m_TestMode);

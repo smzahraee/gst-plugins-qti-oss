@@ -1160,6 +1160,14 @@ int main(int argc, char **argv) {
   int status = 0;
   bool ret = false;
 
+  if (argc < 2)
+  {
+    printf("===================================\n");
+    printf("To use it: ./venc-omx-sample --help\n");
+    printf("===================================\n");
+    exit(0);
+  }
+
   pthread_mutex_init(&m_PrintTimeMutex, NULL);
   gettimeofday(&m_StartTime, NULL);
 
