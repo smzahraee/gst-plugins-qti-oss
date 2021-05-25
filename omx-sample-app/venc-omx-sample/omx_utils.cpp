@@ -118,15 +118,6 @@ extern int32_t m_MetadataMode;
 (_s_)->nSize = sizeof(_name_);               \
 (_s_)->nVersion.nVersion = OMX_SPEC_VERSION
 
-#define Log2(den, power)   { \
-  OMX_U32 temp = den; \
-  power = 0; \
-  while((0 == (temp & 0x1)) && power < 16) { \
-    temp >>=0x1; \
-    power++; \
-  } \
-}
-
 #define FractionToQ16(q, v) { (q) = (unsigned int) (65536*(double)(v)); }
 
 #define OMX_INIT_STRUCT_SIZE(_s_, _name_)            \
@@ -2421,8 +2412,8 @@ bool ReleaseCodec() {
     m_Handle = NULL;
   }
 
-  VLOGE("handle : %p", &m_Handle);
-  VLOGE("Encode input frame: %d, output frame: %d",
+  VLOGD("handle : %p", &m_Handle);
+  VLOGD("Encode input frame: %d, output frame: %d",
       m_InputFrameNum, m_OutputFrameNum);
 
   FUNCTION_EXIT();
