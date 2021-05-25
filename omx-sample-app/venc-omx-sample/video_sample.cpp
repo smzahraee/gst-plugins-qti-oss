@@ -1160,20 +1160,21 @@ int main(int argc, char **argv) {
   int status = 0;
   bool ret = false;
 
-  if (argc < 2)
-  {
+  if (argc < 2) {
     printf("===================================\n");
     printf("To use it: ./venc-omx-sample --help\n");
     printf("===================================\n");
     exit(0);
+  } else if (argc == 2 && !strcmp(argv[1], "--help")) {
+    Help();
+    exit(0);
   }
+
+  FUNCTION_ENTER();
+  printf("\nVideo encode sample app start...\n");
 
   pthread_mutex_init(&m_PrintTimeMutex, NULL);
   gettimeofday(&m_StartTime, NULL);
-
-  VLOGE("Video encode sample app start...");
-
-  FUNCTION_ENTER();
 
   m_Pid = getpid();
   PrintCPUData();
@@ -1236,7 +1237,7 @@ int main(int argc, char **argv) {
   PrintStatisticalData();
   PrintDynamicalData();
 
-  VLOGE("Video encode sample app finished...");
+  printf("\nVideo encode sample app finished...\n");
 
   FUNCTION_EXIT();
   return 0;

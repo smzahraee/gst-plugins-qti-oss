@@ -410,7 +410,7 @@ int main(int argc, char **argv)
   bool result = true;
 
   FUNCTION_ENTER();
-  VLOGD("Video decoder sample app start...");
+  printf("\nVideo decoder sample app start...\n");
 
   InitDefaultValue();
 
@@ -473,6 +473,7 @@ int main(int argc, char **argv)
   PrintDynamicalData();
   PrintCPUData();
 
+  printf("\nVideo decoder sample app finished...\n");
   FUNCTION_EXIT();
   return 0;
 }
