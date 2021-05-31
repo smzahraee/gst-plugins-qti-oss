@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8.2)
-project(GST_PLUGIN_EXAMPLES LANGUAGES C)
+project(GST_PLUGIN_EXAMPLES LANGUAGES C CXX)
 
 include_directories(${SYSROOT_INCDIR})
 link_directories(${SYSROOT_LIBDIR})
@@ -10,6 +10,8 @@ find_package(PkgConfig)
 pkg_check_modules(GST
   REQUIRED gstreamer-1.0>=${GST_VERSION_REQUIRED})
 
-add_subdirectory(gst-tracking-cam-app)
+if (ENABLE_TRACKING_CAM)
+  add_subdirectory(gst-tracking-cam-app)
+endif()
 add_subdirectory(gst-weston-composition)
 add_subdirectory(gst-appsink)

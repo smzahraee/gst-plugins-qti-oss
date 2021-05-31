@@ -77,6 +77,7 @@ GST_DEBUG_CATEGORY_STATIC (qmmfsrc_video_pad_debug);
 #define DEFAULT_PROP_CROP_Y          0
 #define DEFAULT_PROP_CROP_WIDTH      0
 #define DEFAULT_PROP_CROP_HEIGHT     0
+#define DEFAULT_PROP_EXTRA_BUFFERS   0
 
 GType
 gst_video_pad_control_rate_get_type (void)
@@ -133,6 +134,7 @@ enum
   PROP_VIDEO_MAX_QP_B_FRAMES,
   PROP_VIDEO_IDR_INTERVAL,
   PROP_VIDEO_CROP,
+  PROP_VIDEO_EXTRA_BUFFERS,
 };
 
 static void
@@ -241,6 +243,9 @@ video_pad_activate_mode (GstPad * pad, GstObject * parent, GstPadMode mode,
       } else {
         qmmfsrc_video_pad_flush_buffers_queue (pad, TRUE);
         success = gst_pad_stop_task (pad);
+
+        gst_segment_init (&GST_QMMFSRC_VIDEO_PAD (pad)->segment,
+            GST_FORMAT_UNDEFINED);
       }
       break;
     default:
@@ -363,15 +368,12 @@ qmmfsrc_request_video_pad (GstPadTemplate * templ, const gchar * name,
 void
 qmmfsrc_release_video_pad (GstElement * element, GstPad * pad)
 {
-  gchar *padname = GST_PAD_NAME (pad);
-  guint index = GST_QMMFSRC_VIDEO_PAD (pad)->index;
-
   gst_object_ref (pad);
 
+  gst_pad_set_active (pad, FALSE);
   gst_child_proxy_child_removed (GST_CHILD_PROXY (element), G_OBJECT (pad),
       GST_OBJECT_NAME (pad));
   gst_element_remove_pad (element, pad);
-  gst_pad_set_active (pad, FALSE);
 
   gst_object_unref (pad);
 }
@@ -391,7 +393,10 @@ qmmfsrc_video_pad_fixate_caps (GstPad * pad)
   // Immediately return the fetched caps if they are fixed.
   if (gst_caps_is_fixed (caps)) {
     gst_pad_set_caps (pad, caps);
+
+    GST_DEBUG_OBJECT (pad, "Caps fixated to: %" GST_PTR_FORMAT, caps);
     video_pad_update_params (pad, gst_caps_get_structure (caps, 0));
+
     return TRUE;
   }
 
@@ -504,6 +509,7 @@ qmmfsrc_video_pad_fixate_caps (GstPad * pad)
   caps = gst_caps_fixate (caps);
   gst_pad_set_caps (pad, caps);
 
+  GST_DEBUG_OBJECT (pad, "Caps fixated to: %" GST_PTR_FORMAT, caps);
   video_pad_update_params (pad, structure);
   return TRUE;
 }
@@ -574,6 +580,9 @@ video_pad_set_property (GObject * object, guint property_id,
       pad->crop.h = g_value_get_int (gst_value_array_get_value (value, 3));
       break;
     }
+    case PROP_VIDEO_EXTRA_BUFFERS:
+      pad->xtrabufs = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (pad, property_id, pspec);
       break;
@@ -635,6 +644,9 @@ video_pad_get_property (GObject * object, guint property_id, GValue * value,
       gst_value_array_append_value (value, &val);
       break;
     }
+    case PROP_VIDEO_EXTRA_BUFFERS:
+      g_value_set_uint (value, pad->xtrabufs);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (pad, property_id, pspec);
       break;
@@ -794,6 +806,12 @@ qmmfsrc_video_pad_class_init (GstQmmfSrcVideoPadClass * klass)
               G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS),
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_VIDEO_EXTRA_BUFFERS,
+      g_param_spec_uint ("extra-buffers", "extra buffers count",
+          "Number of additional buffers that will be allocated.",
+          0, G_MAXUINT, DEFAULT_PROP_EXTRA_BUFFERS,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
 
   GST_DEBUG_CATEGORY_INIT (qmmfsrc_video_pad_debug, "qtiqmmfsrc", 0,
       "QTI QMMF Source video pad");
@@ -807,6 +825,7 @@ qmmfsrc_video_pad_init (GstQmmfSrcVideoPad * pad)
 
   pad->index        = -1;
   pad->srcidx       = -1;
+  pad->xtrabufs     = 0;
 
   pad->width        = -1;
   pad->height       = -1;
