@@ -1123,6 +1123,9 @@ gst_qmmf_context_create_video_stream (GstQmmfContext * context, GstPad * pad)
     case GST_VIDEO_FORMAT_YUY2:
       format = ::qmmf::VideoFormat::kYUY2;
       break;
+    case GST_VIDEO_FORMAT_NV16:
+      format = ::qmmf::VideoFormat::kNV16;
+      break;
     case GST_BAYER_FORMAT_BGGR:
     case GST_BAYER_FORMAT_RGGB:
     case GST_BAYER_FORMAT_GBRG:
@@ -1138,6 +1141,8 @@ gst_qmmf_context_create_video_stream (GstQmmfContext * context, GstPad * pad)
         format = ::qmmf::VideoFormat::kBayerRDI10BIT;
       } else if (vpad->bpp == 12) {
         format = ::qmmf::VideoFormat::kBayerRDI12BIT;
+      } else if (vpad->bpp == 16) {
+        format = ::qmmf::VideoFormat::kBayerRDI16BIT;
       } else {
         GST_ERROR ("Unsupported bits per pixel for bayer format!");
         GST_QMMFSRC_VIDEO_PAD_UNLOCK (vpad);
@@ -1154,7 +1159,8 @@ gst_qmmf_context_create_video_stream (GstQmmfContext * context, GstPad * pad)
   }
 
   ::qmmf::recorder::VideoTrackCreateParam params (
-    context->camera_id, format, vpad->width, vpad->height, vpad->framerate
+    context->camera_id, format, vpad->width, vpad->height, vpad->framerate,
+    vpad->xtrabufs
   );
 
   if (format == ::qmmf::VideoFormat::kAVC) {
