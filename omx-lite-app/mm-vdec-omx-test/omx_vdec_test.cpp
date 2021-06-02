@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------------
-Copyright (c) 2010 - 2013, 2016 - 2018, The Linux Foundation. All rights reserved.
+Copyright (c) 2010 - 2013, 2016 - 2021, The Linux Foundation. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are
@@ -49,8 +49,38 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * DEALINGS IN THE SOFTWARE.
 --------------------------------------------------------------------------*/
 /*
-    An Open max test lite application ....
+    An Openmax IL test lite application ....
 */
+
+/*
+ * OpenMAX call sequence for secure decoding:
+ * 1. OMX_Init() // Initialize OpenMAX Core.
+ * 2. OMX_GetHandle() // Append ".secure" to component name to initialize it
+ *    as secure decoding, and set OMX_CALLBACKTYPE to OMX for client to handle
+ *    OMX events. If this call succeeds, then enter OMX_StateLoaded.
+ * 3. OMX_GetParameter(OMX_IndexParamVideoInit) // Get in/out port numbers.
+ * 4. OMX_SetParameter(OMX_IndexParamPortDefinition) // Set in port definitions
+ *    i.e. OMX_VIDEO_CodingAVC/width/height/fps etc.
+ * 5. OMX_SetParameter(OMX_IndexParamVideoPortFormat) // Enumerate to set color
+ *    format as like YUV NV12 or NV12_UBWC to output.
+ * 6. OMX_SetParameter(OMX_QcomIndexParamVideoDecoderPictureOrder) // Set
+ *    decoder output picture order as QOMX_VIDEO_DISPLAY_ORDER.
+ * 7. OMX_SetConfig(OMX_IndexConfigVideoNalSize) // set NAL size as 0 since it
+ *    only suppurts to read in H.264 or H.265 Start Code File currently.
+ * 8. OMX_SendCommand(OMX_CommandStateSet) // Enter OMX_StateIdle.
+ * 9. OMX_AllocateBuffer(inPort) // Allocate secure input ION pmem buffers.
+ * 10.alloc_nonsecure_buffer(in) // Allocate system memory to read in frame
+ *    and copy it into secure input buffer for OMX to do secure decodeing.
+ * 11.OMX_AllocateBuffer(outPort) // Allocate secure output GBM pmem buffers.
+ * 12.OMX_SendCommand(OMX_CommandStateSet) // Enter OMX_StateExecuting.
+ * 13.OMX_FillThisBuffer() // Drive OMX fill output buffers.
+ * 14.OMX_EmptyThisBuffer() // Read frames from file and feed them into OMX.
+ * 15.Wait for OMX_EventPortSettingsChanged to reconfigure output port per
+ *    actual video info got by codec parsing video frame.
+ * 16.alloc_nonsecure_buffer(out) // Allocate system memory to copy frame from
+ *    secure output GBM buffer and dump it to a file for correctness checking.
+ * 17.Wait for EOS event to free system resource and exit.
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -73,24 +103,33 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define strlcpy g_strlcpy
 #define strlcat g_strlcat
 
+#define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
+
 //#define ALOGE(fmt, args...) fprintf(stderr, fmt, ##args)
 enum {
   PRIO_ERROR=0x1,
-  PRIO_INFO=0x1,
-  PRIO_HIGH=0x2,
-  PRIO_LOW=0x4
+  PRIO_INFO=0x2,
+  PRIO_HIGH=0x4,
+  PRIO_LOW=0x8
 };
 
 #include <sys/syscall.h>
 #define gettid() syscall(SYS_gettid)
 #define getpid() syscall(SYS_getpid)
-#define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+
+static int omx_debug_level = 0;
+
+void omx_debug_level_init(void)
+{
+  char *ptr = getenv("OMX_DEBUG_LEVEL");
+  omx_debug_level = ptr ? atoi(ptr) : 0;
+}
+
 #define DEBUG_PRINT_CTL(level, fmt, args...)   \
   do {                                        \
-    char *ptr = getenv("OMX_DEBUG_LEVEL");    \
-    if (level & (ptr?atoi(ptr):0) )           \
-       printf("[%ld:%ld]:[%s:%d] " fmt " \n", getpid(), \
-       gettid(), __FILENAME__, __LINE__, ##args); \
+    if (level & omx_debug_level)           \
+       printf("[%ld:%ld][%s:%d] " fmt "\n", getpid(), \
+       gettid(), __func__, __LINE__, ##args); \
   } while(0)
 #define DEBUG_PRINT(fmt, args...) DEBUG_PRINT_CTL(PRIO_LOW, fmt, ##args)
 #define DEBUG_PRINT_ERROR(fmt,args...) DEBUG_PRINT_CTL(PRIO_ERROR, fmt, ##args)
@@ -102,6 +141,7 @@ enum {
 extern "C" {
 #include "queue.h"
 }
+#include "secure_copy.h"
 
 #include <inttypes.h>
 
@@ -223,7 +263,12 @@ typedef enum {
   ERROR_STATE
 } test_status;
 
-static int (*Read_Buffer)(OMX_BUFFERHEADERTYPE  *pBufHdr );
+/* flag indicates it's secure playback mode or not */
+static bool secure_mode = false;
+static uint8_t *input_nonsecure_buffer = NULL;
+static uint8_t *output_nonsecure_buffer = NULL;
+
+static int (*Read_Buffer)(uint8_t *data);
 
 int inputBufferFileFd;
 
@@ -290,7 +335,8 @@ int waitForPortSettingsChanged = 1;
 test_status currentStatus = GOOD_STATE;
 struct timeval t_start = {0, 0}, t_end = {0, 0};
 struct timeval t_main = {0, 0};
-int kpi_mode = 0;
+
+static bool kpi_mode = false;
 
 //* OMX Spec Version supported by the wrappers. Version = 1.1 */
 const OMX_U32 CURRENT_OMX_SPEC_VERSION = 0x00000101;
@@ -304,18 +350,43 @@ OMX_CONFIG_RECTTYPE crop_rect = {0,0,0,0};
 /************************************************************************/
 /*              GLOBAL FUNC DECL                        */
 /************************************************************************/
-int Init_Decoder();
-int Play_Decoder();
-int run_tests();
+int Init_Decoder(bool secure);
+int Play_Decoder(bool secure);
+int run_tests(bool secure);
 
 /**************************************************************************/
 /*              STATIC DECLARATIONS                       */
 /**************************************************************************/
 static int video_playback_count = 1;
 static int open_video_file ();
-static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr);
-static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr);
+static int Read_Buffer_From_H264_Start_Code_File(uint8_t *data);
+static int Read_Buffer_From_H265_Start_Code_File(uint8_t *data);
+static int Read_Buffer_From_Size_Nal(uint8_t *data);
+
+static bool __do_secure_copy(uint8_t *buf, size_t *size, int fd, int direction)
+{
+  secure_copy *sc = secure_copy::instance();
+
+  DEBUG_PRINT("bytes=%lu, fd=%d, direction=%d", *size, fd, direction);
+  bool ret = sc->copy(buf, *size, fd, 0, size, direction);
+  DEBUG_PRINT("copied %lu bytes, ret=%d", *size, ret);
+
+  return ret;
+}
+
+static inline bool
+copy_to_secure_buffer(const uint8_t *buf, size_t *size, int fd)
+{
+  return __do_secure_copy((uint8_t *)buf, size, fd, SCD_COPY_NONSECURE_TO_SECURE);
+}
+
+static inline bool
+copy_from_secure_buffer(uint8_t *buf, size_t *size, int fd)
+{
+  return __do_secure_copy(buf, size, fd, SCD_COPY_SECURE_TO_NONSECURE);
+}
+
+static int fill_omx_input_buffer(OMX_BUFFERHEADERTYPE *omx_buf, bool secure);
 
 static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
                                        OMX_BUFFERHEADERTYPE  ***pBufHdrs,
@@ -437,17 +508,16 @@ void* ebd_thread(void* pArg)
     }
 
     pBuffer->nOffset = 0;
-    if(((readBytes = Read_Buffer(pBuffer)) > 0) && !signal_eos) {
+    readBytes = fill_omx_input_buffer(pBuffer, secure_mode);
+    if ((readBytes > 0) && !signal_eos) {
       pBuffer->nFilledLen = readBytes;
       DEBUG_PRINT("%s: Timestamp sent(%lld)", __FUNCTION__, pBuffer->nTimeStamp);
       OMX_EmptyThisBuffer(dec_handle,pBuffer);
       etb_count++;
-    }
-    else
-    {
+    } else {
       pBuffer->nFlags |= OMX_BUFFERFLAG_EOS;
       bInputEosReached = true;
-      pBuffer->nFilledLen = readBytes;
+      pBuffer->nFilledLen = 0;
       DEBUG_PRINT("%s: Timestamp sent(%lld)", __FUNCTION__, pBuffer->nTimeStamp);
       OMX_EmptyThisBuffer(dec_handle,pBuffer);
       DEBUG_PRINT("EBD::Either EOS or Some Error while reading file");
@@ -458,12 +528,78 @@ void* ebd_thread(void* pArg)
   return NULL;
 }
 
+static bool dump_yuv_frame_to_file(const uint8_t *data, size_t size)
+{
+  DEBUG_PRINT("format: 0x%x width: %d height: %d size: %u", color_fmt, crop_rect.nWidth, crop_rect.nHeight, size);
+
+  if (NULL == data)
+    return false;
+
+  size_t n_written = 0;
+
+  if (color_fmt == (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m) {
+    unsigned int stride = VENUS_Y_STRIDE(COLOR_FMT_NV12, portFmt.format.video.nFrameWidth);
+    unsigned int scanlines = VENUS_Y_SCANLINES(COLOR_FMT_NV12, portFmt.format.video.nFrameHeight);
+    const uint8_t *temp = data;
+
+    temp += (stride * (int)crop_rect.nTop) +  (int)crop_rect.nLeft;
+    for (int i = 0; i < crop_rect.nHeight; i++) {
+      n_written = fwrite(temp, crop_rect.nWidth, 1, outputBufferFile);
+      temp += stride;
+    }
+
+    temp = data + (stride * scanlines);
+    temp += (stride * (int)crop_rect.nTop) +  (int)crop_rect.nLeft;
+    for(int i = 0; i < crop_rect.nHeight/2; i++) {
+      n_written += fwrite(temp, crop_rect.nWidth, 1, outputBufferFile);
+      temp += stride;
+    }
+  } else {
+    n_written = fwrite(data, size, 1, outputBufferFile);
+  }
+
+  if (n_written) {
+    DEBUG_PRINT("FillBufferDone: Wrote %d YUV lines to the file", n_written);
+    return true;
+  } else {
+    DEBUG_PRINT_ERROR("FillBufferDone: Failed to write to the file");
+    return false;
+  }
+}
+
+static void log_yuv_frame(const OMX_BUFFERHEADERTYPE *pBuffer, bool secure)
+{
+  uint8_t *yuv_data;
+  bool ret = true;
+  size_t size = pBuffer->nFilledLen;
+
+  if (secure) {
+    int buf_fd = (int)(long)pBuffer->pBuffer;
+    yuv_data = output_nonsecure_buffer;
+    DEBUG_PRINT("buf_fd=%d, nFilledLen=%u, yuv_data=0x%x", buf_fd, size, (long)yuv_data);
+    bool ret = copy_from_secure_buffer(yuv_data, &size, buf_fd);
+    if (ret) {
+      static int copy_okay = 0;
+      DEBUG_PRINT("copy_okay=%d", ++copy_okay);
+    } else {
+      static int copy_fail = 0;
+      DEBUG_PRINT_ERROR("copy_fail=%d", ++copy_fail);
+    }
+  } else {
+    yuv_data = (uint8_t *)pBuffer->pBuffer;
+    DEBUG_PRINT("nFilledLen=%u, yuv_data=0x%x", size, (long)yuv_data);
+  }
+
+  if (ret)
+    dump_yuv_frame_to_file(yuv_data, size);
+}
+
 void* fbd_thread(void* pArg)
 {
   long unsigned act_time = 0, display_time = 0, render_time = 5e3, lipsync = 15e3;
   struct timeval t_avsync = {0, 0}, base_avsync = {0, 0};
   float total_time = 0;
-  int contigous_drop_frame = 0, bytes_written = 0, ret = 0;
+  int contigous_drop_frame = 0, ret = 0;
   OMX_S64 base_timestamp = 0, lastTimestamp = 0;
   OMX_BUFFERHEADERTYPE *pBuffer = NULL, *pPrevBuff = NULL;
   pthread_mutex_lock(&eos_lock);
@@ -516,7 +652,7 @@ void* fbd_thread(void* pArg)
     {
       if (!fbd_cnt)
       {
-        if (kpi_mode == 1) {
+        if (kpi_mode) {
           kpi_place_marker("M - Video Decoding 1st frame decoded");
         }
         gettimeofday(&t_start, NULL);
@@ -528,144 +664,7 @@ void* fbd_thread(void* pArg)
         __FUNCTION__, fbd_cnt, pBuffer, pBuffer->nTimeStamp);
 
       if (takeYuvLog)
-      {
-        if (color_fmt == (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m)
-        {
-           DEBUG_PRINT(" width: %d height: %d", crop_rect.nWidth, crop_rect.nHeight);
-           unsigned int stride = VENUS_Y_STRIDE(COLOR_FMT_NV12, portFmt.format.video.nFrameWidth);
-           unsigned int scanlines = VENUS_Y_SCANLINES(COLOR_FMT_NV12, portFmt.format.video.nFrameHeight);
-           char *temp = (char *) pBuffer->pBuffer;
-           int i = 0;
-
-           temp += (stride * (int)crop_rect.nTop) +  (int)crop_rect.nLeft;
-           for (i = 0; i < crop_rect.nHeight; i++) {
-             bytes_written = fwrite(temp, crop_rect.nWidth, 1, outputBufferFile);
-             temp += stride;
-           }
-
-           temp = (char *)pBuffer->pBuffer + stride * scanlines;
-           temp += (stride * (int)crop_rect.nTop) +  (int)crop_rect.nLeft;
-           for(i = 0; i < crop_rect.nHeight/2; i++) {
-             bytes_written += fwrite(temp, crop_rect.nWidth, 1, outputBufferFile);
-             temp += stride;
-           }
-         }
-         else
-         {
-           bytes_written = fwrite((const char *)pBuffer->pBuffer,
-                   pBuffer->nFilledLen,1,outputBufferFile);
-         }
-         if (bytes_written < 0) {
-           DEBUG_PRINT("FillBufferDone: Failed to write to the file");
-         }
-         else {
-           DEBUG_PRINT("FillBufferDone: Wrote %d YUV bytes to the file",
-                  bytes_written);
-         }
-      }
-      if (pBuffer->nFlags & OMX_BUFFERFLAG_EXTRADATA)
-      {
-        OMX_OTHER_EXTRADATATYPE *pExtra;
-        DEBUG_PRINT(">> BUFFER WITH EXTRA DATA RCVD <<<");
-        pExtra = (OMX_OTHER_EXTRADATATYPE *)
-                 ((size_t)(pBuffer->pBuffer + pBuffer->nOffset +
-                  pBuffer->nFilledLen + 3)&(~3));
-        while(pExtra &&
-              (OMX_U8*)pExtra < (pBuffer->pBuffer + pBuffer->nAllocLen) &&
-              pExtra->eType != OMX_ExtraDataNone )
-        {
-          DEBUG_PRINT("ExtraData : pBuf(%p) BufTS(%lld) Type(%x) DataSz(%u)",
-               pBuffer, pBuffer->nTimeStamp, pExtra->eType, pExtra->nDataSize);
-          switch (pExtra->eType)
-          {
-            case OMX_ExtraDataInterlaceFormat:
-            {
-              OMX_STREAMINTERLACEFORMAT *pInterlaceFormat = (OMX_STREAMINTERLACEFORMAT *)pExtra->data;
-              DEBUG_PRINT("OMX_ExtraDataInterlaceFormat: Buf(%p) TSmp(%lld) IntPtr(%p) Fmt(%x)",
-                pBuffer->pBuffer, pBuffer->nTimeStamp,
-                pInterlaceFormat, pInterlaceFormat->nInterlaceFormats);
-              break;
-            }
-            case OMX_ExtraDataFrameInfo:
-            {
-              OMX_QCOM_EXTRADATA_FRAMEINFO *frame_info = (OMX_QCOM_EXTRADATA_FRAMEINFO *)pExtra->data;
-              DEBUG_PRINT("OMX_ExtraDataFrameInfo: Buf(%p) TSmp(%lld) PicType(%u) IntT(%u) ConMB(%u)",
-                pBuffer->pBuffer, pBuffer->nTimeStamp, frame_info->ePicType,
-                frame_info->interlaceType, frame_info->nConcealedMacroblocks);
-              DEBUG_PRINT(" FrmRate(%u), AspRatioX(%u), AspRatioY(%u) DispWidth(%u) DispHeight(%u)",
-                frame_info->nFrameRate, frame_info->aspectRatio.aspectRatioX,
-                frame_info->aspectRatio.aspectRatioY, frame_info->displayAspectRatio.displayHorizontalSize,
-                frame_info->displayAspectRatio.displayVerticalSize);
-              DEBUG_PRINT("PANSCAN numWindows(%d)", frame_info->panScan.numWindows);
-              for (int i = 0; i < frame_info->panScan.numWindows; i++)
-              {
-                DEBUG_PRINT("WINDOW Lft(%d) Tp(%d) Rgt(%d) Bttm(%d)",
-                  frame_info->panScan.window[i].x,
-                  frame_info->panScan.window[i].y,
-                  frame_info->panScan.window[i].dx,
-                  frame_info->panScan.window[i].dy);
-              }
-              break;
-            }
-            break;
-            case OMX_ExtraDataConcealMB:
-            {
-              OMX_U8 data = 0, *data_ptr = (OMX_U8 *)pExtra->data;
-              OMX_U32 concealMBnum = 0, bytes_cnt = 0;
-              while (bytes_cnt < pExtra->nDataSize)
-              {
-                data = *data_ptr;
-                while (data)
-                {
-                  concealMBnum += (data&0x01);
-                  data >>= 1;
-                }
-                data_ptr++;
-                bytes_cnt++;
-              }
-              DEBUG_PRINT("OMX_ExtraDataConcealMB: Buf(%p) TSmp(%lld) ConcealMB(%u)",
-                pBuffer->pBuffer, pBuffer->nTimeStamp, concealMBnum);
-            }
-            break;
-            case OMX_ExtraDataMP2ExtnData:
-            {
-              DEBUG_PRINT("OMX_ExtraDataMP2ExtnData");
-              OMX_U8 data = 0, *data_ptr = (OMX_U8 *)pExtra->data;
-              OMX_U32 bytes_cnt = 0;
-              while (bytes_cnt < pExtra->nDataSize)
-              {
-                DEBUG_PRINT(" MPEG-2 Extension Data Values[%d] = 0x%x", bytes_cnt, *data_ptr);
-                data_ptr++;
-                bytes_cnt++;
-              }
-            }
-            break;
-            case OMX_ExtraDataMP2UserData:
-            {
-              DEBUG_PRINT("OMX_ExtraDataMP2UserData");
-              OMX_U8 data = 0, *data_ptr = (OMX_U8 *)pExtra->data;
-              OMX_U32 bytes_cnt = 0;
-              while (bytes_cnt < pExtra->nDataSize)
-              {
-                DEBUG_PRINT(" MPEG-2 User Data Values[%d] = 0x%x", bytes_cnt, *data_ptr);
-                data_ptr++;
-                bytes_cnt++;
-              }
-            }
-            break;
-            default:
-              DEBUG_PRINT_ERROR("Unknown Extrata!");
-          }
-          if (pExtra->nSize < (pBuffer->nAllocLen - (size_t)pExtra))
-            pExtra = (OMX_OTHER_EXTRADATATYPE *) (((OMX_U8 *) pExtra) + pExtra->nSize);
-          else
-          {
-            DEBUG_PRINT_ERROR("ERROR: Extradata pointer overflow buffer(%p) extra(%p)",
-              pBuffer, pExtra);
-            pExtra = NULL;
-          }
-        }
-      }
+        log_yuv_frame(pBuffer, secure_mode);
     }
     if(pBuffer->nFlags & QOMX_VIDEO_BUFFERFLAG_EOSEQ)
     {
@@ -938,13 +937,107 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
 }
 
 #define KPI_INDICATOR_STR "+kpi+"
+#define SECURE_INDICATOR_STR "+secure+"
+
+enum {
+  OMX_LITE_NORMAL = 0,
+  OMX_LITE_KPI = 0x1,
+  OMX_LITE_SECURE = 0x2,
+};
+
+struct mode_desc {
+  const char *str;
+  int   len;
+  int  mode;
+};
+
+static struct mode_desc modes[] = {
+  { KPI_INDICATOR_STR, sizeof(KPI_INDICATOR_STR) - 1, OMX_LITE_KPI },
+  { SECURE_INDICATOR_STR, sizeof(SECURE_INDICATOR_STR) - 1, OMX_LITE_SECURE },
+};
+
+#define NUM_MODES ARRAY_SIZE(modes)
+
+int parse_argv1_mode_and_infile(const char *argv1)
+{
+  const char *filename;
+  int i;
+
+  printf("*** ");
+  for (i = 0; i < NUM_MODES; i++) {
+    if (!strncmp(argv1, modes[i].str, modes[i].len)) {
+      filename = argv1 + modes[i].len;
+      if (modes[i].mode & OMX_LITE_KPI) {
+        kpi_mode = true;
+        printf("Run in KPI mode\n");
+        break;
+      }
+      if (modes[i].mode & OMX_LITE_SECURE) {
+        secure_mode = true;
+        printf("Run in secure mode\n");
+        break;
+      }
+    }
+  }
+
+  if (NUM_MODES == i) {
+    filename = argv1;
+    printf("Run in normal mode\n");
+  }
+
+  if (strlen(filename) == 0) {
+    printf("Input filename length is zero!\n");
+    return -1;
+  }
+
+  if (access(filename, R_OK) < 0) {
+    perror(filename);
+    return -1;
+  }
+  strlcpy(in_filename, filename, sizeof(in_filename));
+
+  if (kpi_mode) {
+    // For early kpi mode, wait to ensure all is ready during board bootup.
+    usleep(30000);
+  }
+
+  return 0;
+}
+
+static void parse_argv4_output_option(const char *argv4)
+{
+  int output_option = atoi(argv4);
+  int format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
+
+  takeYuvLog = 0;
+
+  switch (output_option) {
+  case 0: break;
+  case 2: takeYuvLog = 1; break;
+  case 8:
+    format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed;
+    break;
+  case 10:
+    takeYuvLog = 1;
+    format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed;
+    break;
+  default:
+    DEBUG_PRINT_ERROR("Output option %d unknown", output_option);
+    break;
+  }
+
+  color_fmt = (OMX_COLOR_FORMATTYPE)format;
+  DEBUG_PRINT("takeYuvLog=%d, color_fmt=0x%x", takeYuvLog, color_fmt);
+}
 
 static void print_usage(char **argv)
 {
   printf("%s <infile_path> <codec_type> <file_type> <output_op> <test_op> <num_frames>\n", argv[0]);
   printf("<codec_type>\t1:h264, 9:h265\n");
   printf("<file_type>\t4:byte-stream\n");
-  printf("<output_op>\t0:no output, 2:dump frames to yuvframes.yuv file under current dir\n");
+  printf("<output_op>\t"
+    "0: decoded as linear yuv but no output, 2: decoded as linear yuv but dump frames to yuvframes.yuv file under current dir\n\t\t"
+    "8: decoded as UBWC yuv but no output,  10: decoded as UBWC yuv but dump frames to yuvframes.yuv file under current dir\n");
   printf("<test_op>\t1:decode till file end, 0:only decode <num_frame> frames\n");
   printf("<num_frames>\t0:when test_op=1, N:num of frames to decode when test_op=0\n\n");
 
@@ -952,16 +1045,16 @@ static void print_usage(char **argv)
   printf("For h264: %s xxx.h264 1 4 2 1 0\n", argv[0]);
   printf("For h265: %s xxx.h265 9 4 2 1 0\n", argv[0]);
   printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
+
   printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
-  printf("kpi example: %s %s/data/xxx.h264 1 4 0 1 0\n\n", argv[0], KPI_INDICATOR_STR);
+  printf("Example: %s %s/data/xxx.h264 1 4 0 1 0\n\n", argv[0], KPI_INDICATOR_STR);
+
+  printf("For secure mode, add %s before input file without blank\n", SECURE_INDICATOR_STR);
+  printf("Example: %s %s/data/xxx.h264 1 4 0 1 0\n\n", argv[0], SECURE_INDICATOR_STR);
 }
 
 int main(int argc, char **argv)
 {
-  int i=0;
-  int bufCnt=0;
-  int num=0;
-  int outputOption = 0;
   int test_option = 0;
   int pic_order = 0;
   OMX_ERRORTYPE result;
@@ -973,6 +1066,8 @@ int main(int argc, char **argv)
   crop_rect.nWidth = width;
   crop_rect.nHeight = height;
 
+  omx_debug_level_init();
+
   if (argc < 7)
   {
     print_usage(argv);
@@ -982,7 +1077,7 @@ int main(int argc, char **argv)
   {
     codec_format_option = (codec_format)atoi(argv[2]);
     file_type_option = (file_type)atoi(argv[3]);
-    outputOption = atoi(argv[4]); /* 0: no output, 2: log yuv frames to file */
+    parse_argv4_output_option(argv[4]);
     test_option = atoi(argv[5]);
     if (0 == test_option) {
       num_frames_to_decode = atoi(argv[6]);
@@ -993,29 +1088,11 @@ int main(int argc, char **argv)
     printf("*******************************************************\n");
     printf("*** codec=%d,file_type=%d,output=%d,test=%d,frames=%d\n",
         codec_format_option, file_type_option,
-        outputOption, test_option, num_frames_to_decode);
+        atoi(argv[4]), test_option, num_frames_to_decode);
   }
 
-  {
-    char* infilename_argptr = NULL;
-    if (0 == strncmp(argv[1], KPI_INDICATOR_STR, strlen(KPI_INDICATOR_STR))) {
-      kpi_mode = 1;
-      infilename_argptr = &(argv[1][strlen(KPI_INDICATOR_STR)]);
-      if (infilename_argptr[0] == '\0') {
-        printf("Missing real input file in cmd line for kpi mode!\n");
-        return -1;
-      }
-      usleep(30000);//For early kpi mode, wait for a while to ensure everything is ready during board bootup.
-    }else{
-      infilename_argptr = argv[1];
-    }
-
-    strlcpy(in_filename, infilename_argptr, sizeof(in_filename));
-    if (access(in_filename, R_OK) < 0) {
-      perror(in_filename);
-      return -1;
-    }
-  }
+  if (parse_argv1_mode_and_infile(argv[1]))
+    return -1;
 
   if (file_type_option >= FILE_TYPE_COMMON_CODEC_MAX)
   {
@@ -1038,16 +1115,10 @@ int main(int argc, char **argv)
   if (pic_order == 1)
     picture_order.eOutputPictureOrder = QOMX_VIDEO_DECODE_ORDER;
 
-  takeYuvLog = 0;
-  if (outputOption == 2)
-  {
-    takeYuvLog = 1;
-  }
-
   printf("Input values: inputfilename[%s]\n", in_filename);
   printf("*******************************************************\n");
   gettimeofday(&t_main, NULL);
-  if (kpi_mode == 1) {
+  if (kpi_mode) {
     kpi_place_marker("M - Video Decoding begin preparing");
   }
   pthread_cond_init(&cond, 0);
@@ -1087,8 +1158,9 @@ int main(int argc, char **argv)
     free_queue(fbd_queue);
     return -1;
   }
+  pthread_setname_np(fbd_thread_id, "fbd_thread");
 
-  run_tests();
+  run_tests(secure_mode);
 
   pthread_cond_destroy(&cond);
   pthread_mutex_destroy(&lock);
@@ -1108,7 +1180,7 @@ int main(int argc, char **argv)
   return 0;
 }
 
-int run_tests()
+int run_tests(bool secure)
 {
   int cmd_error = 0;
   DEBUG_PRINT("Inside %s", __FUNCTION__);
@@ -1140,12 +1212,12 @@ int run_tests()
     case FILE_TYPE_264_START_CODE_BASED:
     case FILE_TYPE_264_NAL_SIZE_LENGTH:
     case FILE_TYPE_265_START_CODE_BASED:
-      if(Init_Decoder()!= 0x00)
+      if(Init_Decoder(secure) != 0x00)
       {
         DEBUG_PRINT_ERROR("Error - Decoder Init failed");
         return -1;
       }
-      if(Play_Decoder() != 0x00)
+      if(Play_Decoder(secure) != 0x00)
       {
         return -1;
       }
@@ -1177,7 +1249,79 @@ int run_tests()
   return 0;
 }
 
-int Init_Decoder()
+static bool alloc_nonsecure_buffer(uint8_t **buf, size_t size)
+{
+  *buf = (uint8_t *)malloc(size);
+  if (NULL == *buf) {
+    perror(__func__);
+    return false;
+  }
+
+  return true;
+}
+
+static void free_nonsecure_buffer(uint8_t **buf)
+{
+  if (*buf) {
+    free(*buf);
+    *buf = NULL;
+  }
+}
+
+static int fill_omx_input_buffer(OMX_BUFFERHEADERTYPE *omx_buf, bool secure)
+{
+  uint8_t *data = NULL;
+
+  if (secure) {
+    data = input_nonsecure_buffer;
+  } else {
+    data = omx_buf->pBuffer;
+  }
+
+  ssize_t bytes = Read_Buffer(data);
+  if (bytes <= 0)
+    return bytes;
+
+  omx_buf->nTimeStamp = timeStampLfile;
+  timeStampLfile += timestampInterval;
+
+  if (secure) {
+    int sec_buf_fd = (int)(long)(omx_buf->pBuffer);
+    int ret = copy_to_secure_buffer(data, (size_t *)&bytes, sec_buf_fd);
+    if (!ret)
+      return -1;
+  }
+
+  return (int)bytes;
+}
+
+static bool get_omx_component_name(char *name, size_t size, bool secure)
+{
+  const char *cname;
+
+  switch (codec_format_option) {
+  case CODEC_FORMAT_H264:
+    cname = "OMX.qcom.video.decoder.avc";
+    break;
+  case CODEC_FORMAT_HEVC:
+    cname = "OMX.qcom.video.decoder.hevc";
+    break;
+  default:
+    DEBUG_PRINT_ERROR("Unsupported codec %d", codec_format_option);
+    return false;
+  }
+
+  if (strlcpy(name, cname, size) >= size)
+    return false;
+
+  if (secure)
+    if (strlcat(name, ".secure", size) >= size)
+      return false;
+
+  return true;
+}
+
+int Init_Decoder(bool secure)
 {
   DEBUG_PRINT("Inside %s ", __FUNCTION__);
   OMX_ERRORTYPE omxresult;
@@ -1203,26 +1347,15 @@ int Init_Decoder()
     DEBUG_PRINT_ERROR("OpenMAX Core Init Done");
   }
 
-  if (codec_format_option == CODEC_FORMAT_H264)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.avc", sizeof(vdecCompNames));
-  }
-  else if (codec_format_option == CODEC_FORMAT_HEVC)
-  {
-    strlcpy(vdecCompNames, "OMX.qcom.video.decoder.hevc", sizeof(vdecCompNames));
-  }
-  else
-  {
-    DEBUG_PRINT_ERROR("Error: Unsupported codec %d", codec_format_option);
+  if (!get_omx_component_name(vdecCompNames, sizeof(vdecCompNames), secure))
     return -1;
-  }
 
   omxresult = OMX_GetHandle((OMX_HANDLETYPE*)(&dec_handle),
                     (OMX_STRING)vdecCompNames, NULL, &call_back);
   if (FAILED(omxresult)) {
     DEBUG_PRINT_ERROR("Failed to Load the component:%s", vdecCompNames);
     printf("Failed to Load the component:%s, OMX_GetHandle() ret 0x%08x\n", vdecCompNames, omxresult);
-    if (kpi_mode == 1) {
+    if (kpi_mode) {
       char msg[128] = {0};
       snprintf(msg, sizeof(msg), "E - Video Dec getHandle 0x%08x err", omxresult);
       kpi_place_marker(msg);
@@ -1274,7 +1407,7 @@ int Init_Decoder()
   return 0;
 }
 
-int Play_Decoder()
+int Play_Decoder(bool secure)
 {
   OMX_VIDEO_PARAM_PORTFORMATTYPE videoportFmt = {0};
   int i, bufCnt, index = 0;
@@ -1312,12 +1445,6 @@ int Play_Decoder()
   OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
              (OMX_PTR)&inputPortFmt);
 
-  QOMX_ENABLETYPE extra_data;
-  extra_data.bEnable = OMX_TRUE;
-
-  OMX_SetParameter(dec_handle,(OMX_INDEXTYPE)OMX_QcomIndexParamFrameInfoExtraData,
-           (OMX_PTR)&extra_data);
-
   /* Query the decoder outport's min buf requirements */
   CONFIG_VERSION_SIZE(portFmt);
 
@@ -1345,9 +1472,7 @@ int Play_Decoder()
   DEBUG_PRINT("Dec: New Min Buffer Count %d", portFmt.nBufferCountMin);
   CONFIG_VERSION_SIZE(videoportFmt);
 
-  color_fmt = (OMX_COLOR_FORMATTYPE)
-       QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
-
+  /* enumerate to set color format */
   while (ret == OMX_ErrorNone)
   {
     videoportFmt.nPortIndex = 1;
@@ -1417,6 +1542,11 @@ int Play_Decoder()
     DEBUG_PRINT("OMX_AllocateBuffer Input buffer success");
   }
 
+  if (secure)
+    if (!alloc_nonsecure_buffer(&input_nonsecure_buffer, portFmt.nBufferSize))
+      return -1;
+
+  /* Below are output port initialization. */
   portFmt.nPortIndex = portParam.nStartPortNumber+1;
   // Port for which the Client needs to obtain info
 
@@ -1498,9 +1628,9 @@ int Play_Decoder()
   for (i = 0; i < used_ip_buf_cnt; i++) {
     pInputBufHdrs[i]->nInputPortIndex = 0;
     pInputBufHdrs[i]->nOffset = 0;
-    if((frameSize = Read_Buffer(pInputBufHdrs[i])) <= 0 ){
+    if ((frameSize = fill_omx_input_buffer(pInputBufHdrs[i], secure)) <= 0) {
       DEBUG_PRINT("NO FRAME READ");
-      pInputBufHdrs[i]->nFilledLen = frameSize;
+      pInputBufHdrs[i]->nFilledLen = 0;
       pInputBufHdrs[i]->nInputPortIndex = 0;
       pInputBufHdrs[i]->nFlags |= OMX_BUFFERFLAG_EOS;;
       bInputEosReached = true;
@@ -1533,6 +1663,7 @@ int Play_Decoder()
     free_queue(fbd_queue);
     return -1;
   }
+  pthread_setname_np(ebd_thread_id, "ebd_thread");
 
   // wait for event port settings changed event
   DEBUG_PRINT("wait_for_event: dyn reconfig");
@@ -1550,6 +1681,10 @@ int Play_Decoder()
     if (output_port_reconfig() != 0)
       return -1;
   }
+
+  if (secure && takeYuvLog)
+    if (!alloc_nonsecure_buffer(&output_nonsecure_buffer, portFmt.nBufferSize))
+      return -1;
 
   return 0;
 }
@@ -1604,6 +1739,10 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
     for(bufCnt = 0; bufCnt < portFmt.nBufferCountActual; ++bufCnt) {
       OMX_FreeBuffer(dec_handle, 1, pOutYUVBufHdrs[bufCnt]);
     }
+    if (pOutYUVBufHdrs) {
+      free(pOutYUVBufHdrs);
+      pOutYUVBufHdrs = NULL;
+    }
     wait_for_event();
   }
 
@@ -1618,6 +1757,9 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
   /* Deinit OpenMAX */
   DEBUG_PRINT("[OMX Vdec Test] - De-initializing OMX ");
   OMX_Deinit();
+
+  free_nonsecure_buffer(&input_nonsecure_buffer);
+  free_nonsecure_buffer(&output_nonsecure_buffer);
 
   DEBUG_PRINT("[OMX Vdec Test] - closing all files");
   if(inputBufferFileFd != -1)
@@ -1654,14 +1796,14 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
   printf("*****************************************\n");
 }
 
-static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
+static int Read_Buffer_From_H264_Start_Code_File(uint8_t *data)
 {
   int bytes_read = 0;
   int cnt = 0;
   unsigned int code = 0;
   int naluType = 0;
   int newFrame = 0;
-  char *dataptr = (char *)pBufHdr->pBuffer;
+  char *dataptr = (char *)data;
   DEBUG_PRINT("Inside %s", __FUNCTION__);
   do
   {
@@ -1669,7 +1811,7 @@ static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
     bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
     if (!bytes_read)
     {
-      DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+      DEBUG_PRINT("Bytes read Zero, cnt=%d", cnt);
       break;
     }
     code <<= 8;
@@ -1677,67 +1819,66 @@ static int Read_Buffer_From_H264_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
     cnt++;
     if ((cnt == 4) && (code != H264_START_CODE))
     {
-      DEBUG_PRINT_ERROR("%s: ERROR: Invalid start code found 0x%x", __FUNCTION__, code);
+      DEBUG_PRINT_ERROR("ERROR: Invalid start code found 0x%x", code);
       cnt = 0;
       break;
     }
     if ((cnt > 4) && (code == H264_START_CODE))
     {
-      DEBUG_PRINT("%s: Found H264_START_CODE", __FUNCTION__);
+      DEBUG_PRINT("Found H264_START_CODE");
       bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
       if (!bytes_read)
       {
-        DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+        DEBUG_PRINT("Bytes read Zero");
         break;
       }
-      DEBUG_PRINT("%s: READ Byte[%d] = 0x%x", __FUNCTION__, cnt, dataptr[cnt]);
+      DEBUG_PRINT("READ Byte[%d] = 0x%x", cnt, dataptr[cnt]);
       naluType = dataptr[cnt] & 0x1F;
       cnt++;
       if ((naluType == 1) || (naluType == 5))
       {
-        DEBUG_PRINT("%s: Found AU", __FUNCTION__);
+        DEBUG_PRINT("Found AU");
         bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
         if (!bytes_read)
         {
-          DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+          DEBUG_PRINT("Bytes read Zero");
           break;
         }
-        DEBUG_PRINT("%s: READ Byte[%d] = 0x%x", __FUNCTION__, cnt, dataptr[cnt]);
+        DEBUG_PRINT("READ Byte[%d] = 0x%x", cnt, dataptr[cnt]);
         newFrame = (dataptr[cnt] & 0x80);
         cnt++;
         if (newFrame)
         {
           lseek64(inputBufferFileFd, -6, SEEK_CUR);
           cnt -= 6;
-          DEBUG_PRINT("%s: Found a NAL unit (type 0x%x) of size = %d", __FUNCTION__, (dataptr[4] & 0x1F), cnt);
+          DEBUG_PRINT("Found a NAL unit (type 0x%x) of size = %d", (dataptr[4] & 0x1F), cnt);
           break;
         }
         else
         {
-          DEBUG_PRINT("%s: Not a New Frame", __FUNCTION__);
+          DEBUG_PRINT("Not a New Frame");
         }
       }
       else
       {
         lseek64(inputBufferFileFd, -5, SEEK_CUR);
         cnt -= 5;
-        DEBUG_PRINT("%s: Found NAL unit (type 0x%x) of size = %d", __FUNCTION__, (dataptr[4] & 0x1F), cnt);
+        DEBUG_PRINT("Found NAL unit (type 0x%x) of size = %d", (dataptr[4] & 0x1F), cnt);
         break;
       }
     }
   } while (1);
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
+
   return cnt;
 }
-static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
+static int Read_Buffer_From_H265_Start_Code_File(uint8_t *data)
 {
   int bytes_read = 0;
   int cnt = 0;
   unsigned int code = 0;
   int naluType = 0;
   int newFrame = 0;
-  char *dataptr = (char *)pBufHdr->pBuffer;
+  char *dataptr = (char *)data;
   DEBUG_PRINT("Inside %s", __FUNCTION__);
   do
   {
@@ -1745,7 +1886,7 @@ static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
     bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
     if (!bytes_read)
     {
-      DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+      DEBUG_PRINT("Bytes read Zero, cnt=%d", cnt);
       break;
     }
     code <<= 8;
@@ -1753,20 +1894,20 @@ static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
     cnt++;
     if ((cnt == 4) && (code != H265_START_CODE))
     {
-      DEBUG_PRINT_ERROR("%s: ERROR: Invalid start code found 0x%x", __FUNCTION__, code);
+      DEBUG_PRINT_ERROR("ERROR: Invalid start code found 0x%x", code);
       cnt = 0;
       break;
     }
     if ((cnt > 4) && (code == H265_START_CODE))
     {
-      DEBUG_PRINT("%s: Found H265_START_CODE", __FUNCTION__);
+      DEBUG_PRINT("Found H265_START_CODE");
       bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
       if (!bytes_read)
       {
-        DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+        DEBUG_PRINT("Bytes read Zero");
         break;
       }
-      DEBUG_PRINT("%s: READ Byte[%d] = 0x%x", __FUNCTION__, cnt, dataptr[cnt]);
+      DEBUG_PRINT("READ Byte[%d] = 0x%x", cnt, dataptr[cnt]);
       naluType = (dataptr[cnt] & HEVC_NAL_UNIT_TYPE_MASK) >> 1;
       cnt++;
       if (naluType <= HEVC_NAL_UNIT_TYPE_VCL_LIMIT &&
@@ -1779,45 +1920,44 @@ static int Read_Buffer_From_H265_Start_Code_File(OMX_BUFFERHEADERTYPE  *pBufHdr)
           naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_R13 &&
           naluType != HEVC_NAL_UNIT_TYPE_RSV_VCL_R15)
       {
-        DEBUG_PRINT("%s: Found AU for HEVC \n", __FUNCTION__);
+        DEBUG_PRINT("Found AU for HEVC");
         bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
         if (!bytes_read)
         {
-          DEBUG_PRINT("%s: Bytes read Zero", __FUNCTION__);
+          DEBUG_PRINT("Bytes read Zero");
           break;
         }
         cnt ++;
         bytes_read = read(inputBufferFileFd, &dataptr[cnt], 1);
-        DEBUG_PRINT("%s: READ Byte[%d] = 0x%x firstsliceflag %d\n", __FUNCTION__, cnt, dataptr[cnt],dataptr[cnt] >>7);
+        DEBUG_PRINT("READ Byte[%d] = 0x%x firstsliceflag %d", cnt, dataptr[cnt], dataptr[cnt] >> 7);
         newFrame = (dataptr[cnt] >>7); //firstsliceflag
         cnt++;
         if (newFrame)
         {
           lseek64(inputBufferFileFd, -7, SEEK_CUR);
           cnt -= 7;
-          DEBUG_PRINT("%s: Found a NAL unit (type 0x%x) of size = %d", __FUNCTION__, ((dataptr[4] & HEVC_NAL_UNIT_TYPE_MASK) >> 1), cnt);
+          DEBUG_PRINT("Found a NAL unit (type 0x%x) of size = %d", ((dataptr[4] & HEVC_NAL_UNIT_TYPE_MASK) >> 1), cnt);
           break;
         }
         else
         {
-          DEBUG_PRINT("%s: Not a New Frame", __FUNCTION__);
+          DEBUG_PRINT("Not a New Frame");
         }
       }
       else
       {
         lseek64(inputBufferFileFd, -5, SEEK_CUR);
         cnt -= 5;
-        DEBUG_PRINT("%s: Found NAL unit (type 0x%x) of size = %d", __FUNCTION__, ((dataptr[4] & HEVC_NAL_UNIT_TYPE_MASK) >> 1), cnt);
+        DEBUG_PRINT("Found NAL unit (type 0x%x) of size = %d", ((dataptr[4] & HEVC_NAL_UNIT_TYPE_MASK) >> 1), cnt);
         break;
       }
     }
   } while (1);
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
+
   return cnt;
 }
 
-static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr)
+static int Read_Buffer_From_Size_Nal(uint8_t *data)
 {
   // NAL unit stream processing
   char temp_size[SIZE_NAL_FIELD_MAX];
@@ -1827,7 +1967,7 @@ static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr)
   int bytes_read = 0;
 
   // read the "size_nal_field"-byte size field
-  bytes_read = read(inputBufferFileFd, pBufHdr->pBuffer + pBufHdr->nOffset, nalSize);
+  bytes_read = read(inputBufferFileFd, data, nalSize);
   if (bytes_read == 0 || bytes_read == -1)
   {
     DEBUG_PRINT("Failed to read frame or it might be EOF");
@@ -1842,19 +1982,16 @@ static int Read_Buffer_From_Size_Nal(OMX_BUFFERHEADERTYPE  *pBufHdr)
   /* Due to little endiannes, Reorder the size based on size_nal_field */
   for (j=0; i<SIZE_NAL_FIELD_MAX; i++, j++)
   {
-    temp_size[SIZE_NAL_FIELD_MAX - 1 - i] = pBufHdr->pBuffer[pBufHdr->nOffset + j];
+    temp_size[SIZE_NAL_FIELD_MAX - 1 - i] = ((char *)data)[j];
   }
   size = (unsigned int)(*((unsigned int *)(temp_size)));
 
   // now read the data
-  bytes_read = read(inputBufferFileFd, pBufHdr->pBuffer + pBufHdr->nOffset + nalSize, size);
+  bytes_read = read(inputBufferFileFd, data + nalSize, size);
   if (bytes_read != size)
   {
     DEBUG_PRINT_ERROR("Failed to read frame");
   }
-
-  pBufHdr->nTimeStamp = timeStampLfile;
-  timeStampLfile += timestampInterval;
 
   return bytes_read + nalSize;
 }
