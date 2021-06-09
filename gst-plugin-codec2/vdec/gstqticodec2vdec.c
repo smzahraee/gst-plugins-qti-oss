@@ -228,11 +228,6 @@ gst_qticodec2vdec_create_component (GstVideoDecoder* decoder) {
     if (ret ==  FALSE) {
        GST_DEBUG_OBJECT (dec, "Failed to create linear pool");
     }
-
-    ret = c2component_createBlockpool(dec->comp, BUFFER_POOL_BASIC_GRAPHIC);
-    if (ret == FALSE) {
-      GST_DEBUG_OBJECT (dec, "Failed to create graphics pool");
-    }
   }
   else {
     GST_DEBUG_OBJECT (dec, "Component store is Null");
