@@ -1414,7 +1414,7 @@ bool InitializeCodec(OMX_U32 eCodec, int32_t filetype)
 
   if (eCodec >= OMX_VIDEO_CodingMax)
   {
-    VLOGE("invalid parameter: eCodec: %s", FindCodecNameByType(eCodec));
+    VLOGE("invalid parameter: eCodec: %d", eCodec);
     FUNCTION_EXIT();
     return false;
   }
@@ -1440,18 +1440,23 @@ bool InitializeCodec(OMX_U32 eCodec, int32_t filetype)
 
   m_Handle = NULL;
   const char * componentName = GetComponentRole(eCodec, filetype);
-  VLOGD("Get codec handle: %s", componentName);
   if (componentName == NULL)
   {
-    VLOGE("Error: Unsupported codec %s", FindCodecNameByType(eCodec));
+    VLOGE("Error: Unsupported codec %d", eCodec);
     FUNCTION_EXIT();
     return false;
   }
+  VLOGD("Get codec handle: %s", componentName);
 
   CheckIsSWCodec(componentName);
 
   result = OMX_GetHandle((OMX_HANDLETYPE*)(&m_Handle),
       (OMX_STRING)componentName, NULL, &callbacks);
+  if (m_Handle == NULL) {
+    VLOGE("Failed to get codec handle.");
+    FUNCTION_EXIT();
+    return false;
+  }
   CHECK_RESULT("Failed to get codec handle", result);
 
   QOMX_VIDEO_QUERY_DECODER_INSTANCES decoder_instances;
@@ -1467,22 +1472,6 @@ bool InitializeCodec(OMX_U32 eCodec, int32_t filetype)
   result = OMX_GetParameter(m_Handle, OMX_IndexParamVideoInit, (OMX_PTR)&portParam);
   CHECK_RESULT("get OMX_IndexParamVideoInit info", result);
   VLOGD("ports: %d, StartPortNumber: %d", portParam.nPorts, portParam.nStartPortNumber);
-
-  FUNCTION_EXIT();
-  return true;
-}
-
-bool SetExtraData()
-{
-  OMX_ERRORTYPE result = OMX_ErrorNone;
-  FUNCTION_ENTER();
-
-  QOMX_ENABLETYPE extra_data;
-  extra_data.bEnable = OMX_TRUE;
-  extra_data.nSize = sizeof(QOMX_ENABLETYPE);
-  result = OMX_SetParameter(m_Handle,(OMX_INDEXTYPE)OMX_QcomIndexParamFrameInfoExtraData,
-      (OMX_PTR)&extra_data);
-  CHECK_RESULT("Set OMX_QcomIndexParamFrameInfoExtraData error", result);
 
   FUNCTION_EXIT();
   return true;
@@ -1702,23 +1691,6 @@ bool SetNalSize(int32_t nalSize)
   return true;
 }
 #endif
-
-bool SetFramePackingFormat(int32_t fileType)
-{
-  OMX_ERRORTYPE result = OMX_ErrorNone;
-  FUNCTION_ENTER();
-
-  OMX_QCOM_PARAM_PORTDEFINITIONTYPE qcInPortFmt;
-  OMX_INIT_STRUCT(&qcInPortFmt, OMX_QCOM_PARAM_PORTDEFINITIONTYPE);
-  qcInPortFmt.nPortIndex = PORT_INDEX_IN;
-  qcInPortFmt.nFramePackingFormat = GetFramePackingFormat(fileType);
-  result = OMX_SetParameter(m_Handle,(OMX_INDEXTYPE)OMX_QcomIndexPortDefn,
-      (OMX_PTR)&qcInPortFmt);
-  CHECK_RESULT("Input set OMX_QcomIndexPortDefn error: FramePackingFormat", result);
-
-  FUNCTION_EXIT();
-  return true;
-}
 
 // codec is not used.
 bool RegisterBuffer(int32_t height, int32_t width, int colorformat, int codec, PortIndexType port)
@@ -1946,21 +1918,6 @@ bool ConfigureCodec(VideoCodecSetting_t *codecSettings)
   CheckFpsControl(codecSettings->nFrameRate);
   CheckIfNeedToWaitReconfig(codecSettings->nFrameHeight,
       codecSettings->nFrameWidth, codecSettings->eCodec);
-  result = SetFramePackingFormat(codecSettings->nFileType);
-  CHECK_BOOL("Set frame packing format failed", result);
-
-  if (codecSettings->eCodec != OMX_VIDEO_CodingMPEG4 &&
-      codecSettings->eCodec != OMX_VIDEO_CodingH263 &&
-      codecSettings->eCodec != OMX_VIDEO_CodingWMV &&
-      codecSettings->eCodec != QOMX_VIDEO_CodingDivx)
-  {
-    result = SetExtraData();
-    CHECK_BOOL("Set extra data failed", result);
-  }
-  else
-  {
-    VLOGD("Skip extra data settings for SW Codec MPEG4 and H263");
-  }
 
   // set input port
   result = SetInPortParameters(codecSettings->nFileType, codecSettings->nFrameHeight,

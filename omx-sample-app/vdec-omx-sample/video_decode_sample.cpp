@@ -360,8 +360,16 @@ void PrintStatisticalData() {
   VLOGP("\n\n=======================Statistical Data=====================");
   VLOGP("Input file name: %s", m_InputFileName);
   VLOGP("Output file name: %s", m_OutputFileName);
-  VLOGP("Output file format: %s", color_name);
-  VLOGP("Codec: %s", codec_name);
+  if (color_name != NULL) {
+    VLOGP("Output file format: %s", color_name);
+  } else {
+    VLOGP("Output file format: Invalid color format");
+  }
+  if (codec_name != NULL) {
+    VLOGP("Codec: %s", codec_name);
+  } else {
+    VLOGP("Codec: Invalid codec");
+  }
   VLOGP("Decode input data size: %d bytes", m_InputDataSize);
   VLOGP("Decode output data size: %d bytes", m_OutputDataSize);
   VLOGP("Decode Time: %fs", total_time);
