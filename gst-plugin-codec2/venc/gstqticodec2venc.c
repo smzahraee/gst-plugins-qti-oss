@@ -276,11 +276,6 @@ gst_qticodec2venc_create_component (GstVideoEncoder* encoder) {
        GST_DEBUG_OBJECT (enc, "Failed to set event handler");
     }
 
-    ret = c2component_createBlockpool(enc->comp, BUFFER_POOL_BASIC_LINEAR);
-    if (ret ==  FALSE) {
-       GST_DEBUG_OBJECT (enc, "Failed to create linear pool");
-    }
-
     ret = c2component_createBlockpool(enc->comp, BUFFER_POOL_BASIC_GRAPHIC);
     if (ret == FALSE) {
       GST_DEBUG_OBJECT (enc, "Failed to create graphics pool");
