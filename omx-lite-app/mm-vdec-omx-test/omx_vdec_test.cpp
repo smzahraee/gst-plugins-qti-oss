@@ -364,29 +364,6 @@ static int Read_Buffer_From_H264_Start_Code_File(uint8_t *data);
 static int Read_Buffer_From_H265_Start_Code_File(uint8_t *data);
 static int Read_Buffer_From_Size_Nal(uint8_t *data);
 
-static bool __do_secure_copy(uint8_t *buf, size_t *size, int fd, int direction)
-{
-  secure_copy *sc = secure_copy::instance();
-
-  DEBUG_PRINT("bytes=%lu, fd=%d, direction=%d", *size, fd, direction);
-  bool ret = sc->copy(buf, *size, fd, 0, size, direction);
-  DEBUG_PRINT("copied %lu bytes, ret=%d", *size, ret);
-
-  return ret;
-}
-
-static inline bool
-copy_to_secure_buffer(const uint8_t *buf, size_t *size, int fd)
-{
-  return __do_secure_copy((uint8_t *)buf, size, fd, SCD_COPY_NONSECURE_TO_SECURE);
-}
-
-static inline bool
-copy_from_secure_buffer(uint8_t *buf, size_t *size, int fd)
-{
-  return __do_secure_copy(buf, size, fd, SCD_COPY_SECURE_TO_NONSECURE);
-}
-
 static int fill_omx_input_buffer(OMX_BUFFERHEADERTYPE *omx_buf, bool secure);
 
 static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
