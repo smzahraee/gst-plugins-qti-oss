@@ -112,4 +112,17 @@ std::vector<std::shared_ptr<const C2Component::Traits>> C2ComponentStoreAdapter:
     return result;
 }
 
+bool C2ComponentStoreAdapter::isComponentSupported(char* name) {
+    if (!name)
+        return false;
+
+    for (auto cs: listComponents()) {
+        std::string comp_name(name);
+        if (cs->name.compare(comp_name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace QTI
