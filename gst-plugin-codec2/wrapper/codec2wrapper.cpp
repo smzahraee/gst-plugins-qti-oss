@@ -40,6 +40,8 @@
 #include <C2Buffer.h>
 #include <gst/gst.h>
 #include <C2AllocatorGBM.h>
+// config for some vendor parameters
+#include "QC2V4L2Config.h"
 
 
 GST_DEBUG_CATEGORY (gst_qticodec2wrapper_debug);
@@ -60,13 +62,17 @@ std::unique_ptr<C2Param> setVideoPixelformat (gpointer param);
 std::unique_ptr<C2Param> setVideoResolution (gpointer param);
 std::unique_ptr<C2Param> setVideoBitrate (gpointer param);
 std::unique_ptr<C2Param> setRateControl (gpointer param);
+std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param);
+std::unique_ptr<C2Param> setDecLowLatency (gpointer param);
 
 // Function map for parameter configuration
 static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_PIXELFORMAT, setVideoPixelformat},
     {CONFIG_FUNCTION_KEY_RESOLUTION, setVideoResolution},
     {CONFIG_FUNCTION_KEY_BITRATE, setVideoBitrate},
-    {CONFIG_FUNCTION_KEY_RATECONTROL, setRateControl}
+    {CONFIG_FUNCTION_KEY_RATECONTROL, setRateControl},
+    {CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE, setOutputPictureOrderMode},
+    {CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, setDecLowLatency}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -153,6 +159,29 @@ std::unique_ptr<C2Param> setRateControl (gpointer param) {
     return C2Param::Copy(bitrateMode);
 }
 
+std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    qc2::C2VideoPictureOrder::output outputPictureOrderMode;
+    if (config->output_picture_order_mode == DECODER_ORDER)
+        outputPictureOrderMode.enable = C2_TRUE;
+    return C2Param::Copy(outputPictureOrderMode);
+}
+
+std::unique_ptr<C2Param> setDecLowLatency (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2GlobalLowLatencyModeTuning lowLatencyMode;
+    lowLatencyMode.value = C2_TRUE;
+
+    return C2Param::Copy(lowLatencyMode);
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // CodecCallback API handling
@@ -410,6 +439,20 @@ gboolean c2componentStore_listComponents (void* const comp_store, GPtrArray* arr
             g_ptr_array_add (array, (gpointer)component->name.c_str());
         }
         ret = true;
+    }
+
+    return ret;
+}
+
+gboolean c2componentStore_isComponentSupported (void* const comp_store, gchar* name) {
+    gboolean ret = FALSE;
+
+    if (comp_store) {
+        C2ComponentStoreAdapter* store_Wrapper = (C2ComponentStoreAdapter*)comp_store;
+
+        bool ret = store_Wrapper->isComponentSupported(name);
+        if (ret == true)
+          return TRUE;
     }
 
     return ret;
