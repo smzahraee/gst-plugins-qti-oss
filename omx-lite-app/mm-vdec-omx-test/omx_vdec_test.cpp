@@ -117,12 +117,13 @@ enum {
 #define gettid() syscall(SYS_gettid)
 #define getpid() syscall(SYS_getpid)
 
-static int omx_debug_level = 0;
+static int omx_debug_level = PRIO_ERROR;
 
 void omx_debug_level_init(void)
 {
   char *ptr = getenv("OMX_DEBUG_LEVEL");
-  omx_debug_level = ptr ? atoi(ptr) : 0;
+  omx_debug_level = ptr ? atoi(ptr) : omx_debug_level;
+  printf("omx_debug_level=0x%x\n", omx_debug_level);
 }
 
 #define DEBUG_PRINT_CTL(level, fmt, args...)   \
@@ -660,8 +661,7 @@ void* fbd_thread(void* pArg)
         printf("====>The first decoder output frame costs %d.%06d sec.\n",time_1st_cost_us/1000000,time_1st_cost_us%1000000);
       }
       fbd_cnt++;
-      DEBUG_PRINT("%s: fbd_cnt(%d) Buf(%p) Timestamp(%lld)",
-        __FUNCTION__, fbd_cnt, pBuffer, pBuffer->nTimeStamp);
+      DEBUG_PRINT_ERROR("fbd_cnt=%d pBuffer=%p Timestamp=%lld", fbd_cnt, pBuffer, pBuffer->nTimeStamp);
 
       if (takeYuvLog)
         log_yuv_frame(pBuffer, secure_mode);
