@@ -96,9 +96,13 @@ struct _Gstqticodec2vdec
   guint64 num_input_queued;
   guint64 num_output_done;
   gboolean downstream_supports_dma;
+  gboolean output_picture_order_mode;
+  gboolean low_latency_mode;
 
   GMutex pending_lock;
   GCond  pending_cond;
+  struct timeval start_time;
+  struct timeval first_frame_time;
 };
 
 /*

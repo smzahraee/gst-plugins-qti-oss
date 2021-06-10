@@ -57,6 +57,7 @@ public:
     c2_status_t createInterface (C2String name, void **const interface);
     C2String getName();
     std::vector<std::shared_ptr<const C2Component::Traits >> listComponents();
+    bool isComponentSupported(char* name);
 
 private:
     std::shared_ptr<C2ComponentStore> mStore;

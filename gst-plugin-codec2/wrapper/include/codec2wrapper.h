@@ -46,6 +46,8 @@ extern "C" {
 #define CONFIG_FUNCTION_KEY_BITRATE         "bitrate"
 #define CONFIG_FUNCTION_KEY_INTERLACE       "interlace"
 #define CONFIG_FUNCTION_KEY_RATECONTROL     "ratecontrol"
+#define CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY     "dec_low_latency"
+#define CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE "output_picture_order_mode"
 
 #define C2_TICKS_PER_SECOND 1000000
 
@@ -126,6 +128,12 @@ typedef enum {
 } EVENT_TYPE;
 
 typedef enum {
+    DEFAULT_ORDER = 0,
+    DISPLAY_ORDER,
+    DECODER_ORDER,
+} OUTPUT_PIC_ORDER;
+
+typedef enum {
     RC_OFF = 0,
     RC_CONST,
     RC_CBR_VFR,
@@ -176,6 +184,8 @@ typedef struct {
     union{
         RC_MODE_TYPE type;
     } rcMode;
+    guint output_picture_order_mode;
+    gboolean low_latency_mode;
 } ConfigParams;
 
 typedef void (*listener_cb)(const void* handle, EVENT_TYPE type, void* data);
@@ -188,6 +198,7 @@ const gchar* c2componentStore_getName (void* const comp_store);
 gboolean c2componentStore_createComponent (void* const comp_store, const gchar* name, void** const component);
 gboolean c2componentStore_createInterface (void* const comp_store, const gchar* name, void** const interface);
 gboolean c2componentStore_listComponents (void* const comp_store, GPtrArray* array);
+gboolean c2componentStore_isComponentSupported (void* const comp_store, gchar* name);
 gboolean c2componentStore_delete (void* comp_store);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
