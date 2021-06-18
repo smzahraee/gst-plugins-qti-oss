@@ -146,15 +146,6 @@ extern "C" {
 
 #include <inttypes.h>
 
-#ifdef USE_ION
-#include <linux/msm_ion.h>
-#if TARGET_ION_ABI_VERSION >= 2
-#include <ion/ion.h>
-#include <linux/dma-buf.h>
-#else
-#include <linux/ion.h>
-#endif
-#endif
 /************************************************************************/
 /*              #DEFINES                            */
 /************************************************************************/
@@ -198,19 +189,6 @@ extern "C" {
 /************************************************************************/
 /*              GLOBAL DECLARATIONS                     */
 /************************************************************************/
-#ifdef USE_ION
-#define PMEM_DEVICE "/dev/ion"
-#define MEM_HEAP_ID ION_CP_MM_HEAP_ID
-
-struct vdec_ion {
-  int dev_fd;
-  int data_fd;
-  struct ion_allocation_data alloc_data;
-};
-
-bool alloc_map_ion_memory(OMX_U32 buffer_size, struct vdec_ion *ion_info, int flag);
-void free_ion_memory(struct vdec_ion *buf_ion_info);
-#endif
 
 typedef enum {
   CODEC_FORMAT_H264 = 1,
@@ -384,8 +362,6 @@ static OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
                                     OMX_OUT OMX_BUFFERHEADERTYPE* pBuffer);
 
 static void do_freeHandle_and_clean_up(bool isDueToError);
-
-void getFreePmem();
 
 int kpi_place_marker(const char* str)
 {
@@ -2129,87 +2105,3 @@ void free_output_buffers()
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   }
 }
-
-void getFreePmem()
-{
-#ifndef USE_ION
-  int ret = -1;
-  /*Open pmem device and query free pmem*/
-  int pmem_fd = open (PMEM_DEVICE,O_RDWR);
-
-  if(pmem_fd < 0) {
-    ALOGE("Unable to open pmem device");
-    return;
-  }
-  struct pmem_freespace fs;
-  ret = ioctl(pmem_fd, PMEM_GET_FREE_SPACE, &fs);
-  if(ret) {
-    ALOGE("IOCTL to query pmem free space failed");
-    goto freespace_query_failed;
-  }
-  ALOGE("Available free space %lx largest chunk %lx", fs.total, fs.largest);
-freespace_query_failed:
-  close(pmem_fd);
-#endif
-}
-
-#ifdef USE_ION
-bool alloc_map_ion_memory(OMX_U32 buffer_size,
-              struct vdec_ion *ion_info, int flag)
-{
-  int dev_fd = -EINVAL;
-  int rc = -EINVAL;
-  int secure_mode = 0;
-
-  if (!ion_info || buffer_size <= 0) {
-    DEBUG_PRINT_ERROR("Invalid arguments to alloc_map_ion_memory");
-    return FALSE;
-  }
-  dev_fd = ion_open();
-  if (dev_fd < 0) {
-    DEBUG_PRINT_ERROR("opening ion device failed with fd = %d", dev_fd);
-    return FALSE;
-  }
-  ion_info->alloc_data.flags = flag;
-  ion_info->alloc_data.len = buffer_size;
-
-  ion_info->alloc_data.heap_id_mask = ION_HEAP(ION_SYSTEM_HEAP_ID);
-  if (secure_mode && (ion_info->alloc_data.flags & ION_FLAG_SECURE)) {
-    ion_info->alloc_data.heap_id_mask = ION_HEAP(MEM_HEAP_ID);
-  }
-      /* Use secure display cma heap for obvious reasons. */
-  if (ion_info->alloc_data.flags & ION_FLAG_CP_BITSTREAM) {
-    ion_info->alloc_data.heap_id_mask |= ION_HEAP(ION_SECURE_DISPLAY_HEAP_ID);
-  }
-  rc = ion_alloc_fd(dev_fd, ion_info->alloc_data.len, 0,
-                      ion_info->alloc_data.heap_id_mask, ion_info->alloc_data.flags,
-                      &ion_info->data_fd);
-
-  if (rc || ion_info->data_fd < 0) {
-    DEBUG_PRINT_ERROR("ION ALLOC memory failed");
-    ion_close(ion_info->dev_fd);
-    ion_info->data_fd = -1;
-    ion_info->dev_fd = -1;
-    return FALSE;
-  }
-  ion_info->dev_fd = dev_fd;
-
-  return TRUE;
-}
-
-void free_ion_memory(struct vdec_ion *buf_ion_info) {
-
-  if(!buf_ion_info) {
-    DEBUG_PRINT_ERROR(" ION: free called with invalid fd/allocdata");
-    return;
-  }
-  if (buf_ion_info->data_fd >= 0) {
-    close(buf_ion_info->data_fd);
-    buf_ion_info->data_fd = -1;
-  }
-  if (buf_ion_info->dev_fd >= 0) {
-    ion_close(buf_ion_info->dev_fd);
-    buf_ion_info->dev_fd = -1;
-  }
-}
-#endif
