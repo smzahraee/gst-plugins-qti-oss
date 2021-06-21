@@ -59,11 +59,6 @@ static void gst_qeavb_ts_src_set_property (GObject * object, guint prop_id,
 static void gst_qeavb_ts_src_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
 
-static gboolean gst_qeavb_ts_src_setcaps (GstBaseSrc * basesrc,
-    GstCaps * caps);
-static GstCaps *gst_qeavb_ts_src_fixate (GstBaseSrc * bsrc, GstCaps * caps);
-static gboolean gst_qeavb_ts_src_query (GstBaseSrc * basesrc, GstQuery * query);
-
 static gboolean gst_qeavb_ts_src_start (GstBaseSrc * basesrc);
 static gboolean gst_qeavb_ts_src_stop (GstBaseSrc * basesrc);
 static GstFlowReturn gst_qeavb_ts_src_fill (GstPushSrc * pushsrc, GstBuffer *
@@ -102,9 +97,6 @@ gst_qeavb_ts_src_class_init (GstQeavbTsSrcClass * klass)
   basesrc_class->start = GST_DEBUG_FUNCPTR (gst_qeavb_ts_src_start);
   basesrc_class->stop = GST_DEBUG_FUNCPTR (gst_qeavb_ts_src_stop);
   pushsrc_class->fill = GST_DEBUG_FUNCPTR (gst_qeavb_ts_src_fill);
-  basesrc_class->set_caps = GST_DEBUG_FUNCPTR (gst_qeavb_ts_src_setcaps);
-  basesrc_class->fixate = GST_DEBUG_FUNCPTR (gst_qeavb_ts_src_fixate);
-  basesrc_class->query = GST_DEBUG_FUNCPTR (gst_qeavb_ts_src_query);
 }
 
 static void
@@ -179,32 +171,6 @@ gst_qeavb_ts_src_get_property (GObject * object, guint prop_id,
   }
 }
 
-static GstCaps *
-gst_qeavb_ts_src_fixate (GstBaseSrc * bsrc, GstCaps * caps)
-{
-  GstQeavbTsSrc *src = GST_QEAVB_TS_SRC (bsrc);
-  GstStructure *structure;
-  gint channels, rate;
-
-  caps = gst_caps_make_writable (caps);
-
-  structure = gst_caps_get_structure (caps, 0);
-
-  caps = GST_BASE_SRC_CLASS (parent_class)->fixate (bsrc, caps);
-
-  return caps;
-}
-
-static gboolean
-gst_qeavb_ts_src_setcaps (GstBaseSrc * basesrc, GstCaps * caps)
-{
-  GstQeavbTsSrc *src = GST_QEAVB_TS_SRC (basesrc);
-
-  if (NULL != src && 0 != src->stream_info.max_buffer_size && 0 != src->stream_info.pkts_per_wake)
-    gst_base_src_set_blocksize (basesrc, src->stream_info.max_buffer_size * src->stream_info.pkts_per_wake);
-
-  return TRUE;
-}
 
 static GstStateChangeReturn
 gst_qeavb_ts_src_change_state (GstElement * element,
@@ -222,20 +188,6 @@ gst_qeavb_ts_src_change_state (GstElement * element,
   ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
   return ret;
 }
-static gboolean
-gst_qeavb_ts_src_query (GstBaseSrc * basesrc, GstQuery * query)
-{
-  gboolean res = FALSE;
-
-  switch (GST_QUERY_TYPE (query)) {
-    default:
-      res = GST_BASE_SRC_CLASS (parent_class)->query (basesrc, query);
-      break;
-  }
-
-  return res;
-}
-
 
 static gboolean
 gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
@@ -275,6 +227,11 @@ gst_qeavb_ts_src_start (GstBaseSrc * basesrc)
     GST_ERROR_OBJECT (qeavbtssrc,"get stream info error %d, exit!", err);
     goto error_disconnect;
   }
+
+  GST_DEBUG_OBJECT (qeavbtssrc, "QEAVB TS source stream info max_buffer_size %d, pkts_per_wake %d", qeavbtssrc->stream_info.max_buffer_size, qeavbtssrc->stream_info.pkts_per_wake);
+
+  if (0 != qeavbtssrc->stream_info.max_buffer_size && 0 != qeavbtssrc->stream_info.pkts_per_wake)
+    gst_base_src_set_blocksize (basesrc, qeavbtssrc->stream_info.max_buffer_size * qeavbtssrc->stream_info.pkts_per_wake);
 
   // mmap
   qeavbtssrc->eavb_addr = mmap(NULL, qeavbtssrc->stream_info.max_buffer_size * qeavbtssrc->stream_info.pkts_per_wake, PROT_READ | PROT_WRITE, MAP_SHARED, qeavbtssrc->eavb_fd, 0);
