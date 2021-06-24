@@ -335,7 +335,7 @@ void* c2componentStore_create () {
 
     std::shared_ptr<C2ComponentStore> store = c2StoreFactory->getInstance();
 
-    return new C2ComponentStoreAdapter(store);
+    return new C2ComponentStoreAdapter(store, c2StoreFactory, lib);
 }
 
 const gchar* c2componentStore_getName (void* const comp_store) {

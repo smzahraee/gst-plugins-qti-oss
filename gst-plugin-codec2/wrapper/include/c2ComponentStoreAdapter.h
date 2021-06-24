@@ -44,12 +44,13 @@ namespace QTI {
 
   using QC2ComponentStoreFactoryGetter_t
     = QC2ComponentStoreFactory * (*)(int majorVersion, int minorVersion);
-    
+
 class C2ComponentStoreAdapter {
 
 public:
 
-    C2ComponentStoreAdapter(std::shared_ptr<C2ComponentStore> store);
+    C2ComponentStoreAdapter(std::shared_ptr<C2ComponentStore> store,
+        QC2ComponentStoreFactory* factory, void* dl_handle);
     ~C2ComponentStoreAdapter();
 
     c2_status_t createComponent (C2String name, void **const component);
@@ -59,6 +60,8 @@ public:
 
 private:
     std::shared_ptr<C2ComponentStore> mStore;
+    QC2ComponentStoreFactory* mFactory;
+    void* mDlHandle;
 };
 
 } // namespace QTI
