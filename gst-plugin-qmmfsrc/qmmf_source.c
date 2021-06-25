@@ -51,29 +51,32 @@ GST_DEBUG_CATEGORY_STATIC (qmmfsrc_debug);
 #define DEFAULT_PROP_CAMERA_ID                        0
 #define DEFAULT_PROP_CAMERA_SLAVE                     FALSE
 #define DEFAULT_PROP_CAMERA_LDC_MODE                  FALSE
-#define DEFAULT_PROP_CAMERA_SHDR_MODE                 FALSE
 #define DEFAULT_PROP_CAMERA_EIS_MODE                  FALSE
+#define DEFAULT_PROP_CAMERA_SHDR_MODE                 FALSE
+#define DEFAULT_PROP_CAMERA_ADRC                      FALSE
 #define DEFAULT_PROP_CAMERA_EFFECT_MODE               EFFECT_MODE_OFF
 #define DEFAULT_PROP_CAMERA_SCENE_MODE                SCENE_MODE_FACE_PRIORITY
 #define DEFAULT_PROP_CAMERA_ANTIBANDING               ANTIBANDING_MODE_AUTO
+#define DEFAULT_PROP_CAMERA_SHARPNESS                 2
+#define DEFAULT_PROP_CAMERA_CONTRAST                  5
+#define DEFAULT_PROP_CAMERA_SATURATION                5
+#define DEFAULT_PROP_CAMERA_ISO_MODE                  ISO_MODE_AUTO
+#define DEFAULT_PROP_CAMERA_ISO_VALUE                 800
 #define DEFAULT_PROP_CAMERA_EXPOSURE_MODE             EXPOSURE_MODE_AUTO
 #define DEFAULT_PROP_CAMERA_EXPOSURE_LOCK             FALSE
 #define DEFAULT_PROP_CAMERA_EXPOSURE_METERING         EXPOSURE_METERING_AVERAGE
 #define DEFAULT_PROP_CAMERA_EXPOSURE_COMPENSATION     0
 #define DEFAULT_PROP_CAMERA_EXPOSURE_TABLE            NULL
-#define DEFAULT_PROP_CAMERA_EXPOSURE_TIME             30000000
+#define DEFAULT_PROP_CAMERA_EXPOSURE_TIME             33333333
 #define DEFAULT_PROP_CAMERA_WHITE_BALANCE_MODE        WHITE_BALANCE_MODE_AUTO
 #define DEFAULT_PROP_CAMERA_WHITE_BALANCE_LOCK        FALSE
 #define DEFAULT_PROP_CAMERA_MANUAL_WB_SETTINGS        NULL
 #define DEFAULT_PROP_CAMERA_FOCUS_MODE                FOCUS_MODE_OFF
-#define DEFAULT_PROP_CAMERA_IR_MODE                   IR_MODE_OFF
 #define DEFAULT_PROP_CAMERA_NOISE_REDUCTION           NOISE_REDUCTION_FAST
-#define DEFAULT_PROP_CAMERA_ISO_MODE                  ISO_MODE_AUTO
 #define DEFAULT_PROP_CAMERA_DEFOG_TABLE               NULL
-#define DEFAULT_PROP_CAMERA_ADRC                      FALSE
 #define DEFAULT_PROP_CAMERA_LOCAL_TONE_MAPPING        NULL
 #define DEFAULT_PROP_CAMERA_NOISE_REDUCTION_TUNING    NULL
-#define DEFAULT_PROP_CAMERA_SHARPNESS_STRENGTH        2
+#define DEFAULT_PROP_CAMERA_IR_MODE                   IR_MODE_OFF
 
 static void gst_qmmfsrc_child_proxy_init (gpointer g_iface, gpointer data);
 
@@ -104,6 +107,11 @@ enum
   PROP_CAMERA_EFFECT_MODE,
   PROP_CAMERA_SCENE_MODE,
   PROP_CAMERA_ANTIBANDING_MODE,
+  PROP_CAMERA_SHARPNESS,
+  PROP_CAMERA_CONTRAST,
+  PROP_CAMERA_SATURATION,
+  PROP_CAMERA_ISO_MODE,
+  PROP_CAMERA_ISO_VALUE,
   PROP_CAMERA_EXPOSURE_MODE,
   PROP_CAMERA_EXPOSURE_LOCK,
   PROP_CAMERA_EXPOSURE_METERING,
@@ -114,14 +122,13 @@ enum
   PROP_CAMERA_WHITE_BALANCE_LOCK,
   PROP_CAMERA_MANUAL_WB_SETTINGS,
   PROP_CAMERA_FOCUS_MODE,
-  PROP_CAMERA_IR_MODE,
-  PROP_CAMERA_ISO_MODE,
   PROP_CAMERA_NOISE_REDUCTION,
   PROP_CAMERA_NOISE_REDUCTION_TUNING,
   PROP_CAMERA_ZOOM,
   PROP_CAMERA_DEFOG_TABLE,
   PROP_CAMERA_LOCAL_TONE_MAPPING,
-  PROP_CAMERA_SHARPNESS_STRENGTH,
+  PROP_CAMERA_IR_MODE,
+  PROP_CAMERA_ACTIVE_SENSOR_SIZE,
 };
 
 static GstStaticPadTemplate qmmfsrc_video_src_template =
@@ -332,6 +339,53 @@ qmmfsrc_release_pad (GstElement * element, GstPad * pad)
   GST_DEBUG_OBJECT (qmmfsrc, "Deleted pad %d", index);
 
   GST_QMMFSRC_UNLOCK (qmmfsrc);
+}
+
+static void
+qmmfsrc_event_callback (guint event, gpointer userdata)
+{
+  GstQmmfSrc *qmmfsrc = GST_QMMFSRC (userdata);
+
+  switch (event) {
+    case EVENT_SERVICE_DIED:
+      GST_ELEMENT_ERROR (qmmfsrc, RESOURCE, NOT_FOUND,
+          ("Camera service has died !"), (NULL));
+      break;
+    case EVENT_CAMERA_ERROR:
+      GST_ELEMENT_ERROR (qmmfsrc, RESOURCE, FAILED,
+          ("Camera device encountered an un-recovarable error !"), (NULL));
+      break;
+    case EVENT_CAMERA_OPENED:
+      GST_LOG_OBJECT (qmmfsrc, "Camera device has been opened");
+      break;
+    case EVENT_CAMERA_CLOSING:
+      GST_LOG_OBJECT (qmmfsrc, "Closing camera device");
+
+      if (GST_STATE (qmmfsrc) == GST_STATE_PLAYING) {
+        gboolean success = gst_element_foreach_src_pad (
+            GST_ELEMENT (qmmfsrc), qmmfsrc_pad_push_event, gst_event_new_eos ()
+        );
+
+        if (!success)
+          GST_ELEMENT_ERROR (qmmfsrc, CORE, EVENT,
+              ("Failed to send EOS to source pads !"), (NULL));
+      }
+      break;
+    case EVENT_CAMERA_CLOSED:
+      GST_LOG_OBJECT (qmmfsrc, "Camera device has been closed");
+      break;
+    case EVENT_FRAME_ERROR:
+      GST_WARNING_OBJECT (qmmfsrc, "Camera device has encountered non-fatal "
+          "frame drop error !");
+      break;
+    case EVENT_METADATA_ERROR:
+      GST_WARNING_OBJECT (qmmfsrc, "Camera device has encountered non-fatal "
+          "metadata drop error !");
+      break;
+    default:
+      GST_WARNING_OBJECT (qmmfsrc, "Unknown camera device event");
+      break;
+  }
 }
 
 static gboolean
@@ -726,6 +780,26 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_ANTIBANDING_MODE, value);
       break;
+    case PROP_CAMERA_SHARPNESS:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_SHARPNESS, value);
+      break;
+    case PROP_CAMERA_CONTRAST:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_CONTRAST, value);
+      break;
+    case PROP_CAMERA_SATURATION:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_SATURATION, value);
+      break;
+    case PROP_CAMERA_ISO_MODE:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_ISO_MODE, value);
+      break;
+    case PROP_CAMERA_ISO_VALUE:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_ISO_VALUE, value);
+      break;
     case PROP_CAMERA_EXPOSURE_MODE:
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_EXPOSURE_MODE, value);
@@ -766,14 +840,6 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_FOCUS_MODE, value);
       break;
-    case PROP_CAMERA_IR_MODE:
-      gst_qmmf_context_set_camera_param (qmmfsrc->context,
-          PARAM_CAMERA_IR_MODE, value);
-      break;
-    case PROP_CAMERA_ISO_MODE:
-      gst_qmmf_context_set_camera_param (qmmfsrc->context,
-          PARAM_CAMERA_ISO_MODE, value);
-      break;
     case PROP_CAMERA_NOISE_REDUCTION:
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_NOISE_REDUCTION, value);
@@ -794,9 +860,9 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_LOCAL_TONE_MAPPING, value);
       break;
-    case PROP_CAMERA_SHARPNESS_STRENGTH:
+    case PROP_CAMERA_IR_MODE:
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
-          PARAM_CAMERA_SHARPNESS_STRENGTH, value);
+          PARAM_CAMERA_IR_MODE, value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -848,6 +914,26 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_ANTIBANDING_MODE, value);
       break;
+    case PROP_CAMERA_SHARPNESS:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_SHARPNESS, value);
+      break;
+    case PROP_CAMERA_CONTRAST:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_CONTRAST, value);
+      break;
+    case PROP_CAMERA_SATURATION:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_SATURATION, value);
+      break;
+    case PROP_CAMERA_ISO_MODE:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_ISO_MODE, value);
+      break;
+    case PROP_CAMERA_ISO_VALUE:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_ISO_VALUE, value);
+      break;
     case PROP_CAMERA_EXPOSURE_MODE:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_EXPOSURE_MODE, value);
@@ -888,14 +974,6 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_FOCUS_MODE, value);
       break;
-    case PROP_CAMERA_IR_MODE:
-      gst_qmmf_context_get_camera_param (qmmfsrc->context,
-          PARAM_CAMERA_IR_MODE, value);
-      break;
-    case PROP_CAMERA_ISO_MODE:
-      gst_qmmf_context_get_camera_param (qmmfsrc->context,
-          PARAM_CAMERA_ISO_MODE, value);
-      break;
     case PROP_CAMERA_NOISE_REDUCTION:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_NOISE_REDUCTION, value);
@@ -916,9 +994,13 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_LOCAL_TONE_MAPPING, value);
       break;
-    case PROP_CAMERA_SHARPNESS_STRENGTH:
+    case PROP_CAMERA_IR_MODE:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
-          PARAM_CAMERA_SHARPNESS_STRENGTH, value);
+          PARAM_CAMERA_IR_MODE, value);
+      break;
+    case PROP_CAMERA_ACTIVE_SENSOR_SIZE:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_ACTIVE_SENSOR_SIZE, value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -1022,6 +1104,33 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
            GST_TYPE_QMMFSRC_ANTIBANDING, DEFAULT_PROP_CAMERA_ANTIBANDING,
            G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
            GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_SHARPNESS,
+      g_param_spec_int ("sharpness", "Sharpness",
+          "Image Sharpness Strength", 0, 6, DEFAULT_PROP_CAMERA_SHARPNESS,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_CONTRAST,
+      g_param_spec_int ("contrast", "Contrast",
+          "Image Contrast Strength", -100, 100, DEFAULT_PROP_CAMERA_CONTRAST,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_SATURATION,
+      g_param_spec_int ("saturation", "Saturation",
+          "Image Saturation Strength", 0, 10, DEFAULT_PROP_CAMERA_SATURATION,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_ISO_MODE,
+      g_param_spec_enum ("iso-mode", "ISO Mode",
+          "ISO exposure mode",
+          GST_TYPE_QMMFSRC_ISO_MODE, DEFAULT_PROP_CAMERA_ISO_MODE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_ISO_VALUE,
+      g_param_spec_int ("manual-iso-value", "Manual ISO Value",
+           "Manual exposure ISO value. Used when the ISO mode is set to 'manual'",
+           100, 3200, DEFAULT_PROP_CAMERA_ISO_VALUE,
+           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+           GST_PARAM_MUTABLE_PLAYING));
   g_object_class_install_property (gobject, PROP_CAMERA_EXPOSURE_MODE,
       g_param_spec_enum ("exposure-mode", "Exposure Mode",
           "The desired mode for the camera's exposure routine.",
@@ -1088,17 +1197,6 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
           GST_TYPE_QMMFSRC_FOCUS_MODE, DEFAULT_PROP_CAMERA_FOCUS_MODE,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
-  g_object_class_install_property (gobject, PROP_CAMERA_IR_MODE,
-      g_param_spec_enum ("infrared-mode", "IR Mode", "Infrared Mode",
-          GST_TYPE_QMMFSRC_IR_MODE, DEFAULT_PROP_CAMERA_IR_MODE,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-          GST_PARAM_MUTABLE_PLAYING));
-  g_object_class_install_property (gobject, PROP_CAMERA_ISO_MODE,
-      g_param_spec_enum ("iso-mode", "ISO Mode",
-          "ISO exposure mode",
-          GST_TYPE_QMMFSRC_ISO_MODE, DEFAULT_PROP_CAMERA_ISO_MODE,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-          GST_PARAM_MUTABLE_PLAYING));
   g_object_class_install_property (gobject, PROP_CAMERA_NOISE_REDUCTION,
       g_param_spec_enum ("noise-reduction", "Noise Reduction",
           "Noise reduction filter mode",
@@ -1112,7 +1210,7 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
   g_object_class_install_property (gobject, PROP_CAMERA_ZOOM,
-      gst_param_spec_array ("zoom", "Zoom rectangle",
+      gst_param_spec_array ("zoom", "Zoom Rectangle",
           "Camera zoom rectangle ('<X, Y, WIDTH, HEIGHT >') in sensor active "
           "pixel array coordinates",
           g_param_spec_int ("value", "Zoom Value",
@@ -1132,11 +1230,19 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
           DEFAULT_PROP_CAMERA_LOCAL_TONE_MAPPING,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
-  g_object_class_install_property (gobject, PROP_CAMERA_SHARPNESS_STRENGTH,
-      g_param_spec_int ("sharpness", "Sharpness Strength",
-          "Image Sharpness Strength",
-          0, 6, DEFAULT_PROP_CAMERA_SHARPNESS_STRENGTH,
+  g_object_class_install_property (gobject, PROP_CAMERA_IR_MODE,
+      g_param_spec_enum ("infrared-mode", "IR Mode", "Infrared Mode",
+          GST_TYPE_QMMFSRC_IR_MODE, DEFAULT_PROP_CAMERA_IR_MODE,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_ACTIVE_SENSOR_SIZE,
+      gst_param_spec_array ("active-sensor-size", "Active Sensor Size",
+          "The active pixel array of the camera sensor ('<X, Y, WIDTH, HEIGHT >')"
+          " and it is filled only when the plugin is in READY or above state",
+          g_param_spec_int ("value", "Sensor Value",
+              "One of X, Y, WIDTH or HEIGHT value.", 0, G_MAXINT, 0,
+              G_PARAM_READABLE | G_PARAM_STATIC_STRINGS),
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
 
 
@@ -1168,7 +1274,8 @@ qmmfsrc_init (GstQmmfSrc * qmmfsrc)
   qmmfsrc->vidindexes = NULL;
   qmmfsrc->imgindexes = NULL;
 
-  qmmfsrc->context = gst_qmmf_context_new ();
+  qmmfsrc->context = gst_qmmf_context_new (
+      G_CALLBACK (qmmfsrc_event_callback), qmmfsrc);
   g_return_if_fail (qmmfsrc->context != NULL);
 
   GST_OBJECT_FLAG_SET (qmmfsrc, GST_ELEMENT_FLAG_SOURCE);
