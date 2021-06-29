@@ -72,7 +72,7 @@ int GetPhysicalMem(const pid_t p) {
     return 0;
   }
   sscanf(line_buff, "%s %d", name, &vmrss);
-  fprintf(stderr, "====%s：%d====\n", name, vmrss);
+  fprintf(stderr, "====%s:%d====\n", name, vmrss);
   fclose(fd);     // Close file fd
   return vmrss;
 }
@@ -97,7 +97,7 @@ int GetTotalMem() {
     return 0;
   }
   sscanf(line_buff, "%s %d", name,&memtotal);
-  fprintf(stderr, "====%s：%d====\n", name,memtotal);
+  fprintf(stderr, "====%s:%d====\n", name,memtotal);
   fclose(fd);  // Close file fd
   return memtotal;
 }

@@ -39,7 +39,7 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                             Include Files
 //////////////////////////////////////////////////////////////////////////////
 
-#define LOG_TAG "video_sample"
+#define LOG_TAG "video_encode_sample"
 
 // enable VLOGD
 #define DEBUG_LOG
