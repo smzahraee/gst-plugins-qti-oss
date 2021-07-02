@@ -146,6 +146,13 @@ extern "C" {
 
 #include <inttypes.h>
 
+#ifdef USE_GBM
+#include "gbm.h"
+#include "gbm_priv.h"
+#include "media/hardware/HardwareAPI.h"
+#include <gralloc_priv.h>
+#endif /* USE_GBM */
+
 /************************************************************************/
 /*              #DEFINES                            */
 /************************************************************************/
@@ -189,6 +196,43 @@ extern "C" {
 /************************************************************************/
 /*              GLOBAL DECLARATIONS                     */
 /************************************************************************/
+
+#ifdef USE_GBM
+#define GBM_PMEM_DEVICE "/dev/dri/renderD128"
+
+struct vdec_gbm {
+  struct gbm_device *gbm;
+  struct gbm_bo *bo;
+  int bo_fd;
+  int meta_fd;
+  int aligned_width;
+  int aligned_height;
+  size_t size;
+  uint8_t *vaddr; /* mmap address of bo_fd */
+  android::VideoDecoderOutputMetaData metadata;
+  private_handle_t *handle;
+};
+
+struct gbm_buffers {
+  int gbm_device_fd;
+  int buf_cnt;
+  struct vdec_gbm *buffers;
+};
+
+struct gbm_buffers external_output_buffers = { -1, 0, NULL };
+
+static inline size_t get_external_output_buffer_size(void)
+{
+  struct vdec_gbm *buf = external_output_buffers.buffers;
+  return buf ? buf[0].size : 0;
+}
+
+static bool alloc_gbm_memory(int width, int height, int dev_fd,
+                             struct vdec_gbm *buffer, int flag);
+static void free_gbm_memory(struct vdec_gbm *buf_gbm_info);
+static bool allocate_gbm_buffers(struct gbm_buffers *info, int n, size_t size);
+static void free_gbm_buffers(struct gbm_buffers *info);
+#endif /* USE_GBM */
 
 typedef enum {
   CODEC_FORMAT_H264 = 1,
@@ -242,6 +286,9 @@ typedef enum {
   ERROR_STATE
 } test_status;
 
+/* Decoder output to external GBM buffer allocated by OMX IL client. */
+bool output_dynamic_meta_mode = false;
+
 /* flag indicates it's secure playback mode or not */
 static bool secure_mode = false;
 static uint8_t *input_nonsecure_buffer = NULL;
@@ -280,7 +327,7 @@ OMX_ERRORTYPE error;
 OMX_COLOR_FORMATTYPE color_fmt;
 QOMX_VIDEO_DECODER_PICTURE_ORDER picture_order;
 
-unsigned int color_fmt_type = 0;
+int venus_color_fmt = 0;
 
 int disable_output_port();
 int enable_output_port();
@@ -329,9 +376,10 @@ OMX_CONFIG_RECTTYPE crop_rect = {0,0,0,0};
 /************************************************************************/
 /*              GLOBAL FUNC DECL                        */
 /************************************************************************/
-int Init_Decoder(bool secure);
-int Play_Decoder(bool secure);
-int run_tests(bool secure);
+static bool setup_omx_output_buffers(void);
+static int Init_Decoder(bool secure);
+static int Play_Decoder(bool secure);
+static int run_tests(bool secure);
 
 /**************************************************************************/
 /*              STATIC DECLARATIONS                       */
@@ -348,6 +396,14 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
                                        OMX_BUFFERHEADERTYPE  ***pBufHdrs,
                                        OMX_U32 nPortIndex,
                                        long bufCntMin, long bufSize);
+
+static OMX_ERRORTYPE
+enable_omx_android_native_buffers(uint32_t port, bool enable);
+static OMX_ERRORTYPE
+enable_omx_dynamic_buffer_mode(uint32_t port, bool enable);
+static OMX_ERRORTYPE Use_Buffer(OMX_COMPONENTTYPE *dec_handle,
+                                OMX_BUFFERHEADERTYPE  ***pBufHdrs,
+                                OMX_U32 nPortIndex, long bufCnt, long bufSize);
 
 static OMX_ERRORTYPE EventHandler(OMX_IN OMX_HANDLETYPE hComponent,
                                   OMX_IN OMX_PTR pAppData,
@@ -484,14 +540,14 @@ void* ebd_thread(void* pArg)
 
 static bool dump_yuv_frame_to_file(const uint8_t *data, size_t size)
 {
-  DEBUG_PRINT("format: 0x%x width: %d height: %d size: %u", color_fmt, crop_rect.nWidth, crop_rect.nHeight, size);
+  DEBUG_PRINT("format=%d width=%d height=%d", venus_color_fmt, crop_rect.nWidth, crop_rect.nHeight);
 
   if (NULL == data)
     return false;
 
   size_t n_written = 0;
 
-  if (color_fmt == (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m) {
+  if (COLOR_FMT_NV12 == venus_color_fmt) {
     unsigned int stride = VENUS_Y_STRIDE(COLOR_FMT_NV12, portFmt.format.video.nFrameWidth);
     unsigned int scanlines = VENUS_Y_SCANLINES(COLOR_FMT_NV12, portFmt.format.video.nFrameHeight);
     const uint8_t *temp = data;
@@ -525,12 +581,26 @@ static void log_yuv_frame(const OMX_BUFFERHEADERTYPE *pBuffer, bool secure)
 {
   uint8_t *yuv_data;
   bool ret = true;
-  size_t size = pBuffer->nFilledLen;
+  size_t size;
+
+  /* In meta mode, nFilledLen is not the actual length filled by OMX, while
+   * the VENUS_BUFFER_SIZE_USED() is equal to the actual length. */
+  if (output_dynamic_meta_mode)
+    size = VENUS_BUFFER_SIZE_USED(venus_color_fmt, width, height, 0);
+  else
+    size = pBuffer->nFilledLen;
+  DEBUG_PRINT("format=%d width=%d height=%d nAllocLen=%u size=%u",
+              venus_color_fmt, width, height, pBuffer->nAllocLen, size);
 
   if (secure) {
-    int buf_fd = (int)(long)pBuffer->pBuffer;
+    int buf_fd;
+    if (output_dynamic_meta_mode)
+      buf_fd = ((struct vdec_gbm *)pBuffer->pAppPrivate)->bo_fd;
+    else
+      buf_fd = (int)(long)pBuffer->pBuffer;
+
     yuv_data = output_nonsecure_buffer;
-    DEBUG_PRINT("buf_fd=%d, nFilledLen=%u, yuv_data=0x%x", buf_fd, size, (long)yuv_data);
+    DEBUG_PRINT("buf_fd=%d, size=%u, yuv_data=0x%x", buf_fd, size, (long)yuv_data);
     bool ret = copy_from_secure_buffer(yuv_data, &size, buf_fd);
     if (ret) {
       static int copy_okay = 0;
@@ -540,8 +610,11 @@ static void log_yuv_frame(const OMX_BUFFERHEADERTYPE *pBuffer, bool secure)
       DEBUG_PRINT_ERROR("copy_fail=%d", ++copy_fail);
     }
   } else {
-    yuv_data = (uint8_t *)pBuffer->pBuffer;
-    DEBUG_PRINT("nFilledLen=%u, yuv_data=0x%x", size, (long)yuv_data);
+    if (output_dynamic_meta_mode)
+      yuv_data = ((struct vdec_gbm *)pBuffer->pAppPrivate)->vaddr;
+    else
+      yuv_data = (uint8_t *)pBuffer->pBuffer;
+    DEBUG_PRINT("size=%u, yuv_data=0x%x", size, (long)yuv_data);
   }
 
   if (ret)
@@ -961,6 +1034,7 @@ static void parse_argv4_output_option(const char *argv4)
 {
   int output_option = atoi(argv4);
   int format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
+  int venus_format = COLOR_FMT_NV12;
 
   takeYuvLog = 0;
 
@@ -969,10 +1043,12 @@ static void parse_argv4_output_option(const char *argv4)
   case 2: takeYuvLog = 1; break;
   case 8:
     format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed;
+    venus_format = COLOR_FMT_NV12_UBWC;
     break;
   case 10:
     takeYuvLog = 1;
     format = QOMX_COLOR_FORMATYUV420PackedSemiPlanar32mCompressed;
+    venus_format = COLOR_FMT_NV12_UBWC;
     break;
   default:
     DEBUG_PRINT_ERROR("Output option %d unknown", output_option);
@@ -980,30 +1056,34 @@ static void parse_argv4_output_option(const char *argv4)
   }
 
   color_fmt = (OMX_COLOR_FORMATTYPE)format;
-  DEBUG_PRINT("takeYuvLog=%d, color_fmt=0x%x", takeYuvLog, color_fmt);
+  venus_color_fmt = venus_format;
+  DEBUG_PRINT("takeYuvLog=%d, color_fmt=0x%x, venus_color_fmt=%d", takeYuvLog, color_fmt, venus_color_fmt);
 }
 
 static void print_usage(char **argv)
 {
-  printf("%s <infile_path> <codec_type> <file_type> <output_op> <test_op> <num_frames>\n", argv[0]);
+  printf("%s <infile_path> <codec_type> <file_type> <output_op> <test_op> <num_frames> <output_buf>\n", argv[0]);
   printf("<codec_type>\t1:h264, 9:h265\n");
   printf("<file_type>\t4:byte-stream\n");
   printf("<output_op>\t"
     "0: decoded as linear yuv but no output, 2: decoded as linear yuv but dump frames to yuvframes.yuv file under current dir\n\t\t"
     "8: decoded as UBWC yuv but no output,  10: decoded as UBWC yuv but dump frames to yuvframes.yuv file under current dir\n");
   printf("<test_op>\t1:decode till file end, 0:only decode <num_frame> frames\n");
-  printf("<num_frames>\t0:when test_op=1, N:num of frames to decode when test_op=0\n\n");
+  printf("<num_frames>\t0:when test_op=1, N:num of frames to decode when test_op=0\n");
+  printf("<output_buf>\t"
+         "0:OMX_AllocateBuffer() allocates buffers for OMX output port\n\t\t"
+         "1:OMX_UseBuffer() with dynamic meta mode for OMX output port\n\n");
 
   printf("Usage example(only verified h264 and h265):\n");
-  printf("For h264: %s xxx.h264 1 4 2 1 0\n", argv[0]);
-  printf("For h265: %s xxx.h265 9 4 2 1 0\n", argv[0]);
+  printf("For h264: %s xxx.h264 1 4 2 1 0 0\n", argv[0]);
+  printf("For h265: %s xxx.h265 9 4 2 1 0 0\n", argv[0]);
   printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
 
   printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
-  printf("Example: %s %s/data/xxx.h264 1 4 0 1 0\n\n", argv[0], KPI_INDICATOR_STR);
+  printf("Example: %s %s/data/xxx.h264 1 4 0 1 0 0\n\n", argv[0], KPI_INDICATOR_STR);
 
   printf("For secure mode, add %s before input file without blank\n", SECURE_INDICATOR_STR);
-  printf("Example: %s %s/data/xxx.h264 1 4 0 1 0\n\n", argv[0], SECURE_INDICATOR_STR);
+  printf("Example: %s %s/data/xxx.h264 1 4 0 1 0 0\n\n", argv[0], SECURE_INDICATOR_STR);
 }
 
 int main(int argc, char **argv)
@@ -1021,12 +1101,12 @@ int main(int argc, char **argv)
 
   omx_debug_level_init();
 
-  if (argc < 7)
+  if (argc < 8)
   {
     print_usage(argv);
     return -1;
   }
-  else if(argc >= 7)
+  else if(argc >= 8)
   {
     codec_format_option = (codec_format)atoi(argv[2]);
     file_type_option = (file_type)atoi(argv[3]);
@@ -1038,10 +1118,11 @@ int main(int argc, char **argv)
       /* play the clip till the end */
       num_frames_to_decode = 0;
     }
+    output_dynamic_meta_mode = !!atoi(argv[7]);
     printf("*******************************************************\n");
-    printf("*** codec=%d,file_type=%d,output=%d,test=%d,frames=%d\n",
+    printf("*** codec=%d,file_type=%d,output=%d,test=%d,frames=%d,out_buf=%d\n",
         codec_format_option, file_type_option,
-        atoi(argv[4]), test_option, num_frames_to_decode);
+        atoi(argv[4]), test_option, num_frames_to_decode, atoi(argv[7]));
   }
 
   if (parse_argv1_mode_and_infile(argv[1]))
@@ -1274,6 +1355,52 @@ static bool get_omx_component_name(char *name, size_t size, bool secure)
   return true;
 }
 
+static bool setup_omx_output_buffers(void)
+{
+  OMX_ERRORTYPE ret = OMX_ErrorNone;
+
+  OMX_GetParameter(dec_handle, OMX_IndexParamPortDefinition, &portFmt);
+  if(OMX_DirOutput != portFmt.eDir) {
+    DEBUG_PRINT_ERROR("Error - Expect Output Port");
+    return false;
+  }
+
+  if (anti_flickering) {
+    portFmt.nBufferCountActual += 1;
+    ret = OMX_SetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
+    if (ret != OMX_ErrorNone) {
+      DEBUG_PRINT_ERROR("%s: OMX_SetParameter failed: %d",__FUNCTION__, ret);
+      return false;
+    }
+  }
+  OMX_GetParameter(dec_handle, OMX_IndexParamPortDefinition, &portFmt);
+  DEBUG_PRINT("nBufferCountMin=%d", portFmt.nBufferCountMin);
+  DEBUG_PRINT("nBufferSize=%d", portFmt.nBufferSize);
+  DEBUG_PRINT("nFrameHeight=%d", portFmt.format.video.nFrameHeight);
+  DEBUG_PRINT("nFrameWidth=%d", portFmt.format.video.nFrameWidth);
+  DEBUG_PRINT("xFramerate=%d", portFmt.format.video.xFramerate);
+
+  const char *str = "OMX_AllocateBuffer";
+  /* Allocate or use buffer on decoder's o/p port */
+  if (output_dynamic_meta_mode) {
+    str = "OMX_UseBuffer";
+    error = Use_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
+                       portFmt.nBufferCountActual, portFmt.nBufferSize);
+  } else {
+    error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
+                            portFmt.nBufferCountActual, portFmt.nBufferSize);
+  }
+  if (error != OMX_ErrorNone) {
+    DEBUG_PRINT_ERROR("%s Output buffer error", str);
+    return false;
+  } else {
+    DEBUG_PRINT("%s Output buffer success", str);
+    free_op_buf_cnt = portFmt.nBufferCountActual;
+  }
+
+  return true;
+}
+
 int Init_Decoder(bool secure)
 {
   DEBUG_PRINT("Inside %s ", __FUNCTION__);
@@ -1481,6 +1608,16 @@ int Play_Decoder(bool secure)
   DEBUG_PRINT("OMX_SendCommand Decoder -> IDLE");
   OMX_SendCommand(dec_handle, OMX_CommandStateSet, OMX_StateIdle,0);
 
+  /* For output port, have to enable both Android native buffer and meta mode
+   * firstly, then OMX_UseBuffer() can take metadata contains GBM buffer
+   * allocated by OMX IL client. */
+  if (output_dynamic_meta_mode) {
+    if (error = enable_omx_android_native_buffers(OMX_DirOutput, true))
+      return error;
+    if (error = enable_omx_dynamic_buffer_mode(OMX_DirOutput, true))
+      return error;
+  }
+
   input_buf_cnt = portFmt.nBufferCountActual;
   DEBUG_PRINT("Transition to Idle State succesful...");
 
@@ -1499,44 +1636,10 @@ int Play_Decoder(bool secure)
     if (!alloc_nonsecure_buffer(&input_nonsecure_buffer, portFmt.nBufferSize))
       return -1;
 
-  /* Below are output port initialization. */
+  /* Setup output port. */
   portFmt.nPortIndex = portParam.nStartPortNumber+1;
-  // Port for which the Client needs to obtain info
-
-  OMX_GetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
-  DEBUG_PRINT("nMin Buffer Count=%d", portFmt.nBufferCountMin);
-  DEBUG_PRINT("nBuffer Size=%d", portFmt.nBufferSize);
-  if(OMX_DirOutput != portFmt.eDir) {
-    DEBUG_PRINT_ERROR("Error - Expect Output Port");
+  if (!setup_omx_output_buffers())
     return -1;
-  }
-
-  if (anti_flickering) {
-    ret = OMX_GetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
-    if (ret != OMX_ErrorNone) {
-      DEBUG_PRINT_ERROR("%s: OMX_GetParameter failed: %d",__FUNCTION__, ret);
-      return -1;
-    }
-    portFmt.nBufferCountActual += 1;
-    ret = OMX_SetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
-    if (ret != OMX_ErrorNone) {
-      DEBUG_PRINT_ERROR("%s: OMX_SetParameter failed: %d",__FUNCTION__, ret);
-      return -1;
-    }
-  }
-
-  /* Allocate buffer on decoder's o/p port */
-  error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
-                  portFmt.nBufferCountActual, portFmt.nBufferSize);
-  free_op_buf_cnt = portFmt.nBufferCountActual;
-  if (error != OMX_ErrorNone) {
-    DEBUG_PRINT_ERROR("Error - OMX_AllocateBuffer Output buffer error");
-    return -1;
-  }
-  else
-  {
-    DEBUG_PRINT("OMX_AllocateBuffer Output buffer success");
-  }
 
   wait_for_event();
   if (currentStatus == ERROR_STATE)
@@ -1635,9 +1738,18 @@ int Play_Decoder(bool secure)
       return -1;
   }
 
-  if (secure && takeYuvLog)
-    if (!alloc_nonsecure_buffer(&output_nonsecure_buffer, portFmt.nBufferSize))
+  if (secure && takeYuvLog) {
+    size_t size = portFmt.nBufferSize;
+
+    /* In dynamic meta mode, portFmt.nBufferSize is not the actual size,
+     * just to use buffer size allocated by OMX IL client.*/
+    if (output_dynamic_meta_mode)
+      size = get_external_output_buffer_size();
+
+    DEBUG_PRINT("Nonsecure output buffer size %u", size);
+    if (!alloc_nonsecure_buffer(&output_nonsecure_buffer, size))
       return -1;
+  }
 
   return 0;
 }
@@ -1651,7 +1763,7 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
   OMX_ERRORTYPE error=OMX_ErrorNone;
   long bufCnt=0;
 
-  DEBUG_PRINT("pBufHdrs = %x,bufCntMin = %d", pBufHdrs, bufCntMin);
+  DEBUG_PRINT("pBufHdrs=%x, bufCntMin=%d, size=%ld", pBufHdrs, bufCntMin, bufSize);
   *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
       malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
 
@@ -1660,6 +1772,94 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
     error = OMX_AllocateBuffer(dec_handle, &((*pBufHdrs)[bufCnt]),
           nPortIndex, NULL, bufSize);
   }
+
+  return error;
+}
+
+static OMX_ERRORTYPE
+enable_omx_android_native_buffers(uint32_t port, bool enable)
+{
+  DEBUG_PRINT("port=%u enable=%u", port, enable);
+  android::EnableAndroidNativeBuffersParams params;
+  CONFIG_VERSION_SIZE(params);
+  params.nPortIndex = port;
+  params.enable = (OMX_BOOL)enable;
+  const char *name = "OMX.google.android.index.enableAndroidNativeBuffers";
+  OMX_INDEXTYPE index;
+  OMX_ERRORTYPE ret = OMX_ErrorNone;
+
+  if (ret = OMX_GetExtensionIndex(dec_handle, (OMX_STRING)name, &index)) {
+    DEBUG_PRINT_ERROR("OMX_GetExtensionIndex error ret=%d", ret);
+    return ret;
+  }
+
+  if (ret = OMX_SetParameter(dec_handle, index, &params)) {
+    DEBUG_PRINT_ERROR("OMX_SetParameter error ret=%d", ret);
+    return ret;
+  }
+
+  return ret;
+}
+
+static OMX_ERRORTYPE
+enable_omx_dynamic_buffer_mode(uint32_t port, bool enable)
+{
+  DEBUG_PRINT("port=%u enable=%u", port, enable);
+  android::StoreMetaDataInBuffersParams params;
+  CONFIG_VERSION_SIZE(params);
+  params.nPortIndex = port;
+  params.bStoreMetaData = (OMX_BOOL)enable;
+  const char *name = "OMX.google.android.index.storeMetaDataInBuffers";
+  OMX_INDEXTYPE index;
+  OMX_ERRORTYPE ret = OMX_ErrorNone;
+
+  if (ret = OMX_GetExtensionIndex(dec_handle, (OMX_STRING)name, &index)) {
+    DEBUG_PRINT_ERROR("OMX_GetExtensionIndex error ret=%d", ret);
+    return ret;
+  }
+
+  if (ret = OMX_SetParameter(dec_handle, index, &params)) {
+    DEBUG_PRINT_ERROR("OMX_SetParameter error ret=%d", ret);
+    return ret;
+  }
+
+  return ret;
+}
+
+static OMX_ERRORTYPE
+do_use_buffer(OMX_COMPONENTTYPE *dec_handle, OMX_BUFFERHEADERTYPE ***pBufHdrs,
+               OMX_U32 nPortIndex, long bufCnt, long bufSize)
+{
+  OMX_ERRORTYPE error = OMX_ErrorNone;
+
+  DEBUG_PRINT("pBufHdrs=%x, bufCnt=%d, size=%ld", pBufHdrs, bufCnt, bufSize);
+  *pBufHdrs = (OMX_BUFFERHEADERTYPE **)
+      calloc(bufCnt, sizeof(OMX_BUFFERHEADERTYPE *));
+
+  struct vdec_gbm *buffers = external_output_buffers.buffers;
+  for (int i = 0; i < bufCnt; ++i) {
+    struct vdec_gbm *buf = &buffers[i];
+    DEBUG_PRINT("OMX_UseBuffer No %d, metadata %p, handle %p", i, &buf->metadata, buf->handle);
+    /* Pass buf pointer as OMX_BUFFERHEADERTYPE pAppPrivate, it will be used
+     * to dump YUV frames to file. */
+    error = OMX_UseBuffer(dec_handle, &((*pBufHdrs)[i]), nPortIndex,
+                          (OMX_PTR)buf, bufSize, (OMX_U8 *)&buf->metadata);
+  }
+
+  return error;
+}
+
+
+static OMX_ERRORTYPE Use_Buffer(OMX_COMPONENTTYPE *dec_handle,
+                                OMX_BUFFERHEADERTYPE  ***pBufHdrs,
+                                OMX_U32 nPortIndex, long bufCnt, long bufSize)
+{
+  OMX_ERRORTYPE error = OMX_ErrorNone;
+
+  if (!allocate_gbm_buffers(&external_output_buffers, bufCnt, bufSize))
+    error = OMX_ErrorInsufficientResources;
+  else
+    error = do_use_buffer(dec_handle, pBufHdrs, nPortIndex, bufCnt, bufSize);
 
   return error;
 }
@@ -1696,6 +1896,7 @@ static void do_freeHandle_and_clean_up(bool isDueToError)
       free(pOutYUVBufHdrs);
       pOutYUVBufHdrs = NULL;
     }
+    free_gbm_buffers(&external_output_buffers);
     wait_for_event();
   }
 
@@ -1991,6 +2192,7 @@ int disable_output_port()
   pthread_mutex_unlock(&enable_lock);
   // wait for Disable event to come back
   wait_for_event();
+  free_gbm_buffers(&external_output_buffers);
   if (currentStatus == ERROR_STATE)
   {
     do_freeHandle_and_clean_up(true);
@@ -2008,34 +2210,10 @@ int enable_output_port()
   // Send Enable command
   OMX_SendCommand(dec_handle, OMX_CommandPortEnable, 1, 0);
 
-  /* Allocate buffer on decoder's o/p port */
+  /* Setup buffer on decoder's o/p port */
   portFmt.nPortIndex = 1;
-
-  if (anti_flickering) {
-    ret = OMX_GetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
-    if (ret != OMX_ErrorNone) {
-      DEBUG_PRINT_ERROR("%s: OMX_GetParameter failed: %d",__FUNCTION__, ret);
-      return -1;
-    }
-    portFmt.nBufferCountActual += 1;
-    ret = OMX_SetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
-    if (ret != OMX_ErrorNone) {
-      DEBUG_PRINT_ERROR("%s: OMX_SetParameter failed: %d",__FUNCTION__, ret);
-      return -1;
-    }
-  }
-
-  error = Allocate_Buffer(dec_handle, &pOutYUVBufHdrs, portFmt.nPortIndex,
-                          portFmt.nBufferCountActual, portFmt.nBufferSize);
-  if (error != OMX_ErrorNone) {
-    DEBUG_PRINT_ERROR("Error - OMX_AllocateBuffer Output buffer error");
+  if (!setup_omx_output_buffers())
     return -1;
-  }
-  else
-  {
-    DEBUG_PRINT("OMX_AllocateBuffer Output buffer success");
-    free_op_buf_cnt = portFmt.nBufferCountActual;
-  }
 
   // wait for enable event to come back
   wait_for_event();
@@ -2081,12 +2259,14 @@ int output_port_reconfig()
   /* Port for which the Client needs to obtain info */
   portFmt.nPortIndex = 1;
   OMX_GetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
-  DEBUG_PRINT("Min Buffer Count=%d", portFmt.nBufferCountMin);
-  DEBUG_PRINT("Buffer Size=%d", portFmt.nBufferSize);
   if(OMX_DirOutput != portFmt.eDir) {
     DEBUG_PRINT_ERROR("Error - Expect Output Port");
     return -1;
   }
+  DEBUG_PRINT("nBufferCountMin=%d", portFmt.nBufferCountMin);
+  DEBUG_PRINT("nBufferSize=%d", portFmt.nBufferSize);
+  DEBUG_PRINT("nFrameHeight=%d", portFmt.format.video.nFrameHeight);
+  DEBUG_PRINT("nFrameWidth=%d", portFmt.format.video.nFrameWidth);
   height = portFmt.format.video.nFrameHeight;
   width = portFmt.format.video.nFrameWidth;
   stride = portFmt.format.video.nStride;
@@ -2110,3 +2290,178 @@ void free_output_buffers()
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   }
 }
+
+#ifdef USE_GBM
+static bool alloc_gbm_memory(int width, int height, int dev_fd,
+                             struct vdec_gbm *buffer, int flag)
+{
+  uint32_t flags = GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING;
+  struct gbm_device *gbm = NULL;
+  struct gbm_bo *bo = NULL;
+  int bo_fd = -1, meta_fd = -1;
+
+  if (!buffer || dev_fd < 0 ) {
+    DEBUG_PRINT_ERROR("Invalid arguments");
+    return false;
+  }
+
+  gbm = gbm_create_device(dev_fd);
+  if (gbm == NULL) {
+    DEBUG_PRINT_ERROR("create gbm device failed");
+    return false;
+  } else {
+    DEBUG_PRINT( "Successfully created gbm device");
+  }
+
+  flags |= flag & GBM_BO_USAGE_PROTECTED_QTI;
+  flags |= flag & GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+
+  DEBUG_PRINT("create NV12 gbm_bo with width=%d, height=%d flags 0x%x",
+              width, height, flags);
+
+  bo = gbm_bo_create(gbm, width, height, GBM_FORMAT_NV12, flags);
+  if (bo == NULL) {
+    DEBUG_PRINT_ERROR("no supported gbm bo for format %x", GBM_FORMAT_NV12);
+    gbm_device_destroy(gbm);
+    return false;
+  }
+
+  bo_fd = bo->ion_fd;
+  if (bo_fd < 0) {
+    DEBUG_PRINT_ERROR("Get bo fd failed");
+    gbm_bo_destroy(bo);
+    gbm_device_destroy(gbm);
+    return false;
+  }
+
+  gbm_perform(GBM_PERFORM_GET_METADATA_ION_FD, bo, &meta_fd);
+  if (meta_fd < 0) {
+    DEBUG_PRINT_ERROR("Get bo meta fd failed");
+    gbm_bo_destroy(bo);
+    gbm_device_destroy(gbm);
+    return false;
+  }
+
+  gbm_perform(GBM_PERFORM_GET_BO_ALIGNED_WIDTH, bo, &buffer->aligned_width);
+  gbm_perform(GBM_PERFORM_GET_BO_ALIGNED_HEIGHT, bo, &buffer->aligned_height);
+  gbm_perform(GBM_PERFORM_GET_BO_SIZE, bo, &buffer->size);
+
+  buffer->gbm = gbm;
+  buffer->bo = bo;
+  buffer->bo_fd = bo_fd;
+  buffer->meta_fd = meta_fd;
+
+  DEBUG_PRINT("allocated gbm bo_fd=%d meta_fd=%d", bo_fd, meta_fd);
+  DEBUG_PRINT("aligned_width=%d aligned_height=%d size=%lu",
+              buffer->aligned_width, buffer->aligned_height, buffer->size);
+  return true;
+}
+
+static void free_gbm_memory(struct vdec_gbm *buf_gbm_info)
+{
+  if (!buf_gbm_info)
+    return;
+
+  DEBUG_PRINT("free gbm bo fd meta fd  %p %d %d",
+              buf_gbm_info->bo, buf_gbm_info->bo_fd, buf_gbm_info->meta_fd);
+
+  if (buf_gbm_info->handle) {
+    delete buf_gbm_info->handle;
+    buf_gbm_info->handle = NULL;
+  }
+
+  if (buf_gbm_info->bo) {
+    gbm_bo_destroy(buf_gbm_info->bo);
+    buf_gbm_info->bo = NULL;
+  }
+
+  if (buf_gbm_info->gbm) {
+    gbm_device_destroy(buf_gbm_info->gbm);
+    buf_gbm_info->gbm = NULL;
+  }
+
+  buf_gbm_info->bo_fd = -1;
+  buf_gbm_info->meta_fd = -1;
+}
+
+static bool allocate_gbm_buffers(struct gbm_buffers *info, int n, size_t size)
+{
+  int fd = open(GBM_PMEM_DEVICE, O_RDWR | O_CLOEXEC);
+  if (fd < 0) {
+    DEBUG_PRINT_ERROR("open " GBM_PMEM_DEVICE " error: %s", strerror(errno));
+    return false;
+  }
+
+  struct vdec_gbm *buffers = (struct vdec_gbm *)calloc(n, sizeof(*buffers));
+  if (NULL == buffers) {
+    DEBUG_PRINT_ERROR("Out of memory!");
+    close(fd);
+    return false;
+  }
+
+  info->gbm_device_fd = fd;
+  info->buffers = buffers;
+
+  int flag = 0;
+  int format = HAL_PIXEL_FORMAT_NV12_LINEAR_FLEX;
+
+  if (COLOR_FMT_NV12_UBWC == venus_color_fmt) {
+    flag |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+    format = HAL_PIXEL_FORMAT_NV12_UBWC_FLEX;
+  }
+
+  if (secure_mode)
+    flag |= GBM_BO_USAGE_PROTECTED_QTI;
+
+  for (int i = 0; i < n; i++) {
+    struct vdec_gbm *buf = &buffers[i];
+    if (!alloc_gbm_memory(width, height, fd, buf, flag))
+      return false;
+
+    int buf_type = android::kMetadataBufferTypeGrallocSource;
+    buf->handle = new private_handle_t(buf->bo_fd, buf->meta_fd, 0,
+                  buf->aligned_width, buf->aligned_height, width, height,
+                  format, buf_type, (unsigned int)buf->size);
+    buf->metadata.pHandle = buf->handle;
+    buf->metadata.eType = (android::MetadataBufferType)buf_type;
+
+    /* Not need to mmap in secure mode*/
+    if (secure_mode)
+      continue;
+
+    buf->vaddr = (uint8_t *)mmap(NULL, buf->size, PROT_READ, MAP_SHARED, buf->bo_fd, 0);
+    if (MAP_FAILED == buf->vaddr) {
+      DEBUG_PRINT_ERROR("mmap error %s, fd=%d, size=%lu", strerror(errno), buf->bo_fd, buf->size);
+      return false;
+    }
+  }
+
+  info->buf_cnt = n;
+
+  return true;
+}
+
+static void free_gbm_buffers(struct gbm_buffers *info)
+{
+  if (NULL == info || NULL == info->buffers)
+    return;
+
+  for (int i = 0; i < info->buf_cnt; i++) {
+    if (info->buffers[i].vaddr) {
+      munmap(info->buffers[i].vaddr, info->buffers[i].size);
+      info->buffers[i].vaddr = NULL;
+    }
+    free_gbm_memory(&info->buffers[i]);
+  }
+
+  if (info->buffers) {
+    free(info->buffers);
+    info->buffers = NULL;
+  }
+
+  if (info->gbm_device_fd >= 0) {
+    close(info->gbm_device_fd);
+    info->gbm_device_fd = -1;
+  }
+}
+#endif /* USE_GBM */
