@@ -23,7 +23,7 @@ libcodec2wrapper_la_CPPFLAGS = $(AM_CPPFLAGS) \
                             $(GST_BASE_CFLAGS) \
                             -DC2PORT \
                             -DHAVE_MOCK_CODEC \
-                            -D_LINUX_ \
+                            -D_AGL_LINUX_ \
                             -DG_LOG_DOMAIN=\"codec2wrapper\"
 
 libcodec2wrapper_la_CXXFLAGS = -std=c++14
