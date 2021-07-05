@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 add_definitions(
     -D__AGL__
     -D_GNU_SOURCE
-    -DUSE_ION
+    -DUSE_GBM
     -D_LINUX_
     -D_MULTI_PAYLOAD_
 )
@@ -33,7 +33,7 @@ target_link_libraries (mm-vdec-omx-test-lite glib-2.0)
 target_link_libraries (mm-vdec-omx-test-lite pthread)
 target_link_libraries (mm-vdec-omx-test-lite OmxCore)
 target_link_libraries (mm-vdec-omx-test-lite OmxVdec)
-target_link_libraries (mm-vdec-omx-test-lite ion)
+target_link_libraries (mm-vdec-omx-test-lite gbm)
 target_link_libraries (mm-vdec-omx-test-lite dl)
 
 
