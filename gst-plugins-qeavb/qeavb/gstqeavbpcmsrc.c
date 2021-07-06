@@ -63,11 +63,7 @@ static void gst_qeavb_pcm_src_set_property (GObject * object, guint prop_id,
 static void gst_qeavb_pcm_src_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
 
-static gboolean gst_qeavb_pcm_src_setcaps (GstBaseSrc * basesrc,
-    GstCaps * caps);
 static GstCaps *gst_qeavb_pcm_src_fixate (GstBaseSrc * bsrc, GstCaps * caps);
-static gboolean gst_qeavb_pcm_src_query (GstBaseSrc * basesrc, GstQuery * query);
-
 static gboolean gst_qeavb_pcm_src_start (GstBaseSrc * basesrc);
 static gboolean gst_qeavb_pcm_src_stop (GstBaseSrc * basesrc);
 static GstFlowReturn gst_qeavb_pcm_src_fill (GstPushSrc * pushsrc, GstBuffer *
@@ -107,9 +103,7 @@ gst_qeavb_pcm_src_class_init (GstQeavbPcmSrcClass * klass)
   basesrc_class->start = GST_DEBUG_FUNCPTR (gst_qeavb_pcm_src_start);
   basesrc_class->stop = GST_DEBUG_FUNCPTR (gst_qeavb_pcm_src_stop);
   pushsrc_class->fill = GST_DEBUG_FUNCPTR (gst_qeavb_pcm_src_fill);
-  basesrc_class->set_caps = GST_DEBUG_FUNCPTR (gst_qeavb_pcm_src_setcaps);
   basesrc_class->fixate = GST_DEBUG_FUNCPTR (gst_qeavb_pcm_src_fixate);
-  basesrc_class->query = GST_DEBUG_FUNCPTR (gst_qeavb_pcm_src_query);
 }
 
 static void
@@ -246,30 +240,6 @@ gst_qeavb_pcm_src_fixate (GstBaseSrc * bsrc, GstCaps * caps)
   return caps;
 }
 
-static gboolean
-gst_qeavb_pcm_src_setcaps (GstBaseSrc * basesrc, GstCaps * caps)
-{
-  GstQeavbPcmSrc *src = GST_QEAVB_PCM_SRC (basesrc);
-  GstAudioInfo info;
-
-  if (!gst_audio_info_from_caps (&info, caps))
-    goto invalid_caps;
-
-  GST_DEBUG_OBJECT (src, "negotiated to caps %" GST_PTR_FORMAT, caps);
-
-  if (0 != src->stream_info.max_buffer_size && 0 != src->stream_info.pkts_per_wake)
-    gst_base_src_set_blocksize (basesrc, src->stream_info.max_buffer_size * src->stream_info.pkts_per_wake);
-
-  return TRUE;
-
-  /* ERROR */
-invalid_caps:
-  {
-    GST_ERROR_OBJECT (basesrc, "received invalid caps");
-    return FALSE;
-  }
-}
-
 static GstStateChangeReturn
 gst_qeavb_pcm_src_change_state (GstElement * element,
     GstStateChange transition)
@@ -291,21 +261,6 @@ gst_qeavb_pcm_src_change_state (GstElement * element,
 }
 
 static gboolean
-gst_qeavb_pcm_src_query (GstBaseSrc * basesrc, GstQuery * query)
-{
-  gboolean res = FALSE;
-
-  switch (GST_QUERY_TYPE (query)) {
-    default:
-      res = GST_BASE_SRC_CLASS (parent_class)->query (basesrc, query);
-      break;
-  }
-
-  return res;
-}
-
-
-static gboolean
 gst_qeavb_pcm_src_start (GstBaseSrc * basesrc)
 {
   int err = 0;
@@ -319,15 +274,9 @@ gst_qeavb_pcm_src_start (GstBaseSrc * basesrc)
     return FALSE;
   }
 
-  err = qeavb_read_config_file(&(qeavbpcmsrc->cfg_data), qeavbpcmsrc->config_file);
-  if (0 == err) {
-    err = qeavb_create_stream(qeavbpcmsrc->eavb_fd, &(qeavbpcmsrc->cfg_data), &(qeavbpcmsrc->hdr));
-  }
-  else {
-    err = qeavb_create_stream_remote(qeavbpcmsrc->eavb_fd, qeavbpcmsrc->config_file, &(qeavbpcmsrc->hdr));
-  }
+  err = qeavb_create_stream_remote(qeavbpcmsrc->eavb_fd, qeavbpcmsrc->config_file, &(qeavbpcmsrc->hdr));
   if (0 != err) {
-    GST_ERROR_OBJECT (qeavbpcmsrc,"create stream error %d, exit!", err);
+    GST_ERROR_OBJECT (qeavbpcmsrc,"create stream remote error %d, exit!", err);
     goto error_close;
   }
 
@@ -343,8 +292,11 @@ gst_qeavb_pcm_src_start (GstBaseSrc * basesrc)
     GST_ERROR_OBJECT (qeavbpcmsrc,"get stream info error %d, exit!", err);
     goto error_disconnect;
   }
-  GST_DEBUG_OBJECT (qeavbpcmsrc, "QEAVB PCM source stream info pcm_bit_depth %d, num_pcm_channels %d, sample_rate %d, endianness %d", qeavbpcmsrc->stream_info.pcm_bit_depth,
-                    qeavbpcmsrc->stream_info.num_pcm_channels, qeavbpcmsrc->stream_info.sample_rate, qeavbpcmsrc->stream_info.endianness);
+  GST_DEBUG_OBJECT (qeavbpcmsrc, "QEAVB PCM source stream info pcm_bit_depth %d, num_pcm_channels %d, sample_rate %d, endianness %d, max_buffer_size %d, pkts_per_wake %d", qeavbpcmsrc->stream_info.pcm_bit_depth,
+    qeavbpcmsrc->stream_info.num_pcm_channels, qeavbpcmsrc->stream_info.sample_rate, qeavbpcmsrc->stream_info.endianness, qeavbpcmsrc->stream_info.max_buffer_size, qeavbpcmsrc->stream_info.pkts_per_wake);
+
+  if (0 != qeavbpcmsrc->stream_info.max_buffer_size && 0 != qeavbpcmsrc->stream_info.pkts_per_wake)
+    gst_base_src_set_blocksize (basesrc, qeavbpcmsrc->stream_info.max_buffer_size * qeavbpcmsrc->stream_info.pkts_per_wake);
   // mmap
   qeavbpcmsrc->eavb_addr = mmap(NULL, qeavbpcmsrc->stream_info.max_buffer_size * qeavbpcmsrc->stream_info.pkts_per_wake, PROT_READ | PROT_WRITE, MAP_SHARED, qeavbpcmsrc->eavb_fd, 0);
   qeavbpcmsrc->started = TRUE;
