@@ -347,7 +347,6 @@ int ebd_cnt= 0, fbd_cnt = 0;
 int bInputEosReached = 0;
 int bOutputEosReached = 0;
 char in_filename[512];
-bool anti_flickering = true;
 unsigned etb_count = 0;
 
 OMX_S64 timeStampLfile = 0;
@@ -628,7 +627,7 @@ void* fbd_thread(void* pArg)
   float total_time = 0;
   int contigous_drop_frame = 0, ret = 0;
   OMX_S64 base_timestamp = 0, lastTimestamp = 0;
-  OMX_BUFFERHEADERTYPE *pBuffer = NULL, *pPrevBuff = NULL;
+  OMX_BUFFERHEADERTYPE *pBuffer = NULL;
   pthread_mutex_lock(&eos_lock);
   int stride,scanlines,stride_c,i;
   DEBUG_PRINT("First Inside %s", __FUNCTION__);
@@ -643,7 +642,7 @@ void* fbd_thread(void* pArg)
     {
       pthread_mutex_unlock(&enable_lock);
       pthread_mutex_lock(&fbd_lock);
-      if (pPrevBuff != NULL ) {
+      if (pBuffer != NULL ) {
         if(push(fbd_queue, (void *)pBuffer))
           DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
         else
@@ -653,7 +652,6 @@ void* fbd_thread(void* pArg)
          * old buffer before port reconfigures.
          */
         pBuffer = NULL;
-        pPrevBuff = NULL;
       }
       if (free_op_buf_cnt == portFmt.nBufferCountActual)
         free_output_buffers();
@@ -662,15 +660,11 @@ void* fbd_thread(void* pArg)
       continue;
     }
     pthread_mutex_unlock(&enable_lock);
-    if (anti_flickering)
-      pPrevBuff = pBuffer;
     pthread_mutex_lock(&fbd_lock);
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
     pthread_mutex_unlock(&fbd_lock);
     if (pBuffer == NULL)
     {
-      if (anti_flickering)
-        pBuffer = pPrevBuff;
       DEBUG_PRINT("Error - No pBuffer to dequeue");
       pthread_mutex_lock(&eos_lock);
       continue;
@@ -739,12 +733,11 @@ void* fbd_thread(void* pArg)
       pBuffer->nFilledLen = 0;
       pBuffer->nFlags &= ~OMX_BUFFERFLAG_EXTRADATA;
       pthread_mutex_lock(&fbd_lock);
-      if ( pPrevBuff != NULL ) {
-        if(push(fbd_queue, (void *)pPrevBuff))
+      if ( pBuffer != NULL ) {
+        if(push(fbd_queue, (void *)pBuffer))
           DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
         else
           sem_post(&fbd_sem);
-        pPrevBuff = NULL;
       }
       if(push(fbd_queue, (void *)pBuffer) < 0)
       {
@@ -756,15 +749,13 @@ void* fbd_thread(void* pArg)
     }
     else
     {
-      if (!anti_flickering)
-        pPrevBuff = pBuffer;
-      if (pPrevBuff)
+      if (pBuffer)
       {
         pthread_mutex_lock(&fbd_lock);
         pthread_mutex_lock(&eos_lock);
         if (!bOutputEosReached)
         {
-          if ( OMX_FillThisBuffer(dec_handle, pPrevBuff) == OMX_ErrorNone ) {
+          if ( OMX_FillThisBuffer(dec_handle, pBuffer) == OMX_ErrorNone ) {
             free_op_buf_cnt--;
           }
         }
@@ -1261,8 +1252,6 @@ int run_tests(bool secure)
       return -1;
   }
 
-  anti_flickering = true;
-
   pthread_mutex_lock(&eos_lock);
   while (bOutputEosReached == false && cmd_error == 0)
   {
@@ -1365,15 +1354,6 @@ static bool setup_omx_output_buffers(void)
     return false;
   }
 
-  if (anti_flickering) {
-    portFmt.nBufferCountActual += 1;
-    ret = OMX_SetParameter(dec_handle,OMX_IndexParamPortDefinition,&portFmt);
-    if (ret != OMX_ErrorNone) {
-      DEBUG_PRINT_ERROR("%s: OMX_SetParameter failed: %d",__FUNCTION__, ret);
-      return false;
-    }
-  }
-  OMX_GetParameter(dec_handle, OMX_IndexParamPortDefinition, &portFmt);
   DEBUG_PRINT("nBufferCountMin=%d", portFmt.nBufferCountMin);
   DEBUG_PRINT("nBufferSize=%d", portFmt.nBufferSize);
   DEBUG_PRINT("nFrameHeight=%d", portFmt.format.video.nFrameHeight);
