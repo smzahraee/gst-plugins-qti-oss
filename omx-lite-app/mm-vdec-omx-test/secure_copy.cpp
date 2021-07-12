@@ -96,6 +96,18 @@ secure_copy::copy(uint8_t *non_sec_buf, size_t non_sec_buf_len, int sec_buf_fd,
     return true;
 }
 
+bool do_secure_copy(uint8_t *buf, size_t *size, int fd, int direction)
+{
+  secure_copy *sc = secure_copy::instance();
+  size_t size_in = *size;
+
+  bool ret = sc->copy(buf, *size, fd, 0, size, direction);
+  printf("%s: size=%lu, copied=%lu, fd=%d, direction=%d, ret=%d\n",
+         __func__, size_in, *size, fd, direction, ret);
+
+  return ret;
+}
+
 secure_copy::~secure_copy()
 {
     if (secure_copy_deinit && secure_handle)

@@ -40,9 +40,11 @@ enum secure_copy_direction {
     SCD_COPY_INVALID_DIR
 };
 
-/* Usage: secure_copy *sc = secure_copy::instance(); sc->copy(...); */
 class secure_copy {
 public:
+    friend bool do_secure_copy(uint8_t *buf, size_t *size, int fd, int direction);
+
+private:
     static secure_copy* instance(void) {
         static secure_copy instance;
         return &instance;
@@ -52,7 +54,6 @@ public:
     bool copy(uint8_t *non_sec_buf, size_t non_sec_buf_len, int sec_buf_fd,
               size_t sec_buf_offset, size_t *sec_buf_len, int copy_dir);
 
-private:
     secure_copy();
     secure_copy(const secure_copy&) = delete;
     secure_copy& operator=(const secure_copy&) = delete;
@@ -82,5 +83,19 @@ private:
         int copy_dir);
     int (*secure_copy_deinit)(void **handle);
 };
+
+bool do_secure_copy(uint8_t *buf, size_t *size, int fd, int direction);
+
+static inline bool
+copy_to_secure_buffer(const uint8_t *buf, size_t *size, int fd)
+{
+  return do_secure_copy((uint8_t *)buf, size, fd, SCD_COPY_NONSECURE_TO_SECURE);
+}
+
+static inline bool
+copy_from_secure_buffer(uint8_t *buf, size_t *size, int fd)
+{
+  return do_secure_copy(buf, size, fd, SCD_COPY_SECURE_TO_NONSECURE);
+}
 
 #endif //#ifndef _SECURE_COPY_H

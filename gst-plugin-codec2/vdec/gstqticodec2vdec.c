@@ -104,6 +104,9 @@ static GstStaticPadTemplate gst_qtivdec_sink_template =
     "video/x-vp8"
     ";"
     "video/x-vp9"
+    ";"
+    "video/mpeg,"
+    "mpegversion = (int)2"
     )
   );
 
@@ -162,7 +165,7 @@ make_interlace_param (INTERLACE_MODE_TYPE mode, gboolean isInput) {
 static gchar*
 gst_to_c2_streamformat (GstStructure* s) {
   gchar *ret = NULL;
-
+  gint mpegversion = 0;
   if (gst_structure_has_name (s, "video/x-h264")) {
     ret = g_strdup("c2.qti.avc.decoder");
   }
@@ -174,6 +177,13 @@ gst_to_c2_streamformat (GstStructure* s) {
   }
   else if (gst_structure_has_name (s, "video/x-vp9")) {
     ret = g_strdup("c2.qti.vp9.decoder");
+  }
+  else if (gst_structure_has_name (s, "video/mpeg")) {
+    if (gst_structure_get_int (s, "mpegversion", &mpegversion)) {
+      if (mpegversion == 2) {
+        ret = g_strdup("c2.qti.mpeg2.decoder");
+      }
+    }
   }
 
   return ret;
