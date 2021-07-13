@@ -101,11 +101,11 @@ int GetTotalMem() {
 float GetProcessMem(pid_t p) {
   int phy = GetPhysicalMem(p);
   int total = GetTotalMem();
-  float occupy = (phy*1.0)/(total*1.0);
+  float occupy = 100.0*(phy*1.0)/(total*1.0);
   return occupy;
 }
 
-unsigned int GetCpuProcessOccupy(const pid_t p) {
+unsigned long long GetCpuProcessOccupy(const pid_t p) {
   char file[64] = {0};  // filename
   ProcessCpuOccupy_t t;
 
@@ -144,10 +144,11 @@ unsigned int GetCpuProcessOccupy(const pid_t p) {
   sscanf(q,"%u %u %u %u", &t.utime, &t.stime, &t.cutime, &t.cstime);  // Format items 14, 15, 16, 17
 
   fclose(fd);  // Close file fd
-  return (t.utime + t.stime + t.cutime + t.cstime);
+  return ((unsigned long long)t.utime + (unsigned long long)t.stime +
+          (unsigned long long)t.cutime + (unsigned long long)t.cstime);
 }
 
-unsigned int GetCpuTotalOccupy() {
+unsigned long long GetCpuTotalOccupy() {
   FILE *fd;  // Define file pointer fd
   char buff[1024] = {0};
   TotalCpuOccupy_t t;
@@ -167,18 +168,14 @@ unsigned int GetCpuTotalOccupy() {
   sscanf (buff, "%s %u %u %u %u", name, &t.user, &t.nice,&t.system, &t.idle);
 
   fclose(fd);  // Close file fd
-  return (t.user + t.nice + t.system + t.idle);
+  return ((unsigned long long)t.user + (unsigned long long)t.nice +
+          (unsigned long long)t.system + (unsigned long long)t.idle);
 }
 
-float GetProcessCpu(pid_t p) {
-  unsigned int totalcputime1, totalcputime2;
-  unsigned int procputime1, procputime2;
-  totalcputime1 = GetCpuTotalOccupy();
-  procputime1 = GetCpuProcessOccupy(p);
-  usleep(500000);  // 500 ms delay
-  totalcputime2 = GetCpuTotalOccupy();
-  procputime2 = GetCpuProcessOccupy(p);
-  float pcpu = 100.0*(procputime2 - procputime1)/(totalcputime2 - totalcputime1);
+float GetProcessCpu(pid_t p, unsigned long long time) {
+  unsigned long long procputime;
+  procputime = GetCpuProcessOccupy(p);
+  float pcpu = 100.0 * procputime / (GetCpuTotalOccupy() - time);
   return pcpu;
 }
 
