@@ -23,8 +23,8 @@ libgstvideoblend_la_LIBADD = \
 							 $(GST_LIBS) \
 							 $(LIBM)
 libgstvideoblend_la_LDFLAGS = \
-							  -lgstionbuf-${GST_API_VERSION} \
 							  -lgstvideo-@GST_API_VERSION@ \
+							  -lc2dcolorconvert \
 							  $(GST_PLUGIN_LDFLAGS)
 libgstvideoblend_la_LIBTOOLFLAGS = $(GST_PLUGIN_LIBTOOLFLAGS)
 
