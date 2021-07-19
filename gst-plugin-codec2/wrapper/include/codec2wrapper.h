@@ -49,6 +49,7 @@ extern "C" {
 #define CONFIG_FUNCTION_KEY_ROTATION        "rotation"
 #define CONFIG_FUNCTION_KEY_RATECONTROL     "ratecontrol"
 #define CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY     "dec_low_latency"
+#define CONFIG_FUNCTION_KEY_INTRAREFRESH    "intra_refresh"
 #define CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE "output_picture_order_mode"
 #define CONFIG_FUNCTION_KEY_DOWNSCALE       "downscale"
 #define CONFIG_FUNCTION_KEY_ENC_CSC         "enc_colorspace_conversion"
@@ -198,6 +199,11 @@ typedef enum {
     COLOR_RANGE_LIMITED,
 } FULL_RANGE;
 
+typedef enum {
+    IR_NONE = 0,
+    IR_RANDOM,
+} IR_MODE_TYPE;
+
 typedef struct {
     guint8* data;
     gint32 fd;
@@ -247,6 +253,11 @@ typedef struct {
     union{
         RC_MODE_TYPE type;
     } rcMode;
+
+    struct {
+        IR_MODE_TYPE type;
+        float intra_refresh_mbs;
+    } irMode;
     guint output_picture_order_mode;
     gboolean low_latency_mode;
     gboolean color_space_conversion;
