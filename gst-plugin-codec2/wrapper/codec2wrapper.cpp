@@ -67,9 +67,9 @@ std::unique_ptr<C2Param> setRateControl (gpointer param);
 std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param);
 std::unique_ptr<C2Param> setDecLowLatency (gpointer param);
 std::unique_ptr<C2Param> setDownscale (gpointer param);
-std::unique_ptr<C2Param> setIntraRefresh (gpointer param);
 std::unique_ptr<C2Param> setEncColorSpaceConv (gpointer param);
 std::unique_ptr<C2Param> setColorAspectsInfo (gpointer param);
+std::unique_ptr<C2Param> setIntraRefresh (gpointer param);
 
 // Function map for parameter configuration
 static configFunctionMap sConfigFunctionMap = {
@@ -83,7 +83,8 @@ static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, setDecLowLatency},
     {CONFIG_FUNCTION_KEY_DOWNSCALE, setDownscale},
     {CONFIG_FUNCTION_KEY_ENC_CSC, setEncColorSpaceConv},
-    {CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO, setColorAspectsInfo}
+    {CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO, setColorAspectsInfo},
+    {CONFIG_FUNCTION_KEY_INTRAREFRESH, setIntraRefresh},
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -273,6 +274,18 @@ std::unique_ptr<C2Param> setColorAspectsInfo (gpointer param) {
     colorAspects.matrix     = toC2Matrix(config->colorAspects.matrix);
     colorAspects.range      = toC2FullRange(config->colorAspects.full_range);
     return C2Param::Copy(colorAspects);
+}
+
+std::unique_ptr<C2Param> setIntraRefresh (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2StreamIntraRefreshTuning::output intraRefreshMode;
+    intraRefreshMode.mode = (C2Config::intra_refresh_mode_t)config->irMode.type;
+    intraRefreshMode.period = config->irMode.intra_refresh_mbs;
+    return C2Param::Copy(intraRefreshMode);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

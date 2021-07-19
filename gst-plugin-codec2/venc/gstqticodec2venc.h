@@ -94,6 +94,8 @@ struct _Gstqticodec2venc
   TRANSFER_CHAR transfer_char;
   MATRIX matrix;
   FULL_RANGE full_range;
+  IR_MODE_TYPE intra_refresh_mode;
+  guint32 intra_refresh_mbs;
 
   GMutex pending_lock;
   GCond  pending_cond;
