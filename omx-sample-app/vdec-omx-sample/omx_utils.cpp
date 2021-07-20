@@ -1381,7 +1381,7 @@ OMX_ERRORTYPE FillBufferDoneCallback(OMX_OUT OMX_HANDLETYPE hComponent,
       m_DecodeFrameTimeMin = decode_frame_time;
     }
 
-    VLOGP("decode frame speed max: %5d ms, min %5d ms", m_DecodeFrameTimeMax, m_DecodeFrameTimeMin);
+    VLOGP("decode one frame cost time max: %5d ms, min %5d ms", m_DecodeFrameTimeMax, m_DecodeFrameTimeMin);
     m_DecodeTotalTimeActal += decode_frame_time;
   }
 
