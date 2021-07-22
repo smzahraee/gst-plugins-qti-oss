@@ -161,6 +161,7 @@ typedef struct {
 } BufferDescriptor;
 
 typedef struct {
+    const char* config_name;
     gboolean isInput;
     union{
         guint32 u32;
@@ -225,7 +226,7 @@ gboolean c2component_delete (void* comp);
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 const gchar* c2componentInterface_getName (void* const comp_intf);
 const gint c2componentInterface_getId (void* const comp_intf);
-gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config, BLOCK_MODE_TYPE block);
+gboolean c2componentInterface_config (void* const comp_intf, GPtrArray* config, BLOCK_MODE_TYPE block);
 
 
 #ifdef __cplusplus
