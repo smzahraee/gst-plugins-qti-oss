@@ -1860,7 +1860,7 @@ OMX_ERRORTYPE FillBufferDoneCallback(OMX_OUT OMX_HANDLETYPE component,
     if (m_EncodeFrameTimeMin > encode_frame_time || m_EncodeFrameTimeMin == 0) {
       m_EncodeFrameTimeMin = encode_frame_time;
     }
-    VLOGP("encode frame speed max: %5d ms, min %5d ms", m_EncodeFrameTimeMax, m_EncodeFrameTimeMin);
+    VLOGP("encode one frame cost time max: %5d ms, min %5d ms", m_EncodeFrameTimeMax, m_EncodeFrameTimeMin);
 
     m_EncodeTotalTimeActal += encode_frame_time;
   }
