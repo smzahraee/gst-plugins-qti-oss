@@ -823,7 +823,18 @@ const gint  c2componentInterface_getId(void* const comp_intf) {
     return ret;
 }
 
-gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config, BLOCK_MODE_TYPE block) {
+void _push_to_settings (gpointer data, gpointer user_data) {
+    std::list<std::unique_ptr<C2Param>> *settings = (std::list<std::unique_ptr<C2Param>> *)user_data;
+    ConfigParams *conf_param = (ConfigParams*) data;
+
+    auto iter = sConfigFunctionMap.find(conf_param->config_name);
+    if (iter != sConfigFunctionMap.end()) {
+      auto param = (*iter->second)(conf_param);
+      settings->push_back(C2Param::Copy(*param));
+    }
+}
+
+gboolean c2componentInterface_config (void* const comp_intf, GPtrArray* config, BLOCK_MODE_TYPE block) {
 
     LOG_MESSAGE("Applying configuration");
 
@@ -834,19 +845,8 @@ gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config,
         std::vector<C2Param*> stackParams;
         std::list<std::unique_ptr<C2Param>> settings;
         c2_status_t c2Status = C2_NO_INIT;
-        GHashTableIter iter;
-        gpointer key;
-        gpointer value;
 
-        g_hash_table_iter_init (&iter, config);
-
-        while (g_hash_table_iter_next (&iter, &key, &value)) {
-            auto iter = sConfigFunctionMap.find((const char*)key);
-            if (iter != sConfigFunctionMap.end()) {
-                auto param = (*iter->second)(value);
-                settings.push_back(C2Param::Copy(*param));
-            }
-        }
+        g_ptr_array_foreach (config, _push_to_settings, &settings);
 
         for (auto &item: settings) {
           stackParams.push_back(item.get());
