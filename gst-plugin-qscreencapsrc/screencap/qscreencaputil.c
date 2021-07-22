@@ -717,8 +717,14 @@ void destroy_display(QDisplay *qdisplay)
     if (qdisplay->xdg_surface)
        xdg_surface_destroy(qdisplay->xdg_surface);
 #endif
-    if (qdisplay->ivi_application)
+    if (qdisplay->ivi_surface) {
        ivi_surface_destroy(qdisplay->ivi_surface);
+       qdisplay->ivi_surface = NULL;
+    }
+    if (qdisplay->ivi_application) {
+       ivi_application_destroy(qdisplay->ivi_application);
+       qdisplay->ivi_application = NULL;
+    }
     if (qdisplay->surface)
        wl_surface_destroy(qdisplay->surface);
 
