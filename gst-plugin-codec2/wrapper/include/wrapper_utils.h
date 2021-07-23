@@ -34,6 +34,7 @@
 #include "gbm_priv.h"
 #include "codec2wrapper.h"
 #include <gst/video/video.h>
+#include <C2Config.h>
 
 namespace QTI {
 
@@ -56,7 +57,10 @@ C2FrameData::flags_t toC2Flag(FLAG_TYPE flag);
 uint32_t toC2PixelFormat(PIXEL_FORMAT_TYPE pixel);
 guint32 gst_to_c2_gbmformat (GstVideoFormat format);
 guint32 to_c2_gbm_ubwc_flag (GstVideoFormat format);
-
+C2Color::primaries_t toC2Primaries (COLOR_PRIMARIES pixel);
+C2Color::transfer_t toC2TransferChar (TRANSFER_CHAR transfer_char);
+C2Color::matrix_t toC2Matrix (MATRIX matrix);
+C2Color::range_t toC2FullRange (FULL_RANGE full_range);
 
 // namespace QTI
 }

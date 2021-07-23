@@ -65,6 +65,9 @@ std::unique_ptr<C2Param> setRateControl (gpointer param);
 std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param);
 std::unique_ptr<C2Param> setDecLowLatency (gpointer param);
 std::unique_ptr<C2Param> setDownscale (gpointer param);
+std::unique_ptr<C2Param> setIntraRefresh (gpointer param);
+std::unique_ptr<C2Param> setEncColorSpaceConv (gpointer param);
+std::unique_ptr<C2Param> setColorAspectsInfo (gpointer param);
 
 // Function map for parameter configuration
 static configFunctionMap sConfigFunctionMap = {
@@ -75,6 +78,8 @@ static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE, setOutputPictureOrderMode},
     {CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, setDecLowLatency},
     {CONFIG_FUNCTION_KEY_DOWNSCALE, setDownscale},
+    {CONFIG_FUNCTION_KEY_ENC_CSC, setEncColorSpaceConv},
+    {CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO, setColorAspectsInfo}
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -205,6 +210,31 @@ std::unique_ptr<C2Param> setDownscale (gpointer param) {
     }
 
     return nullptr;
+}
+
+std::unique_ptr<C2Param> setEncColorSpaceConv (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    qc2::C2VideoCSC::input colorSpaceConv;
+    colorSpaceConv.value = config->color_space_conversion;
+    return C2Param::Copy(colorSpaceConv);
+}
+
+std::unique_ptr<C2Param> setColorAspectsInfo (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2StreamColorAspectsInfo::input colorAspects;
+    colorAspects.primaries  = toC2Primaries(config->colorAspects.primaries);
+    colorAspects.transfer   = toC2TransferChar(config->colorAspects.transfer_char);
+    colorAspects.matrix     = toC2Matrix(config->colorAspects.matrix);
+    colorAspects.range      = toC2FullRange(config->colorAspects.full_range);
+    return C2Param::Copy(colorAspects);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
