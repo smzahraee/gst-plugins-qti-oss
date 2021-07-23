@@ -49,6 +49,8 @@ extern "C" {
 #define CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY     "dec_low_latency"
 #define CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE "output_picture_order_mode"
 #define CONFIG_FUNCTION_KEY_DOWNSCALE       "downscale"
+#define CONFIG_FUNCTION_KEY_ENC_CSC         "enc_colorspace_conversion"
+#define CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO   "colorspace_color_aspects"
 
 #define C2_TICKS_PER_SECOND 1000000
 
@@ -143,6 +145,50 @@ typedef enum {
     RC_UNSET = 0xFFFF
 } RC_MODE_TYPE;
 
+typedef enum {
+    COLOR_PRIMARIES_UNSPECIFIED,
+    COLOR_PRIMARIES_BT709,
+    COLOR_PRIMARIES_BT470_M,
+    COLOR_PRIMARIES_BT601_625,
+    COLOR_PRIMARIES_BT601_525,
+    COLOR_PRIMARIES_GENERIC_FILM,
+    COLOR_PRIMARIES_BT2020,
+    COLOR_PRIMARIES_RP431,
+    COLOR_PRIMARIES_EG432,
+    COLOR_PRIMARIES_EBU3213,
+} COLOR_PRIMARIES;
+
+typedef enum {
+    COLOR_TRANSFER_UNSPECIFIED,
+    COLOR_TRANSFER_LINEAR,
+    COLOR_TRANSFER_SRGB,
+    COLOR_TRANSFER_170M,
+    COLOR_TRANSFER_GAMMA22,
+    COLOR_TRANSFER_GAMMA28,
+    COLOR_TRANSFER_ST2084,
+    COLOR_TRANSFER_HLG,
+    COLOR_TRANSFER_240M,
+    COLOR_TRANSFER_XVYCC,
+    COLOR_TRANSFER_BT1361,
+    COLOR_TRANSFER_ST428,
+} TRANSFER_CHAR;
+
+typedef enum {
+    COLOR_MATRIX_UNSPECIFIED,
+    COLOR_MATRIX_BT709,
+    COLOR_MATRIX_FCC47_73_682,
+    COLOR_MATRIX_BT601,
+    COLOR_MATRIX_240M,
+    COLOR_MATRIX_BT2020,
+    COLOR_MATRIX_BT2020_CONSTANT,
+} MATRIX;
+
+typedef enum {
+    COLOR_RANGE_UNSPECIFIED,
+    COLOR_RANGE_FULL,
+    COLOR_RANGE_LIMITED,
+} FULL_RANGE;
+
 typedef struct {
     guint8* data;
     gint32 fd;
@@ -190,6 +236,13 @@ typedef struct {
     } rcMode;
     guint output_picture_order_mode;
     gboolean low_latency_mode;
+    gboolean color_space_conversion;
+    struct {
+        COLOR_PRIMARIES primaries;
+        TRANSFER_CHAR transfer_char;
+        MATRIX matrix;
+        FULL_RANGE full_range;
+    } colorAspects;
 } ConfigParams;
 
 typedef void (*listener_cb)(const void* handle, EVENT_TYPE type, void* data);

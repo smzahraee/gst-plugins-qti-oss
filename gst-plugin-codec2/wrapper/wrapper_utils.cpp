@@ -291,6 +291,131 @@ guint32 to_c2_gbm_ubwc_flag (GstVideoFormat format) {
   return result;
 }
 
+C2Color::primaries_t toC2Primaries (COLOR_PRIMARIES pixel) {
+  C2Color::primaries_t ret = C2Color::PRIMARIES_UNSPECIFIED;
+  switch (pixel) {
+    case COLOR_PRIMARIES_BT709:
+      ret = C2Color::PRIMARIES_BT709;
+      break;
+    case COLOR_PRIMARIES_BT470_M:
+      ret = C2Color::PRIMARIES_BT470_M;
+      break;
+    case COLOR_PRIMARIES_BT601_625:
+      ret = C2Color::PRIMARIES_BT601_625;
+      break;
+    case COLOR_PRIMARIES_BT601_525:
+      ret = C2Color::PRIMARIES_BT601_525;
+      break;
+    case COLOR_PRIMARIES_GENERIC_FILM:
+      ret = C2Color::PRIMARIES_GENERIC_FILM;
+      break;
+    case COLOR_PRIMARIES_BT2020:
+      ret = C2Color::PRIMARIES_BT2020;
+      break;
+    case COLOR_PRIMARIES_RP431:
+      ret = C2Color::PRIMARIES_RP431;
+      break;
+    case COLOR_PRIMARIES_EG432:
+      ret = C2Color::PRIMARIES_EG432;
+      break;
+    case COLOR_PRIMARIES_EBU3213:
+      ret = C2Color::PRIMARIES_EBU3213;
+      break;
+    default:
+      ret = C2Color::PRIMARIES_UNSPECIFIED;
+      break;
+  }
+
+	return ret;
+}
+
+C2Color::transfer_t toC2TransferChar (TRANSFER_CHAR transfer_char) {
+  C2Color::transfer_t ret = C2Color::TRANSFER_UNSPECIFIED;
+  switch (transfer_char) {
+    case COLOR_TRANSFER_LINEAR:
+      ret = C2Color::TRANSFER_LINEAR;
+      break;
+    case COLOR_TRANSFER_SRGB:
+      ret = C2Color::TRANSFER_SRGB;
+      break;
+    case COLOR_TRANSFER_170M:
+      ret = C2Color::TRANSFER_170M;
+      break;
+    case COLOR_TRANSFER_GAMMA22:
+      ret = C2Color::TRANSFER_GAMMA22;
+      break;
+    case COLOR_TRANSFER_GAMMA28:
+      ret = C2Color::TRANSFER_GAMMA28;
+      break;
+    case COLOR_TRANSFER_ST2084:
+      ret = C2Color::TRANSFER_ST2084;
+      break;
+    case COLOR_TRANSFER_HLG:
+      ret = C2Color::TRANSFER_HLG;
+      break;
+    case COLOR_TRANSFER_240M:
+      ret = C2Color::TRANSFER_240M;
+      break;
+    case COLOR_TRANSFER_XVYCC:
+      ret = C2Color::TRANSFER_XVYCC;
+      break;
+    case COLOR_TRANSFER_BT1361:
+      ret = C2Color::TRANSFER_BT1361;
+      break;
+    case COLOR_TRANSFER_ST428:
+      ret = C2Color::TRANSFER_ST428;
+      break;
+    default:
+      ret = C2Color::TRANSFER_UNSPECIFIED;
+      break;
+  }
+
+  return ret;
+}
+C2Color::matrix_t toC2Matrix (MATRIX matrix) {
+  C2Color::matrix_t ret = C2Color::MATRIX_UNSPECIFIED;
+  switch (matrix) {
+    case COLOR_MATRIX_BT709:
+      ret = C2Color::MATRIX_BT709;
+      break;
+    case COLOR_MATRIX_FCC47_73_682:
+      ret = C2Color::MATRIX_FCC47_73_682;
+      break;
+    case COLOR_MATRIX_BT601:
+      ret = C2Color::MATRIX_BT601;
+      break;
+    case COLOR_MATRIX_240M:
+      ret = C2Color::MATRIX_240M;
+      break;
+    case COLOR_MATRIX_BT2020:
+      ret = C2Color::MATRIX_BT2020;
+      break;
+    case COLOR_MATRIX_BT2020_CONSTANT:
+      ret = C2Color::MATRIX_BT2020_CONSTANT;
+      break;
+    default:
+      ret = C2Color::MATRIX_UNSPECIFIED;
+      break;
+  }
+  return ret;
+}
+C2Color::range_t toC2FullRange (FULL_RANGE full_range) {
+  C2Color::range_t ret = C2Color::RANGE_UNSPECIFIED;
+  switch (full_range) {
+    case COLOR_RANGE_FULL:
+      ret = C2Color::RANGE_FULL;
+      break;
+    case COLOR_RANGE_LIMITED:
+      ret = C2Color::RANGE_LIMITED;
+      break;
+    default:
+      ret = C2Color::RANGE_UNSPECIFIED;
+      break;
+  }
+  return ret;
+}
+
+
 } // namespace QTI
 
 #endif /* __UTILS_H__ */
