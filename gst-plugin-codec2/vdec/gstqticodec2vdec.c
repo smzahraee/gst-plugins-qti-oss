@@ -51,7 +51,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_qticodec2vdec_debug);
 G_DEFINE_TYPE (Gstqticodec2vdec, gst_qticodec2vdec, GST_TYPE_VIDEO_DECODER);
 
 #define parent_class gst_qticodec2vdec_parent_class
-#define NANO_TO_MILLI(x)  x / 1000
+#define NANO_TO_MILLI(x)  ((x) / 1000)
 #define EOS_WAITING_TIMEOUT 5
 
 /* Function will be named qticodec2vdec_qdata_quark() */
@@ -238,11 +238,6 @@ gst_qticodec2vdec_create_component (GstVideoDecoder* decoder) {
     if (ret ==  FALSE) {
        GST_DEBUG_OBJECT (dec, "Failed to create linear pool");
     }
-
-    ret = c2component_createBlockpool(dec->comp, BUFFER_POOL_BASIC_GRAPHIC);
-    if (ret == FALSE) {
-      GST_DEBUG_OBJECT (dec, "Failed to create graphics pool");
-    }
   }
   else {
     GST_DEBUG_OBJECT (dec, "Component store is Null");
@@ -409,16 +404,6 @@ gst_qticodec2vdec_stop (GstVideoDecoder* decoder) {
 
   GST_DEBUG_OBJECT (dec, "stop");
 
-  if (dec->input_state) {
-    gst_video_codec_state_unref (dec->input_state);
-    dec->input_state = NULL;
-  }
-
-  if (dec->output_state) {
-    gst_video_codec_state_unref (dec->output_state);
-    dec->output_state = NULL;
-  }
-
   return TRUE;
 }
 
@@ -548,6 +533,7 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
 
   /* Negotiate with downstream and setup output */
   if (GST_FLOW_OK != gst_qticodec2vdec_setup_output (decoder, config)) {
+      g_hash_table_destroy (config);
       goto error_set_format;
   }
 
@@ -834,14 +820,16 @@ push_frame_downstream(GstVideoDecoder* decoder, BufferDescriptor* decode_buf) {
    * writable when it's pushed downstream */
   gst_video_codec_frame_unref (frame);
   ret = gst_video_decoder_finish_frame (decoder, frame);
-  if(ret != GST_FLOW_OK){
+  if(ret != GST_FLOW_OK) {
     GST_ERROR_OBJECT (dec, "Failed(%d) to push frame downstream", ret);
     goto out;
   }
 
+  gst_video_codec_state_unref (state);
   return GST_FLOW_OK;
 
 out:
+  gst_video_codec_state_unref (state);
   return GST_FLOW_ERROR;
 }
 
@@ -897,6 +885,8 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
   GstMapInfo mapinfo = { 0, };
   GstBuffer* buf = NULL;
   BufferDescriptor inBuf;
+  gboolean mem_mapped = FALSE;
+  gboolean ret = FALSE;
 
   GST_DEBUG_OBJECT (dec, "decode");
 
@@ -913,8 +903,7 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
     inBuf.data = mapinfo.data;
     inBuf.size = mapinfo.size;
     inBuf.pool_type = BUFFER_POOL_BASIC_LINEAR;
-
-    gst_buffer_unmap (buf, &mapinfo);
+    mem_mapped = TRUE;
 
     GST_INFO_OBJECT (dec, "frame->pts (%" G_GUINT64_FORMAT ")", frame->pts);
 
@@ -930,7 +919,13 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
   inBuf.index = frame->system_frame_number;
 
   /* Queue buffer to Codec2 */
-  if (!c2component_queue (dec->comp, &inBuf)) {
+  ret = c2component_queue (dec->comp, &inBuf);
+  /* unmap the gstbuffer if it's mapped*/
+  if (mem_mapped) {
+    gst_buffer_unmap (buf, &mapinfo);
+  }
+
+  if (!ret) {
     goto error_setup_input;
   }
 
@@ -992,9 +987,8 @@ gst_qticodec2vdec_finalize (GObject *object) {
   g_mutex_clear (&dec->pending_lock);
   g_cond_clear (&dec->pending_cond);
 
-  g_free (dec->streamformat);
-
   if (dec->streamformat) {
+    g_free (dec->streamformat);
     dec->streamformat = NULL;
   }
 

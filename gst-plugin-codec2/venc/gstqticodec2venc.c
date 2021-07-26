@@ -52,7 +52,7 @@ G_DEFINE_TYPE (Gstqticodec2venc, gst_qticodec2venc, GST_TYPE_VIDEO_ENCODER);
 
 #define GST_TYPE_CODEC2_ENC_RATE_CONTROL (gst_qticodec2venc_rate_control_get_type ())
 #define parent_class gst_qticodec2venc_parent_class
-#define NANO_TO_MILLI(x)  x / 1000
+#define NANO_TO_MILLI(x)  ((x) / 1000)
 #define EOS_WAITING_TIMEOUT 5
 #define MAX_INPUT_BUFFERS 32
 
@@ -276,11 +276,6 @@ gst_qticodec2venc_create_component (GstVideoEncoder* encoder) {
        GST_DEBUG_OBJECT (enc, "Failed to set event handler");
     }
 
-    ret = c2component_createBlockpool(enc->comp, BUFFER_POOL_BASIC_LINEAR);
-    if (ret ==  FALSE) {
-       GST_DEBUG_OBJECT (enc, "Failed to create linear pool");
-    }
-
     ret = c2component_createBlockpool(enc->comp, BUFFER_POOL_BASIC_GRAPHIC);
     if (ret == FALSE) {
       GST_DEBUG_OBJECT (enc, "Failed to create graphics pool");
@@ -382,16 +377,6 @@ gst_qticodec2venc_stop (GstVideoEncoder* encoder) {
   /* Stop the component */
   if (enc->comp) {
     ret = c2component_stop(enc->comp);
-  }
-
-  if (enc->input_state) {
-    gst_video_codec_state_unref (enc->input_state);
-    enc->input_state = NULL;
-  }
-
-  if (enc->output_state) {
-    gst_video_codec_state_unref (enc->output_state);
-    enc->output_state = NULL;
   }
 
   return ret;
@@ -549,8 +534,7 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
         enc->comp_intf,
         config,
         BLOCK_MODE_MAY_BLOCK)) {
-      //GST_WARNING_OBJECT (enc, "Failed to set encoder config");
-      GST_DEBUG_OBJECT (enc, "Failed to set encoder config");
+      GST_WARNING_OBJECT (enc, "Failed to set encoder config");
   }
 
   g_hash_table_destroy (config);
@@ -722,6 +706,7 @@ gst_qticodec2venc_propose_allocation(GstVideoEncoder * encoder, GstQuery * query
       config = gst_buffer_pool_get_config (GST_BUFFER_POOL_CAST (enc->pool));
 
       if (!gst_buffer_pool_config_get_allocator (config, &allocator, NULL)) {
+        gst_structure_free (config);
         GST_ERROR_OBJECT (enc, "failed to get allocator from pool");
         goto cleanup;
       } else {
