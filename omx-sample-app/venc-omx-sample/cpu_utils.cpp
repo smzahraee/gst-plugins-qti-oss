@@ -55,6 +55,10 @@ int GetPhysicalMem(const pid_t p) {
 
   fprintf(stderr, "current pid:%d\n", p);
   fd = fopen(file, "r");  // Open the file in R read mode and assign it to the pointer fd
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
 
   // Get vmrss: actual physical memory usage
   int i;
@@ -68,7 +72,7 @@ int GetPhysicalMem(const pid_t p) {
     return 0;
   }
   sscanf(line_buff, "%s %d", name, &vmrss);
-  fprintf(stderr, "====%s：%d====\n", name, vmrss);
+  fprintf(stderr, "====%s:%d====\n", name, vmrss);
   fclose(fd);     // Close file fd
   return vmrss;
 }
@@ -80,6 +84,11 @@ int GetTotalMem() {
   char line_buff[256] = {0};  // Read line buffer
   fd = fopen(file, "r");  // Open the file in R read mode and assign it to the pointer fd
 
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
+
   // Get memtotal: total memory footprint
   int i;
   char name[32];  // Store project name
@@ -88,7 +97,7 @@ int GetTotalMem() {
     return 0;
   }
   sscanf(line_buff, "%s %d", name,&memtotal);
-  fprintf(stderr, "====%s：%d====\n", name,memtotal);
+  fprintf(stderr, "====%s:%d====\n", name,memtotal);
   fclose(fd);  // Close file fd
   return memtotal;
 }
@@ -96,12 +105,12 @@ int GetTotalMem() {
 float GetProcessMem(pid_t p) {
   int phy = GetPhysicalMem(p);
   int total = GetTotalMem();
-  float occupy = (phy*1.0)/(total*1.0);
-  fprintf(stderr, "====process mem occupy:%.6f\n====", occupy);
+  float occupy = 100.0*(phy*1.0)/(total*1.0);
+  fprintf(stderr, "====process mem occupy:%.6f%====\n", occupy);
   return occupy;
 }
 
-unsigned int GetCpuProcessOccupy(const pid_t p) {
+unsigned long long GetCpuProcessOccupy(const pid_t p) {
   char file[64] = {0};  // filename
   ProcessCpuOccupy_t t;
 
@@ -112,6 +121,11 @@ unsigned int GetCpuProcessOccupy(const pid_t p) {
   fprintf (stderr, "current pid:%d\n", p);
   fd = fopen(file, "r");  // Open the file in R read mode and assign it to the pointer fd
   // Read the string of length buff from the fd file and store it in the space with the starting address of buff
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
+
   if (fgets(line_buff, sizeof(line_buff), fd) == NULL) {
     return 0;
   }
@@ -135,17 +149,22 @@ unsigned int GetCpuProcessOccupy(const pid_t p) {
 
   sscanf(q,"%u %u %u %u", &t.utime, &t.stime, &t.cutime, &t.cstime);  // Format items 14, 15, 16, 17
 
-  fprintf(stderr, "====pid%u:%u %u %u %u====\n", t.pid, t.utime, t.stime, t.cutime, t.cstime);
+  fprintf(stderr, "====pid %u: %u %u %u %u====\n", t.pid, t.utime, t.stime, t.cutime, t.cstime);
   fclose(fd);  // Close file fd
-  return (t.utime + t.stime + t.cutime + t.cstime);
+  return ((unsigned long long)t.utime + (unsigned long long)t.stime +
+          (unsigned long long)t.cutime + (unsigned long long)t.cstime);
 }
 
-unsigned int GetCpuTotalOccupy() {
+unsigned long long GetCpuTotalOccupy() {
   FILE *fd;  // Define file pointer fd
-  char buff[1024] = {0};  // 定义局部变量buff数组为char类型大小为1024
+  char buff[1024] = {0};
   TotalCpuOccupy_t t;
 
   fd = fopen("/proc/stat", "r");  // Open the file in R read mode and assign it to the pointer fd
+  if (fd == NULL) {
+    fprintf(stderr, "file open failed.");
+    return 0;
+  }
   // Read the string of length buff from the fd file and store it in the space with the starting address of buff
   if (fgets(buff, sizeof(buff), fd) == NULL) {
     return 0;
@@ -155,21 +174,17 @@ unsigned int GetCpuTotalOccupy() {
   char name[16];  // Temporarily used to store strings
   sscanf (buff, "%s %u %u %u %u", name, &t.user, &t.nice,&t.system, &t.idle);
 
-  fprintf (stderr, "====%s:%u %u %u %u====\n", name, t.user, t.nice, t.system, t.idle);
+  fprintf (stderr, "====%s: %u %u %u %u====\n", name, t.user, t.nice, t.system, t.idle);
   fclose(fd);  // Close file fd
-  return (t.user + t.nice + t.system + t.idle);
+  return ((unsigned long long)t.user + (unsigned long long)t.nice +
+          (unsigned long long)t.system + (unsigned long long)t.idle);
 }
 
-float GetProcessCpu(pid_t p) {
-  unsigned int totalcputime1, totalcputime2;
-  unsigned int procputime1, procputime2;
-  totalcputime1 = GetCpuTotalOccupy();
-  procputime1 = GetCpuProcessOccupy(p);
-  usleep(500000);  // 500 ms delay
-  totalcputime2 = GetCpuTotalOccupy();
-  procputime2 = GetCpuProcessOccupy(p);
-  float pcpu = 100.0*(procputime2 - procputime1)/(totalcputime2 - totalcputime1);
-  fprintf(stderr, "====pcpu:%.6f\n====", pcpu);
+float GetProcessCpu(pid_t p, unsigned long long time) {
+  unsigned long long procputime;
+  procputime = GetCpuProcessOccupy(p);
+  float pcpu = 100.0 * procputime / (GetCpuTotalOccupy() - time);
+  fprintf(stderr, "====pcpu:%.6f%====\n", pcpu);
   return pcpu;
 }
 

@@ -121,6 +121,7 @@ int32_t m_TestMode = 0;
 
 int32_t m_MetadataMode = 0;
 
+unsigned long long m_CpuOccupyStartTime = 0;
 int m_Pid = 0;
 
 int mDynamicConfigNum = 0;
@@ -443,6 +444,10 @@ int ReadFile(const char* filename, char** content) {
 
   // allocate content buffer
   *content = reinterpret_cast<char*>(malloc((size_t)length + sizeof("")));
+  if (*content == NULL) {
+    VLOGE("malloc failed");
+    return -1;
+  }
 
   // read the file into memory
   size_t read_chars = fread(*content, sizeof(char), (size_t)length, file);
@@ -623,24 +628,40 @@ int ParseDynamicConfigs(char * filename) {
     m_DynamicConfigures = new DynamicConfigure[4];
     for (int i = 0; i < mDynamicConfigNum; ++i) {
       JsonItem *profile = GetArrayItem(list, i);
-      m_DynamicConfigures[i].frame_num = GetItem(profile, "frame_num")->valueint;
-      m_DynamicConfigures[i].config_param = (OMX_INDEXTYPE)(GetItem(profile,
-            "config_param")->valueint);
+      JsonItem *item = GetItem(profile, "frame_num");
+      if (item != NULL) {
+        m_DynamicConfigures[i].frame_num = item->valueint;
+      }
+      item = GetItem(profile, "config_param");
+      if (item != NULL) {
+        m_DynamicConfigures[i].config_param = (OMX_INDEXTYPE)(item->valueint);
+      }
       if (m_DynamicConfigures[i].config_param == OMX_IndexConfigVideoBitrate) {
-        m_DynamicConfigures[i].config_data.bitrate.nEncodeBitrate =
-          (OMX_U32)(GetItem(profile, "bitrate")->valueint);
-        m_DynamicConfigures[i].config_data.bitrate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+        JsonItem *item = GetItem(profile, "bitrate");
+        if (item != NULL) {
+          m_DynamicConfigures[i].config_data.bitrate.nEncodeBitrate = (OMX_U32)(item->valueint);
+          m_DynamicConfigures[i].config_data.bitrate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+        }
       } else if (m_DynamicConfigures[i].config_param == OMX_IndexConfigVideoFramerate) {
-        int framerate = GetItem(profile, "framerate")->valueint;
-        m_DynamicConfigures[i].config_data.framerate.xEncodeFramerate = framerate >> 16;
-        m_DynamicConfigures[i].config_data.framerate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+        JsonItem *item = GetItem(profile, "framerate");
+        if (item != NULL) {
+          m_DynamicConfigures[i].config_data.framerate.xEncodeFramerate = (item->valueint) >> 16;
+          m_DynamicConfigures[i].config_data.framerate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
+        }
       } else if (m_DynamicConfigures[i].config_param == OMX_IndexConfigVideoAVCIntraPeriod) {
-        m_DynamicConfigures[i].config_data.intraperiod.nBFrames =
-          (OMX_U32)(GetItem(profile, "BFrame")->valueint);
-        m_DynamicConfigures[i].config_data.intraperiod.nPFrames =
-          (OMX_U32)(GetItem(profile, "pFrame")->valueint);
-        m_DynamicConfigures[i].config_data.intraperiod.nIDRPeriod =
-          (OMX_U32)(GetItem(profile, "IDRPeriod")->valueint);
+        JsonItem *item;
+        item = GetItem(profile, "BFrame");
+        if (item != NULL) {
+          m_DynamicConfigures[i].config_data.intraperiod.nBFrames = (OMX_U32)(item->valueint);
+        }
+        item = GetItem(profile, "pFrame");
+        if (item != NULL) {
+          m_DynamicConfigures[i].config_data.intraperiod.nPFrames = (OMX_U32)(item->valueint);
+        }
+        item = GetItem(profile, "IDRPeriod");
+        if (item != NULL) {
+          m_DynamicConfigures[i].config_data.intraperiod.nIDRPeriod = (OMX_U32)(item->valueint);
+        }
         m_DynamicConfigures[i].config_data.framerate.nPortIndex = (OMX_U32)PORT_INDEX_OUT;
       }
     }
@@ -667,12 +688,17 @@ int ProcessDynamicConfiguration(uint32_t frame_num) {
 }
 
 void DumpSetting() {
+  const char * codec = FindCodecNameByType(m_Settings.eCodec);
   VLOGD("============Dump user settings===========");
-  VLOGD("eCodec: %d(%s), eLevel: %d, eControlRate: %d, eSliceMode: %d",
-      m_Settings.eCodec, FindCodecNameByType(m_Settings.eCodec),
-      m_Settings.eLevel,
-      m_Settings.eControlRate,
-      m_Settings.eSliceMode);
+  if (codec != NULL) {
+    VLOGD("eCodec: %d(%s), eLevel: %d, eControlRate: %d, eSliceMode: %d",
+        m_Settings.eCodec, codec,
+        m_Settings.eLevel,
+        m_Settings.eControlRate,
+        m_Settings.eSliceMode);
+  } else {
+    VLOGD("Invalid codec Type! ");
+  }
 
   VLOGD("Input Frame w/h: %dx%d",
       m_Settings.nFrameWidth,
@@ -721,8 +747,13 @@ void DumpSetting() {
 
 int GetFileSize() {
   FILE * fp = fopen(m_InputFileName, "r");
+  int size = 0;
+  if (fp == NULL) {
+    VLOGE("InputFile open failed.");
+    return size;
+  }
   fseek(fp, 0L, SEEK_END);
-  int size = ftell(fp);
+  size = ftell(fp);
   fclose(fp);
   return size;
 }
@@ -1090,8 +1121,18 @@ void PrintStatisticalData() {
   VLOGP("\n\n=======================Statistical Data=====================");
   VLOGP("Input file name: %s", m_InputFileName);
   VLOGP("Output file name: %s", m_OutputFileName);
-  VLOGP("Input file format: %s", FindColorNameByOmxFmt(m_Settings.nFormat));
-  VLOGP("Codec: %s", FindCodecNameByType(m_Settings.eCodec));
+  const char * file_format = FindColorNameByOmxFmt(m_Settings.nFormat);
+  if (file_format != NULL) {
+    VLOGP("Input file format: %s", file_format);
+  } else {
+    VLOGE("Input file format: null file format");
+  }
+  const char * codec = FindCodecNameByType(m_Settings.eCodec);
+  if (codec != NULL) {
+    VLOGP("Codec: %s", codec);
+  } else {
+    VLOGE("Codec: null codec");
+  }
   VLOGP("Encode input data size: %d bytes", m_InputDataSize);
   VLOGP("Encode output data size: %d bytes", m_OutputDataSize);
   VLOGP("Encode Time: %fs", m_TotalTime);
@@ -1104,13 +1145,13 @@ void PrintStatisticalData() {
 void PrintCPUData() {
   FUNCTION_ENTER();
 
-  VLOGP("\n\n=======================CPU Data before init=====================");
+  VLOGP("\n\n=======================CPU Data=====================");
   VLOGP("Occupied physical memory: %d", GetPhysicalMem(m_Pid));
   VLOGP("Total system memory: %d", GetTotalMem());
-  VLOGP("CPU time of a process: %d", GetCpuProcessOccupy(m_Pid));
-  VLOGP("Total CPU time: %d", GetCpuTotalOccupy());
-  VLOGP("Process CPU usage: %f", GetProcessCpu(m_Pid));
-  VLOGP("Process memory usage: %f", GetProcessMem(m_Pid));
+  VLOGP("CPU time of a process: %llu", GetCpuProcessOccupy(m_Pid));
+  VLOGP("Total CPU time: %llu", GetCpuTotalOccupy() - m_CpuOccupyStartTime);
+  VLOGP("Process CPU usage: %f%", GetProcessCpu(m_Pid, m_CpuOccupyStartTime));
+  VLOGP("Process memory usage: %f%", GetProcessMem(m_Pid));
   VLOGP("\n===========================================================\n\n");
 
   FUNCTION_EXIT();
@@ -1120,13 +1161,23 @@ int main(int argc, char **argv) {
   int status = 0;
   bool ret = false;
 
+  if (argc < 2) {
+    printf("===================================\n");
+    printf("To use it: ./venc-omx-sample --help\n");
+    printf("===================================\n");
+    exit(0);
+  } else if (argc == 2 && !strcmp(argv[1], "--help")) {
+    Help();
+    exit(0);
+  }
+
+  FUNCTION_ENTER();
+  printf("\nVideo encode sample app start...\n");
+
   pthread_mutex_init(&m_PrintTimeMutex, NULL);
   gettimeofday(&m_StartTime, NULL);
 
-  VLOGE("Video encode sample app start...");
-
-  FUNCTION_ENTER();
-
+  m_CpuOccupyStartTime = GetCpuTotalOccupy();
   m_Pid = getpid();
   PrintCPUData();
 
@@ -1188,7 +1239,7 @@ int main(int argc, char **argv) {
   PrintStatisticalData();
   PrintDynamicalData();
 
-  VLOGE("Video encode sample app finished...");
+  printf("\nVideo encode sample app finished...\n");
 
   FUNCTION_EXIT();
   return 0;

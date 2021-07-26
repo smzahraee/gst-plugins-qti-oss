@@ -71,11 +71,11 @@ int GetPhysicalMem(const pid_t p);
 // Get total system memory.
 int GetTotalMem();
 // Get the total CPU time.
-unsigned int GetCpuTotalOccupy();
+unsigned long long GetCpuTotalOccupy();
 // Get the CPU time of a process.
-unsigned int GetCpuProcessOccupy(const pid_t p);
+unsigned long long GetCpuProcessOccupy(const pid_t p);
 
-float GetProcessCpu(pid_t p);  // Get process CPU usage.
+float GetProcessCpu(pid_t p, unsigned long long time);  // Get process CPU usage.
 float GetProcessMem(pid_t p);  // Get process memory usage.
 
 #endif  // VENC_OMX_SAMPLE_CPU_UTILS_H_

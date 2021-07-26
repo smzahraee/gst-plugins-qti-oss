@@ -82,6 +82,7 @@ struct timeval m_StartTime;  // used for print log time
 #define MAX_STR_LEN 32
 static char m_TimeStr[MAX_STR_LEN] = {" "};
 
+unsigned long long m_CpuOccupyStartTime = 0;
 int m_Pid = 0;
 
 // format the time diff between main function start to log output
@@ -360,8 +361,16 @@ void PrintStatisticalData() {
   VLOGP("\n\n=======================Statistical Data=====================");
   VLOGP("Input file name: %s", m_InputFileName);
   VLOGP("Output file name: %s", m_OutputFileName);
-  VLOGP("Output file format: %s", color_name);
-  VLOGP("Codec: %s", codec_name);
+  if (color_name != NULL) {
+    VLOGP("Output file format: %s", color_name);
+  } else {
+    VLOGP("Output file format: Invalid color format");
+  }
+  if (codec_name != NULL) {
+    VLOGP("Codec: %s", codec_name);
+  } else {
+    VLOGP("Codec: Invalid codec");
+  }
   VLOGP("Decode input data size: %d bytes", m_InputDataSize);
   VLOGP("Decode output data size: %d bytes", m_OutputDataSize);
   VLOGP("Decode Time: %fs", total_time);
@@ -386,10 +395,10 @@ void PrintCPUData() {
   VLOGP("\n\n=======================CPU Data =====================");
   VLOGP("Occupied physical memory: %d", GetPhysicalMem(m_Pid));
   VLOGP("Total system memory: %d", GetTotalMem());
-  VLOGP("CPU time of a process: %d", GetCpuProcessOccupy(m_Pid));
-  VLOGP("Total CPU time: %d", GetCpuTotalOccupy());
-  VLOGP("Process CPU usage: %f", GetProcessCpu(m_Pid));
-  VLOGP("Process memory usage: %f", GetProcessMem(m_Pid));
+  VLOGP("CPU time of a process: %llu", GetCpuProcessOccupy(m_Pid));
+  VLOGP("Total CPU time: %llu", GetCpuTotalOccupy() - m_CpuOccupyStartTime);
+  VLOGP("Process CPU usage: %f%", GetProcessCpu(m_Pid, m_CpuOccupyStartTime));
+  VLOGP("Process memory usage: %f%", GetProcessMem(m_Pid));
   VLOGP("\n===========================================================\n\n");
 
   FUNCTION_EXIT();
@@ -402,8 +411,9 @@ int main(int argc, char **argv)
   bool result = true;
 
   FUNCTION_ENTER();
-  VLOGD("Video decoder sample app start...");
+  printf("\nVideo decoder sample app start...\n");
 
+  m_CpuOccupyStartTime = GetCpuTotalOccupy();
   InitDefaultValue();
 
   status = ParseArgs(argc, argv);
@@ -465,6 +475,7 @@ int main(int argc, char **argv)
   PrintDynamicalData();
   PrintCPUData();
 
+  printf("\nVideo decoder sample app finished...\n");
   FUNCTION_EXIT();
   return 0;
 }
