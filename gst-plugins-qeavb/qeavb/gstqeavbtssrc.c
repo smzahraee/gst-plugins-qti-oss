@@ -297,15 +297,14 @@ gst_qeavb_ts_src_fill (GstPushSrc * pushsrc, GstBuffer * buffer)
   int err = 0;
   guint32 payload_size = 0;
 
-  if (qeavbtssrc->is_first_tspacket) {
-    kpi_place_marker("M - qeavbtssrc begin recv 1st pkt.");
-  }
-
   if(qeavbtssrc->stream_info.wakeup_period_us != 0)
     sleep_us = qeavbtssrc->stream_info.wakeup_period_us;
 
   payload_size = qeavbtssrc->stream_info.max_buffer_size * qeavbtssrc->stream_info.pkts_per_wake;
 
+  if (qeavbtssrc->is_first_tspacket) {
+    kpi_place_marker("M - qeavbtssrc begin recv 1st pkt.");
+  }
 retry:
   g_mutex_lock(&qeavbtssrc->lock);
   if (qeavbtssrc->started) {
@@ -313,7 +312,15 @@ retry:
     qavb_buffer.hdr.payload_size = payload_size;
     qavb_buffer.pbuf = (uint64_t)qeavbtssrc->eavb_addr;
     GST_DEBUG_OBJECT (qeavbtssrc, "pkts_per_wake %d, qavb_buffer.hdr.payload_size %d",qeavbtssrc->stream_info.pkts_per_wake, qavb_buffer.hdr.payload_size);
+    if (qeavbtssrc->is_first_tspacket) {
+      kpi_place_marker("M - qeavbtssrc recving 1st pkt.");
+    }
     recv_len = qeavb_receive_data(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
+    if (qeavbtssrc->is_first_tspacket) {
+      char tips[64];
+      snprintf(tips, sizeof(tips), "M - qeavbtssrc recv 1st pkt ret %d.", recv_len);
+      kpi_place_marker(tips);
+    }
     GST_DEBUG_OBJECT (qeavbtssrc, "receive data len %d", recv_len);
     if (recv_len > 0) {
       if (qeavbtssrc->is_first_tspacket) {
