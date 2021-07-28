@@ -63,7 +63,9 @@ enum
 {
   PROP_0,
   PROP_SILENT,
-  PROP_RATE_CONTROL
+  PROP_RATE_CONTROL,
+  PROP_DOWNSCALE_WIDTH,
+  PROP_DOWNSCALE_HEIGHT,
 };
 
 /* GstVideoEncoder base class method */
@@ -181,6 +183,18 @@ make_rateControl_param (RC_MODE_TYPE mode) {
   memset(&param, 0, sizeof(ConfigParams));
 
   param.rcMode.type = mode;
+
+  return param;
+}
+
+static ConfigParams
+make_downscale_param (guint32 width, guint32 height) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.resolution.width = width;
+  param.resolution.height = height;
 
   return param;
 }
@@ -446,6 +460,7 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   ConfigParams interlace;
   ConfigParams pixelformat;
   ConfigParams rate_control;
+  ConfigParams downscale;
 
   GST_DEBUG_OBJECT (enc, "set_format");
 
@@ -521,6 +536,11 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
 
   rate_control = make_rateControl_param (enc->rcMode);
   g_hash_table_insert(config, CONFIG_FUNCTION_KEY_RATECONTROL, &rate_control);
+
+  if (enc->downscale_width > 0 && enc->downscale_height > 0) {
+    downscale = make_downscale_param (enc->downscale_width, enc->downscale_height);
+    g_hash_table_insert(config, CONFIG_FUNCTION_KEY_DOWNSCALE, &downscale);
+  }
 
   /* Create component */
   if (!gst_qticodec2venc_create_component (encoder)){
@@ -996,6 +1016,12 @@ gst_qticodec2venc_set_property (GObject* object, guint prop_id,
     case PROP_RATE_CONTROL:
       enc->rcMode = g_value_get_enum (value);
       break;
+    case PROP_DOWNSCALE_WIDTH:
+      enc->downscale_width = g_value_get_uint (value);
+      break;
+    case PROP_DOWNSCALE_HEIGHT:
+      enc->downscale_height = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1016,6 +1042,12 @@ gst_qticodec2venc_get_property (GObject* object, guint prop_id,
       break;
     case PROP_RATE_CONTROL:
       g_value_set_enum (value, enc->rcMode);
+      break;
+    case PROP_DOWNSCALE_WIDTH:
+      g_value_set_uint (value, enc->downscale_width);
+      break;
+    case PROP_DOWNSCALE_HEIGHT:
+      g_value_set_uint (value, enc->downscale_height);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1090,6 +1122,14 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_DOWNSCALE_WIDTH,
+      g_param_spec_uint ("downscale-width", "Downscale width", "Specify the downscale width",
+          0, UINT_MAX, 0, G_PARAM_READWRITE));
+
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_DOWNSCALE_HEIGHT,
+      g_param_spec_uint ("downscale-height", "Downscale height", "Specify the downscale height",
+          0, UINT_MAX, 0, G_PARAM_READWRITE));
+
   video_encoder_class->start = GST_DEBUG_FUNCPTR (gst_qticodec2venc_start);
   video_encoder_class->stop = GST_DEBUG_FUNCPTR (gst_qticodec2venc_stop);
   video_encoder_class->set_format = GST_DEBUG_FUNCPTR (gst_qticodec2venc_set_format);
@@ -1125,6 +1165,8 @@ gst_qticodec2venc_init (Gstqticodec2venc* enc) {
   enc->num_input_queued = 0;
   enc->num_output_done = 0;
   enc->rcMode = RC_OFF;
+  enc->downscale_width = 0;
+  enc->downscale_height = 0;
 
   memset(enc->queued_frame, 0, MAX_QUEUED_FRAME);
 

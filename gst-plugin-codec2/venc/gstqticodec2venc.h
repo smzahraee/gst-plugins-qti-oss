@@ -85,6 +85,8 @@ struct _Gstqticodec2venc
   GstVideoInterlaceMode interlace_mode;
   GstVideoFormat outPixelfmt;
   RC_MODE_TYPE rcMode;
+  guint32 downscale_width;
+  guint32 downscale_height;
 
   GMutex pending_lock;
   GCond  pending_cond;

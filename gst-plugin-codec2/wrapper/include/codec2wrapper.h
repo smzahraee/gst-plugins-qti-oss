@@ -48,6 +48,7 @@ extern "C" {
 #define CONFIG_FUNCTION_KEY_RATECONTROL     "ratecontrol"
 #define CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY     "dec_low_latency"
 #define CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE "output_picture_order_mode"
+#define CONFIG_FUNCTION_KEY_DOWNSCALE       "downscale"
 
 #define C2_TICKS_PER_SECOND 1000000
 
