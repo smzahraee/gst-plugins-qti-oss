@@ -64,6 +64,7 @@ std::unique_ptr<C2Param> setVideoBitrate (gpointer param);
 std::unique_ptr<C2Param> setRateControl (gpointer param);
 std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param);
 std::unique_ptr<C2Param> setDecLowLatency (gpointer param);
+std::unique_ptr<C2Param> setDownscale (gpointer param);
 
 // Function map for parameter configuration
 static configFunctionMap sConfigFunctionMap = {
@@ -72,7 +73,8 @@ static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_BITRATE, setVideoBitrate},
     {CONFIG_FUNCTION_KEY_RATECONTROL, setRateControl},
     {CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE, setOutputPictureOrderMode},
-    {CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, setDecLowLatency}
+    {CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, setDecLowLatency},
+    {CONFIG_FUNCTION_KEY_DOWNSCALE, setDownscale},
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -181,6 +183,28 @@ std::unique_ptr<C2Param> setDecLowLatency (gpointer param) {
     lowLatencyMode.value = C2_TRUE;
 
     return C2Param::Copy(lowLatencyMode);
+}
+
+std::unique_ptr<C2Param> setDownscale (gpointer param) {
+
+    if (param == NULL) {
+        return nullptr;
+    }
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    if (config->isInput) {
+      LOG_WARNING("setDownscale input not implemented");
+    } else {
+      qc2::C2VideoDownScalarSetting::output scale;
+
+      scale.width = config->resolution.width;
+      scale.height = config->resolution.height;
+
+      return C2Param::Copy(scale);
+    }
+
+    return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
