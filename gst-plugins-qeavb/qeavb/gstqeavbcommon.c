@@ -33,7 +33,10 @@
 int qeavb_create_stream_remote(int eavb_fd, char* file_path, eavb_ioctl_hdr_t* hdr)
 {
   GST_INFO ("Calling %s() with par: fd %d, file %s, hdr %p", __func__, eavb_fd, file_path==NULL?"NULL":file_path, hdr);
-  return qavb_create_stream_remote(eavb_fd, file_path, hdr);
+  if(file_path)
+    return qavb_create_stream_remote(eavb_fd, file_path, hdr);
+  else
+    return -1;
 }
 
 int qeavb_get_stream_info(int eavb_fd, eavb_ioctl_hdr_t* hdr, eavb_ioctl_stream_info_t* info)
