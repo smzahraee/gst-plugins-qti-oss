@@ -30,6 +30,9 @@
 #include <gst/gstinfo.h>
 #include "gstqeavbcommon.h"
 
+GST_DEBUG_CATEGORY_EXTERN (gst_debug_qeavbutility);
+#define GST_CAT_DEFAULT gst_debug_qeavbutility
+
 int qeavb_create_stream_remote(int eavb_fd, char* file_path, eavb_ioctl_hdr_t* hdr)
 {
   GST_INFO ("Calling %s() with par: fd %d, file %s, hdr %p", __func__, eavb_fd, file_path==NULL?"NULL":file_path, hdr);
@@ -65,13 +68,13 @@ int qeavb_disconnect_stream(int eavb_fd, eavb_ioctl_hdr_t* hdr)
 
 int qeavb_receive_data(int eavb_fd, eavb_ioctl_hdr_t* hdr, eavb_ioctl_buf_data_t* buff)
 {
-  GST_INFO ("Calling %s() with par: fd %d, hdr %p, buff %p", __func__, eavb_fd, hdr, buff);
+  GST_DEBUG ("Calling %s() with par: fd %d, hdr %p, buff %p", __func__, eavb_fd, hdr, buff);
   return qavb_receive(eavb_fd, hdr, buff);
 }
 
 int qeavb_receive_done(int eavb_fd, eavb_ioctl_hdr_t* hdr, eavb_ioctl_buf_data_t* data)
 {
-  GST_INFO ("Calling %s() with par: fd %d, hdr %p, buff %p", __func__, eavb_fd, hdr, data);
+  GST_DEBUG ("Calling %s() with par: fd %d, hdr %p, buff %p", __func__, eavb_fd, hdr, data);
   return qavb_receive_done(eavb_fd, hdr, data);
 }
 

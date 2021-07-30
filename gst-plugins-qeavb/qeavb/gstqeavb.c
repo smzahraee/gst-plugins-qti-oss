@@ -35,10 +35,16 @@
 #include <gst/gst.h>
 
 #include "gstqeavbpcmsrc.h"
+#include "gstqeavbtssrc.h"
+
+GST_DEBUG_CATEGORY (gst_debug_qeavbutility);
+#define GST_CAT_DEFAULT gst_debug_qeavbutility
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
+  GST_DEBUG_CATEGORY_INIT (gst_debug_qeavbutility, "qeavbsrc", 0,
+      "qeavbsrc element debug");
   if (!gst_qeavb_pcm_src_plugin_init (plugin))
     return FALSE;
   if (!gst_qeavb_ts_src_plugin_init (plugin))
