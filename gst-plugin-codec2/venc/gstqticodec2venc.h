@@ -85,6 +85,8 @@ struct _Gstqticodec2venc
   GstVideoInterlaceMode interlace_mode;
   GstVideoFormat outPixelfmt;
   RC_MODE_TYPE rcMode;
+  MIRROR_TYPE mirror;
+  guint32 rotation;
   guint32 downscale_width;
   guint32 downscale_height;
   gboolean color_space_conversion;
