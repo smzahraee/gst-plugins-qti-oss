@@ -321,21 +321,11 @@ void CodecCallback::onOutputBufferAvailable (
             auto csd = std::static_pointer_cast<const C2StreamInitDataInfo::output>(
               buffer->getInfo(C2StreamInitDataInfo::output::PARAM_TYPE));
             if (csd) {
-              BufferDescriptor codecConfigBuf;
-
               LOG_INFO("get codec config data, size: %lu data:%p", csd->flexCount(), (guint8 *)csd->m.value);
-              codecConfigBuf.data = (guint8 *)&csd->m.value;
-              codecConfigBuf.size = csd->flexCount();
-              codecConfigBuf.timestamp = 0;
-              codecConfigBuf.fd = -1;
-              codecConfigBuf.meta_fd = -1;
-              codecConfigBuf.capacity = 0;
-              codecConfigBuf.offset = 0;
-              codecConfigBuf.index = 0;
-              codecConfigBuf.flag = FLAG_TYPE_CODEC_CONFIG;
-              mCallback(mHandle, EVENT_OUTPUTS_DONE, &codecConfigBuf);
+              outBuf.config_data = (guint8 *)&csd->m.value;
+              outBuf.config_size = csd->flexCount();
+              outBuf.flag = FLAG_TYPE_CODEC_CONFIG;
             }
-
             /* Always map output buffer for linear output */
             mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             munmap (outBuf.data, outBuf.size);
