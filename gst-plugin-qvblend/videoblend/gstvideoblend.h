@@ -36,7 +36,6 @@
 
 #include "../c2d/c2d_blend.h"
 #include <gst/base/gstcollectpads.h>
-#include <gst/ionbuf/gstionbuf_meta.h>
 
 G_BEGIN_DECLS
 
@@ -87,8 +86,10 @@ struct _GstVideoBlend
     /* Output caps */
     GstVideoInfo info;
 
-    /* Output meta */
-    GstIonBufFdMeta meta;
+    /* Output meta info */
+    int fd;
+    int meta_fd;
+    unsigned int data_size;
     void *meta_ptr;
     gboolean update_blend;
 
