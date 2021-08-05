@@ -223,7 +223,7 @@ typedef struct {
     gboolean isInput;
     union{
         guint32 u32;
-        guint32 u64;
+        guint64 u64;
         gint32 i32;
         gint64 i64;
     } val;
