@@ -55,7 +55,7 @@ typedef struct _Gstqticodec2vencClass Gstqticodec2vencClass;
 
 struct _Gstqticodec2venc
 {
-  GstVideoDecoder parent;
+  GstVideoEncoder parent;
 
   /* Public properties */
   gboolean silent;

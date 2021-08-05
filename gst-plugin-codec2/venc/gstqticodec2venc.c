@@ -962,7 +962,7 @@ gst_qticodec2venc_propose_allocation(GstVideoEncoder * encoder, GstQuery * query
       gst_object_unref (enc->pool);
     }
   } else {
-    GST_INFO_OBJECT (enc, "peer component does not suuport dmabuf feature: %" GST_PTR_FORMAT, caps);
+    GST_INFO_OBJECT (enc, "peer component does not support dmabuf feature: %" GST_PTR_FORMAT, caps);
   }
 
   return GST_VIDEO_ENCODER_CLASS (parent_class)->propose_allocation (encoder, query);
@@ -1078,7 +1078,7 @@ gst_qticodec2venc_buffer_release (GstStructure* structure)
       GST_ERROR_OBJECT (dec, "Failed to release the buffer (%lu)", index);
     }
   } else{
-    GST_ERROR_OBJECT (dec, "Null hanlde");
+    GST_ERROR_OBJECT (dec, "Null handle");
   }
 
   gst_structure_free (structure);
