@@ -61,6 +61,7 @@ G_DEFINE_TYPE (Gstqticodec2vdec, gst_qticodec2vdec, GST_TYPE_VIDEO_DECODER);
 
 /* Function will be named qticodec2vdec_qdata_quark() */
 static G_DEFINE_QUARK(QtiCodec2DecoderQuark, qticodec2vdec_qdata);
+static G_DEFINE_QUARK(QtiCodec2C2BufQuark, qticodec2_c2buf_qdata);
 
 enum
 {
@@ -470,6 +471,7 @@ gst_qticodec2vdec_finish (GstVideoDecoder* decoder) {
 
   GST_DEBUG_OBJECT (dec, "finish");
 
+  memset (&inBuf, 0, sizeof(BufferDescriptor));
   inBuf.fd = -1;
   inBuf.data = NULL;
   inBuf.size = 0;
@@ -947,6 +949,9 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
        QGVMeta->offset[3] = output_size;
        QGVMeta->stride[2] = decode_buf->fd;
        QGVMeta->stride[3] = decode_buf->meta_fd;
+     } else {
+       gst_mini_object_set_qdata (GST_MINI_OBJECT (out_buf), qticodec2_c2buf_qdata_quark(),
+           decode_buf->c2_buffer, NULL);
      }
   } else {
     GST_ERROR_OBJECT (dec, "Fail to allocate output gst buffer");
@@ -1164,6 +1169,8 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
   GST_DEBUG_OBJECT (dec, "decode");
 
   GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
+
+  memset (&inBuf, 0, sizeof(BufferDescriptor));
 
   inBuf.flag = 0;
 

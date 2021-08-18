@@ -66,6 +66,7 @@ G_DEFINE_TYPE (Gstqticodec2venc, gst_qticodec2venc, GST_TYPE_VIDEO_ENCODER);
 
 /* Function will be named qticodec2venc_qdata_quark() */
 static G_DEFINE_QUARK(QtiCodec2EncoderQuark, qticodec2venc_qdata);
+static G_DEFINE_QUARK(QtiCodec2C2BufQuark, qticodec2_c2buf_qdata);
 
 enum
 {
@@ -687,6 +688,8 @@ gst_qticodec2venc_finish (GstVideoEncoder* encoder) {
   gint64 timeout;
   BufferDescriptor inBuf;
 
+  memset (&inBuf, 0, sizeof(BufferDescriptor));
+
   GST_DEBUG_OBJECT (enc, "finish");
 
   inBuf.fd = -1;
@@ -1132,8 +1135,10 @@ push_frame_downstream(GstVideoEncoder* encoder, BufferDescriptor* encode_buf) {
     GST_BUFFER_TIMESTAMP (outbuf) = gst_util_uint64_scale(encode_buf->timestamp, GST_SECOND,
         C2_TICKS_PER_SECOND);
 
-    GST_BUFFER_DURATION (outbuf) = gst_util_uint64_scale(GST_SECOND,
-        vinfo->fps_d, vinfo->fps_n);
+    if (vinfo->fps_n > 0) {
+      GST_BUFFER_DURATION (outbuf) = gst_util_uint64_scale(GST_SECOND,
+          vinfo->fps_d, vinfo->fps_n);
+    }
 
     GST_DEBUG_OBJECT (enc, "out buffer: %p, PTS: %lu, duration: %lu, fps_d: %d, fps_n: %d",
         outbuf, GST_BUFFER_PTS (outbuf), GST_BUFFER_DURATION (outbuf), vinfo->fps_d, vinfo->fps_n);
@@ -1253,6 +1258,7 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
 
   GST_DEBUG_OBJECT (enc, "encode");
 
+  memset (&inBuf, 0, sizeof(BufferDescriptor));
   inBuf.flag = 0;
 
   GST_VIDEO_ENCODER_STREAM_UNLOCK (encoder);
@@ -1260,10 +1266,12 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
     buf = frame->input_buffer;
     mem = gst_buffer_get_memory (buf, 0);
 
-    if (gst_is_fd_memory(mem)) {
-      inBuf.fd = gst_fd_memory_get_fd (mem);
+    if (gst_is_dmabuf_memory (mem)) {
+      inBuf.fd = gst_dmabuf_memory_get_fd (mem);
       inBuf.size = gst_memory_get_sizes (mem, NULL, NULL);;
       inBuf.data = NULL;
+      inBuf.c2_buffer = gst_mini_object_get_qdata (GST_MINI_OBJECT (buf), qticodec2_c2buf_qdata_quark ());
+      GST_DEBUG_OBJECT (enc, "input c2 buffer:%p fd:%d", inBuf.c2_buffer, inBuf.fd);
     } else {
       gst_buffer_map (buf, &mapinfo, GST_MAP_READ);
       mem_mapped = TRUE;
@@ -1278,6 +1286,8 @@ gst_qticodec2venc_encode (GstVideoEncoder* encoder, GstVideoCodecFrame* frame) {
     inBuf.width = enc->width;
     inBuf.height = enc->height;
     inBuf.format = enc->input_format;
+
+    gst_memory_unref (mem);
 
     GST_DEBUG_OBJECT (enc, "input buffer: fd: %d, va:%p, size: %d, timestamp: %lu, index: %ld",
       inBuf.fd, inBuf.data, inBuf.size, inBuf.timestamp, inBuf.index);
