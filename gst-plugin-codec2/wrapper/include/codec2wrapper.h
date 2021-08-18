@@ -229,6 +229,7 @@ typedef struct {
     BUFFER_POOL_TYPE pool_type;
     guint8* config_data; // codec config data
     guint32 config_size; // size of codec config data
+    void* c2_buffer;
 } BufferDescriptor;
 
 typedef struct {

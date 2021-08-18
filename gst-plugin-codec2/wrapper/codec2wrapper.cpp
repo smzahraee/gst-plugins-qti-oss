@@ -374,6 +374,7 @@ void CodecCallback::onOutputBufferAvailable (
             }
             outBuf.fd = handle->data[0];
             outBuf.meta_fd = handle->data[1];
+            outBuf.c2_buffer = static_cast<void*>(buffer.get());
             guint32 stride = 0;
             guint64 usage = 0;
             guint32 size = 0;

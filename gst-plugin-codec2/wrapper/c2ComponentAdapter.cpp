@@ -312,6 +312,7 @@ c2_status_t C2ComponentAdapter::queue (BufferDescriptor* buffer)
     c2_status_t result = C2_OK;
     std::list<std::unique_ptr<C2Work>> workList;
     std::unique_ptr<C2Work> work = std::make_unique<C2Work>();
+    std::shared_ptr<C2Buffer> c2_buf;
 
     work->input.flags = inputFrameFlag;
     work->input.ordinal.timestamp = timestamp;
@@ -322,7 +323,14 @@ c2_status_t C2ComponentAdapter::queue (BufferDescriptor* buffer)
 
     /* check if input buffer contains fd/va and decide if we need to
      * allocate a new C2 buffer or not */
-    if (fd > 0) {
+    if (buffer->c2_buffer) {
+        /* Disable delete function for this shared_ptr to avoid double free issue
+         * since it is created from raw pointer got from another shared_ptr. That
+         * shared_ptr takes responsibility to call delete function.*/
+        std::shared_ptr<C2Buffer> c2_buf(static_cast<C2Buffer*>(buffer->c2_buffer), [](C2Buffer*){});
+        work->input.buffers.emplace_back(c2_buf);
+        result = C2_OK;
+    } else if (fd > 0) {
         std::map<uint64_t, std::shared_ptr<C2Buffer>>::iterator it;
 
         /* Find the buffer with fd */
