@@ -246,6 +246,7 @@ gst_qeavb_pcm_src_change_state (GstElement * element,
 {
   GstStateChangeReturn ret = GST_STATE_CHANGE_SUCCESS;
   GstQeavbPcmSrc *src = GST_QEAVB_PCM_SRC (element);
+  GST_INFO_OBJECT(src, "Doing self transition: 0x%x(%s)", transition, gst_state_change_get_name(transition));
   switch (transition) {
     case GST_STATE_CHANGE_PAUSED_TO_READY:
       gst_qeavb_pcm_src_stop(GST_BASE_SRC (src));
@@ -255,8 +256,10 @@ gst_qeavb_pcm_src_change_state (GstElement * element,
     break;
   }
 
+  GST_INFO_OBJECT(src, "Doing parent transition: 0x%x", transition);
   ret = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 
+  GST_INFO_OBJECT(src, "Done transition: 0x%x, ret %d(%s)", transition, ret, gst_element_state_change_return_get_name(ret));
   return ret;
 }
 
