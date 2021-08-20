@@ -61,6 +61,8 @@ typedef std::map<const char*, configFunction, char_cmp> configFunctionMap;
 std::unique_ptr<C2Param> setVideoPixelformat (gpointer param);
 std::unique_ptr<C2Param> setVideoResolution (gpointer param);
 std::unique_ptr<C2Param> setVideoBitrate (gpointer param);
+std::unique_ptr<C2Param> setRotation (gpointer param);
+std::unique_ptr<C2Param> setMirrorType (gpointer param);
 std::unique_ptr<C2Param> setRateControl (gpointer param);
 std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param);
 std::unique_ptr<C2Param> setDecLowLatency (gpointer param);
@@ -74,6 +76,8 @@ static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_PIXELFORMAT, setVideoPixelformat},
     {CONFIG_FUNCTION_KEY_RESOLUTION, setVideoResolution},
     {CONFIG_FUNCTION_KEY_BITRATE, setVideoBitrate},
+    {CONFIG_FUNCTION_KEY_ROTATION, setRotation},
+    {CONFIG_FUNCTION_KEY_MIRROR, setMirrorType},
     {CONFIG_FUNCTION_KEY_RATECONTROL, setRateControl},
     {CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE, setOutputPictureOrderMode},
     {CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, setDecLowLatency},
@@ -150,6 +154,40 @@ std::unique_ptr<C2Param> setVideoBitrate (gpointer param) {
         bitrate.value = config->val.u32;
 
         return C2Param::Copy(bitrate);
+    }
+
+    return nullptr;
+}
+
+std::unique_ptr<C2Param> setMirrorType (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    if (config->isInput) {
+        qc2::C2VideoMirrorTuning::input mirror;
+        mirror.mirrorType = qc2::QCMirrorType(config->mirror.type);
+        return C2Param::Copy(mirror);
+    } else {
+        LOG_WARNING("setMirrorType output not implemented");
+    }
+
+    return nullptr;
+}
+
+std::unique_ptr<C2Param> setRotation (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    if (config->isInput) {
+        qc2::C2VideoRotation::input rotation;
+        rotation.angle = config->val.u32;
+        return C2Param::Copy(rotation);
+    } else {
+        LOG_WARNING("setRotation output not implemented");
     }
 
     return nullptr;
@@ -321,21 +359,11 @@ void CodecCallback::onOutputBufferAvailable (
             auto csd = std::static_pointer_cast<const C2StreamInitDataInfo::output>(
               buffer->getInfo(C2StreamInitDataInfo::output::PARAM_TYPE));
             if (csd) {
-              BufferDescriptor codecConfigBuf;
-
               LOG_INFO("get codec config data, size: %lu data:%p", csd->flexCount(), (guint8 *)csd->m.value);
-              codecConfigBuf.data = (guint8 *)&csd->m.value;
-              codecConfigBuf.size = csd->flexCount();
-              codecConfigBuf.timestamp = 0;
-              codecConfigBuf.fd = -1;
-              codecConfigBuf.meta_fd = -1;
-              codecConfigBuf.capacity = 0;
-              codecConfigBuf.offset = 0;
-              codecConfigBuf.index = 0;
-              codecConfigBuf.flag = FLAG_TYPE_CODEC_CONFIG;
-              mCallback(mHandle, EVENT_OUTPUTS_DONE, &codecConfigBuf);
+              outBuf.config_data = (guint8 *)&csd->m.value;
+              outBuf.config_size = csd->flexCount();
+              outBuf.flag = FLAG_TYPE_CODEC_CONFIG;
             }
-
             /* Always map output buffer for linear output */
             mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             munmap (outBuf.data, outBuf.size);

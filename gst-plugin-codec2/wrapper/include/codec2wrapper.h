@@ -45,6 +45,8 @@ extern "C" {
 #define CONFIG_FUNCTION_KEY_RESOLUTION      "resolution"
 #define CONFIG_FUNCTION_KEY_BITRATE         "bitrate"
 #define CONFIG_FUNCTION_KEY_INTERLACE       "interlace"
+#define CONFIG_FUNCTION_KEY_MIRROR          "mirror"
+#define CONFIG_FUNCTION_KEY_ROTATION        "rotation"
 #define CONFIG_FUNCTION_KEY_RATECONTROL     "ratecontrol"
 #define CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY     "dec_low_latency"
 #define CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE "output_picture_order_mode"
@@ -137,6 +139,13 @@ typedef enum {
 } OUTPUT_PIC_ORDER;
 
 typedef enum {
+    MIRROR_NONE = 0,
+    MIRROR_VERTICAL,
+    MIRROR_HORIZONTAL,
+    MIRROR_BOTH,
+} MIRROR_TYPE;
+
+typedef enum {
     RC_OFF = 0,
     RC_CONST,
     RC_CBR_VFR,
@@ -204,6 +213,8 @@ typedef struct {
     guint32 ubwc_flag;
     FLAG_TYPE flag;
     BUFFER_POOL_TYPE pool_type;
+    guint8* config_data; // codec config data
+    guint32 config_size; // size of codec config data
 } BufferDescriptor;
 
 typedef struct {
@@ -211,7 +222,7 @@ typedef struct {
     gboolean isInput;
     union{
         guint32 u32;
-        guint32 u64;
+        guint64 u64;
         gint32 i32;
         gint64 i64;
     } val;
@@ -228,6 +239,10 @@ typedef struct {
     union{
         INTERLACE_MODE_TYPE type;
     } interlaceMode;
+
+    union {
+        MIRROR_TYPE type;
+    } mirror;
 
     union{
         RC_MODE_TYPE type;
