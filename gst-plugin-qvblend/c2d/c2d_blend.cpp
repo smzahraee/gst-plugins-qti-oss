@@ -58,7 +58,7 @@ c2d_blend::c2d_blend()
 
 c2d_blend::~c2d_blend()
 {
-    if (m_gbm_dev) gbm_device_destroy (m_gbm_dev);
+    if (m_gbm_dev && gbm_device_destroy) gbm_device_destroy (m_gbm_dev);
     m_gbm_dev = NULL;
     if (m_gbm_client_fd != -1) close(m_gbm_client_fd);
     m_gbm_client_fd = -1;
@@ -122,7 +122,7 @@ bool c2d_blend::Init()
 
     if (!bStatus)
     {
-        if (m_gbm_dev)
+        if (m_gbm_dev && gbm_device_destroy)
             gbm_device_destroy (m_gbm_dev);
         m_gbm_dev = NULL;
         if (m_gbm_client_fd != -1) close (m_gbm_client_fd);
