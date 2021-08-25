@@ -336,6 +336,7 @@ retry:
       err = qeavb_receive_done(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
       if (0 != err) {
         GST_ERROR_OBJECT (qeavbtssrc,"receive data (len %d) done error %d, exit!", recv_len, err);
+        g_warn_if_fail(FALSE && "qeavb_receive_done() ret err after qeavb_receive_data() received data!");
         error = GST_FLOW_ERROR;
         goto finish_handle;
       }
@@ -343,6 +344,7 @@ retry:
       err = qeavb_receive_done(qeavbtssrc->eavb_fd, &(qeavbtssrc->hdr), &qavb_buffer);
       if (0 != err) {
         GST_ERROR_OBJECT (qeavbtssrc,"receive data done error %d, exit!", err);
+        g_warn_if_fail(FALSE && "qeavb_receive_done() ret err after qeavb_receive_data() not received data!");
         error = GST_FLOW_ERROR;
         goto finish_handle;
       }
@@ -355,6 +357,7 @@ retry:
       } else {
         kpi_place_marker("E - qeavbtssrc recv data timeout!");
         GST_ERROR_OBJECT (qeavbtssrc, "Failed to receive ts, timeout %dus X %d", sleep_us, retry_time);
+        g_warn_if_fail(FALSE && "qeavb_receive_data() receiving data timeout!");
         error = GST_FLOW_ERROR;
       }
     }
