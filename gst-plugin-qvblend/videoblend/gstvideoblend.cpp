@@ -1191,11 +1191,13 @@ gst_videoblend_request_new_pad (GstElement * element, GstPadTemplate * templ, co
         blendcol = (GstVideoBlendCollect *) gst_collect_pads_add_pad (blend->collect, GST_PAD (blendpad), sizeof (GstVideoBlendCollect), (GstCollectDataDestroyNotify) gst_videoblend_collect_free, TRUE);
 
         /* Keep track of each other */
-        blendcol->blendpad = blendpad;
+        if (blendcol) {
+            blendcol->blendpad = blendpad;
+            blendcol->start_time = -1;
+            blendcol->end_time = -1;
+        }
         blendpad->blendcol = blendcol;
 
-        blendcol->start_time = -1;
-        blendcol->end_time = -1;
 
         /* Keep an internal list of blendpads for type */
         blend->sinkpads = g_slist_insert (blend->sinkpads, blendpad, blendpad->type);
@@ -1366,7 +1368,11 @@ gst_videoblend_init (GstVideoBlend * blend)
     GstElementClass *klass = GST_ELEMENT_GET_CLASS (blend);
     c2d_blend *c2d;
 
-    blend->srcpad = gst_pad_new_from_template (gst_element_class_get_pad_template (klass, "src"), "src");
+    GstPadTemplate* templ = gst_element_class_get_pad_template(klass, "src");
+    if (templ == NULL) {
+        return;
+    }
+    blend->srcpad = gst_pad_new_from_template (templ, "src");
     gst_pad_set_query_function (GST_PAD (blend->srcpad),
       GST_DEBUG_FUNCPTR (gst_videoblend_src_query));
     gst_element_add_pad (GST_ELEMENT (blend), blend->srcpad);
