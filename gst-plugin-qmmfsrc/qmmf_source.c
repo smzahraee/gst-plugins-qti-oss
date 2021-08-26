@@ -51,6 +51,7 @@ GST_DEBUG_CATEGORY_STATIC (qmmfsrc_debug);
 #define DEFAULT_PROP_CAMERA_ID                        0
 #define DEFAULT_PROP_CAMERA_SLAVE                     FALSE
 #define DEFAULT_PROP_CAMERA_LDC_MODE                  FALSE
+#define DEFAULT_PROP_CAMERA_LCAC_MODE                 FALSE
 #define DEFAULT_PROP_CAMERA_EIS_MODE                  FALSE
 #define DEFAULT_PROP_CAMERA_SHDR_MODE                 FALSE
 #define DEFAULT_PROP_CAMERA_ADRC                      FALSE
@@ -101,6 +102,7 @@ enum
   PROP_CAMERA_ID,
   PROP_CAMERA_SLAVE,
   PROP_CAMERA_LDC,
+  PROP_CAMERA_LCAC,
   PROP_CAMERA_EIS,
   PROP_CAMERA_SHDR,
   PROP_CAMERA_ADRC,
@@ -136,10 +138,6 @@ static GstStaticPadTemplate qmmfsrc_video_src_template =
         GST_PAD_SRC,
         GST_PAD_REQUEST,
         GST_STATIC_CAPS (
-            QMMFSRC_VIDEO_H264_CAPS "; "
-#if defined(GST_VIDEO_H265_ENABLE)
-            QMMFSRC_VIDEO_H265_CAPS "; "
-#endif
             QMMFSRC_VIDEO_JPEG_CAPS "; "
             QMMFSRC_VIDEO_RAW_CAPS(
 #if defined(GST_VIDEO_YUY2_FORMAT_ENABLE)
@@ -299,15 +297,10 @@ qmmfsrc_request_pad (GstElement * element, GstPadTemplate * templ,
 
   // Connect a callback to the 'notify' signal of a pad property to be
   // called when a that property changes during runtime.
-  g_signal_connect (srcpad, "notify::bitrate",
-      G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
   g_signal_connect (srcpad, "notify::framerate",
-      G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
-  g_signal_connect (srcpad, "notify::idr-interval",
       G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
   g_signal_connect (srcpad, "notify::crop",
       G_CALLBACK (gst_qmmf_context_update_video_param), qmmfsrc->context);
-
   return srcpad;
 }
 
@@ -756,6 +749,10 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_LDC, value);
       break;
+    case PROP_CAMERA_LCAC:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_LCAC, value);
+      break;
     case PROP_CAMERA_EIS:
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_EIS, value);
@@ -889,6 +886,10 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
     case PROP_CAMERA_LDC:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_LDC, value);
+      break;
+    case PROP_CAMERA_LCAC:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_LCAC, value);
       break;
     case PROP_CAMERA_EIS:
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
@@ -1071,6 +1072,10 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
   g_object_class_install_property (gobject, PROP_CAMERA_LDC,
       g_param_spec_boolean ("ldc", "LDC",
           "Lens Distortion Correction", DEFAULT_PROP_CAMERA_LDC_MODE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject, PROP_CAMERA_LCAC,
+      g_param_spec_boolean ("lcac", "LCAC",
+          "Lateral Chromatic Aberration Correction", DEFAULT_PROP_CAMERA_LCAC_MODE,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   g_object_class_install_property (gobject, PROP_CAMERA_EIS,
       g_param_spec_boolean ("eis", "EIS",
