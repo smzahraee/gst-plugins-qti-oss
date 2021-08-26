@@ -82,6 +82,7 @@ enum
   PROP_ROTATION,
   PROP_INTRA_REFRESH_MODE,
   PROP_INTRA_REFRESH_MBS,
+  PROP_TARGET_BITRATE,
 };
 
 /* GstVideoEncoder base class method */
@@ -158,6 +159,19 @@ GST_STATIC_PAD_TEMPLATE (GST_VIDEO_ENCODER_SINK_NAME,
         "framerate = " GST_VIDEO_FPS_RANGE ""
       )
     );
+
+static ConfigParams
+make_bitrate_param (guint32 bitrate, gboolean isInput) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_BITRATE;
+  param.isInput = isInput;
+  param.val.u32 = bitrate;
+
+  return param;
+}
 
 static ConfigParams
 make_resolution_param (guint32 width, guint32 height, gboolean isInput) {
@@ -702,6 +716,7 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   ConfigParams color_space_conversion;
   ConfigParams color_aspects;
   ConfigParams intra_refresh;
+  ConfigParams bitrate;
 
   GST_DEBUG_OBJECT (enc, "set_format");
 
@@ -768,6 +783,12 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   }
 
   config = g_ptr_array_new ();
+
+  if (enc->target_bitrate > 0) {
+    bitrate = make_bitrate_param (enc->target_bitrate, FALSE);
+    g_ptr_array_add (config, &bitrate);
+    GST_DEBUG_OBJECT (enc, "set target bitrate:%u", enc->target_bitrate);
+  }
 
   resolution = make_resolution_param(width, height, TRUE);
   g_ptr_array_add (config, &resolution);
@@ -1303,6 +1324,9 @@ gst_qticodec2venc_set_property (GObject* object, guint prop_id,
     case PROP_INTRA_REFRESH_MBS:
       enc->intra_refresh_mbs = g_value_get_uint (value);
       break;
+    case PROP_TARGET_BITRATE:
+      enc->target_bitrate = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1356,6 +1380,9 @@ gst_qticodec2venc_get_property (GObject* object, guint prop_id,
       break;
     case PROP_INTRA_REFRESH_MBS:
       g_value_set_uint (value, enc->intra_refresh_mbs);
+      break;
+    case PROP_TARGET_BITRATE:
+      g_value_set_uint (value, enc->target_bitrate);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1507,6 +1534,13 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_TARGET_BITRATE,
+      g_param_spec_uint ("target-bitrate", "Target bitrate",
+          "Target bitrate in bits per second (0 means not explicitly set bitrate)",
+          0, G_MAXUINT, 0,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
 
   video_encoder_class->start = GST_DEBUG_FUNCPTR (gst_qticodec2venc_start);
   video_encoder_class->stop = GST_DEBUG_FUNCPTR (gst_qticodec2venc_stop);
@@ -1547,6 +1581,7 @@ gst_qticodec2venc_init (Gstqticodec2venc* enc) {
   enc->rotation = 0;
   enc->downscale_width = 0;
   enc->downscale_height = 0;
+  enc->target_bitrate = 0;
 
   memset(enc->queued_frame, 0, MAX_QUEUED_FRAME);
 
