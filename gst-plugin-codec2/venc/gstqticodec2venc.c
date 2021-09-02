@@ -228,6 +228,7 @@ gst_qticodec2venc_rate_control_get_type (void)
       {RC_CBR_VFR, "Constant bitrate, variable framerate", "CBR-VFR"},
       {RC_VBR_CFR, "Variable bitrate, constant framerate", "VBR-CFR"},
       {RC_VBR_VFR, "Variable bitrate, variable framerate", "VBR-VFR"},
+      {RC_CQ,      "Constant quality", "CQ"},
       {0,          NULL, NULL}
     };
 
