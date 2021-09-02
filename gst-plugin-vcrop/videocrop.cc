@@ -45,12 +45,14 @@
 #define DEFAULT_PROP_CROP_WIDTH         0
 #define DEFAULT_PROP_CROP_HEIGHT        0
 #define DEFAULT_PROP_CROP_TYPE          GST_VIDEO_CROP_TYPE_C2D
+#define DEFAULT_PROP_MAX_BUFFERS        10
 
 enum
 {
   PROP_0,
   PROP_CROP,
   PROP_CROP_TYPE,
+  PROP_MAX_BUFFERS,
 };
 
 static GType
@@ -93,13 +95,13 @@ GST_STATIC_PAD_TEMPLATE ("sink",
 GST_DEBUG_CATEGORY_STATIC (video_crop_debug);
 
 #define gst_video_crop_parent_class parent_class
-G_DEFINE_TYPE (GstVideoCrop, gst_video_crop, GST_TYPE_ELEMENT);
+G_DEFINE_TYPE (GstRoiVideoCrop, gst_video_crop, GST_TYPE_ELEMENT);
 
 static void
 gst_video_crop_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (object);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (object);
   const gchar *propname = g_param_spec_get_name (pspec);
   GstState state = GST_STATE (vcrop);
 
@@ -122,6 +124,9 @@ gst_video_crop_set_property (GObject * object, guint prop_id,
     case PROP_CROP_TYPE:
       vcrop->crop_type = (GstVideoCropType) g_value_get_enum (value);
       break;
+    case PROP_MAX_BUFFERS:
+      vcrop->maxbuffers = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -134,7 +139,7 @@ static void
 gst_video_crop_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec)
 {
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (object);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (object);
 
   GST_OBJECT_LOCK (vcrop);
 
@@ -160,6 +165,9 @@ gst_video_crop_get_property (GObject * object, guint prop_id,
     case PROP_CROP_TYPE:
       g_value_set_enum (value, vcrop->crop_type);
       break;
+    case PROP_MAX_BUFFERS:
+      g_value_set_uint (value, vcrop->maxbuffers);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -169,7 +177,7 @@ gst_video_crop_get_property (GObject * object, guint prop_id,
 }
 
 static gboolean
-gst_video_crop_process (GstVideoCrop * vcrop, GstBuffer * buffer,
+gst_video_crop_process (GstRoiVideoCrop * vcrop, GstBuffer * buffer,
     GstVideoRectangle * crop, gboolean input_is_free)
 {
 
@@ -212,7 +220,7 @@ gst_buffer_iterate_video_region_of_interest_meta (GstBuffer * buffer)
 static GstFlowReturn
 gst_video_crop_chain (GstPad * pad, GstObject * object, GstBuffer * buffer)
 {
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (object);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (object);
   gboolean res = TRUE;
 
   GSList *meta_list = gst_buffer_iterate_video_region_of_interest_meta (buffer);
@@ -247,7 +255,7 @@ gst_video_crop_chain (GstPad * pad, GstObject * object, GstBuffer * buffer)
 
 static gint
 gst_video_crop_sort_pads (const gpointer lproc,
-    const gpointer rproc, GstVideoCrop * vcrop)
+    const gpointer rproc, GstRoiVideoCrop * vcrop)
 {
   GstCaps *caps;
   GstVideoInfo video_info;
@@ -301,7 +309,7 @@ gst_video_crop_sort_pads (const gpointer lproc,
 static gboolean
 gst_video_crop_sink_event (GstPad * pad, GstObject * object, GstEvent * event)
 {
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (object);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (object);
   GstCaps *caps;
   gpointer key;
   GstPad *src_pad;
@@ -407,7 +415,7 @@ static GstStateChangeReturn
 gst_video_crop_change_state (GstElement * element, GstStateChange transition)
 {
   GstStateChangeReturn ret;
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (element);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (element);
   gpointer key;
   GstPad *src_pad;
   GList *list = NULL;
@@ -441,7 +449,7 @@ gst_video_crop_change_state (GstElement * element, GstStateChange transition)
 }
 
 static gboolean
-is_src_index_free (GstVideoCrop *vcrop, gint index)
+is_src_index_free (GstRoiVideoCrop *vcrop, gint index)
 {
   GList *list = NULL;
   for (list = vcrop->pads_process; list != NULL; list = list->next) {
@@ -457,7 +465,7 @@ static GstPad*
 video_crop_request_pad (GstElement * element, GstPadTemplate * templ,
     const gchar * reqname, const GstCaps * caps)
 {
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (element);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (element);
   GstElementClass *klass = GST_ELEMENT_GET_CLASS (element);
 
   gchar *padname = NULL;
@@ -517,7 +525,8 @@ video_crop_request_pad (GstElement * element, GstPadTemplate * templ,
   GST_DEBUG_OBJECT (vcrop, "Create process instance");
   vcrop->pads_process =
       g_list_append (vcrop->pads_process,
-          new VideoCropPadProcess (srcpad, index, vcrop->crop_type));
+          new VideoCropPadProcess (srcpad, index, vcrop->crop_type,
+              vcrop->maxbuffers));
 
   return srcpad;
 }
@@ -525,7 +534,7 @@ video_crop_request_pad (GstElement * element, GstPadTemplate * templ,
 static void
 video_crop_release_pad (GstElement * element, GstPad * pad)
 {
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (element);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (element);
   guint index = 0;
 
   GST_VIDEO_CROP_LOCK (vcrop);
@@ -554,7 +563,7 @@ video_crop_release_pad (GstElement * element, GstPad * pad)
 static void
 gst_video_crop_finalize (GObject * object)
 {
-  GstVideoCrop *vcrop = GST_VIDEO_CROP (object);
+  GstRoiVideoCrop *vcrop = GST_VIDEO_CROP (object);
 
   if (vcrop->pads_process != NULL) {
     g_list_free (vcrop->pads_process);
@@ -565,7 +574,7 @@ gst_video_crop_finalize (GObject * object)
 }
 
 static void
-gst_video_crop_class_init (GstVideoCropClass * klass)
+gst_video_crop_class_init (GstRoiVideoCropClass * klass)
 {
   GObjectClass *gobject        = G_OBJECT_CLASS (klass);
   GstElementClass *element     = GST_ELEMENT_CLASS (klass);
@@ -585,7 +594,14 @@ gst_video_crop_class_init (GstVideoCropClass * klass)
   g_object_class_install_property (gobject, PROP_CROP_TYPE,
       g_param_spec_enum ("crop-type", "Crop type", "Crop Type",
           GST_TYPE_VIDEO_CROP_TYPE, DEFAULT_PROP_CROP_TYPE,
-          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+          (GParamFlags) (G_PARAM_CONSTRUCT | G_PARAM_READWRITE |
+              G_PARAM_STATIC_STRINGS)));
+  g_object_class_install_property (gobject, PROP_MAX_BUFFERS,
+        g_param_spec_uint ("max-buffers", "Maximum output buffers count",
+            "The maximum count of the output buffers",
+            3, 50, DEFAULT_PROP_MAX_BUFFERS,
+            (GParamFlags) (G_PARAM_CONSTRUCT | G_PARAM_READWRITE |
+                G_PARAM_STATIC_STRINGS)));
 
   gst_element_class_set_static_metadata (element,
       "Video crop", "Video/crop",
@@ -604,7 +620,7 @@ gst_video_crop_class_init (GstVideoCropClass * klass)
 }
 
 static void
-gst_video_crop_init (GstVideoCrop * vcrop)
+gst_video_crop_init (GstRoiVideoCrop * vcrop)
 {
   vcrop->sinkpad =
       gst_pad_new_from_static_template (&video_crop_sink_template, "sink");
