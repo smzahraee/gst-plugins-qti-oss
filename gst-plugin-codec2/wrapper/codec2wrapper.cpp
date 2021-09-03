@@ -42,6 +42,7 @@
 #include <C2AllocatorGBM.h>
 // config for some vendor parameters
 #include "QC2V4L2Config.h"
+#include <media/msm_media_info.h>
 
 
 GST_DEBUG_CATEGORY (gst_qticodec2wrapper_debug);
@@ -354,21 +355,32 @@ void CodecCallback::onOutputBufferAvailable (
             guint32 format = 0;
 
             _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &outBuf.width, &outBuf.height, &format, &usage, &stride, &size);
-            LOG_INFO("out buffer size:%d width:%d height:%d stride:%d\n", size, outBuf.width, outBuf.height, stride);
+
             outBuf.size = size;
             if (mMapBufferToCpu) {
-                outBuf.data = (guint8 *)graphic_block.map().get().data()[0];
+                /* get valid size for NV12_UBWC format */
+                if (format == GBM_FORMAT_NV12 && (usage & GBM_BO_USAGE_UBWC_ALIGNED_QTI)) {
+                    outBuf.size = VENUS_BUFFER_SIZE_USED (COLOR_FMT_NV12_UBWC, outBuf.width, outBuf.height, 0);
+                }
+                C2GraphicView view(graphic_block.map().get());
+                outBuf.data = (guint8 *)view.data()[0];
+                /* graphic_block unmapped once out of scope. */
+                mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             } else {
                 outBuf.data = NULL;
+                mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             }
-            mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
+
+            LOG_INFO("out buffer size:%d width:%d height:%d stride:%d data:%p\n",
+                size, outBuf.width, outBuf.height, stride, outBuf.data);
         } else if (buf_type == C2BufferData::LINEAR) {
-            /* Check for codec data */
             const C2ConstLinearBlock linear_block = buffer->data().linearBlocks().front();
+            C2ReadView view(linear_block.map().get());
             outBuf.size = linear_block.size();
             outBuf.fd = linear_block.handle()->data[0];
-            outBuf.data = (guint8*)mmap(NULL, outBuf.size, PROT_READ, MAP_SHARED, outBuf.fd, 0);
+            outBuf.data = (guint8 *)view.data();
             LOG_INFO("outBuf linear data:%p fd:%d size:%d\n", outBuf.data, outBuf.fd, outBuf.size);
+            /* Check for codec data */
             auto csd = std::static_pointer_cast<const C2StreamInitDataInfo::output>(
               buffer->getInfo(C2StreamInitDataInfo::output::PARAM_TYPE));
             if (csd) {
@@ -377,9 +389,7 @@ void CodecCallback::onOutputBufferAvailable (
               outBuf.config_size = csd->flexCount();
               outBuf.flag = FLAG_TYPE_CODEC_CONFIG;
             }
-            /* Always map output buffer for linear output */
             mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
-            munmap (outBuf.data, outBuf.size);
         }
     }
     else if (flag & C2FrameData::FLAG_END_OF_STREAM) {

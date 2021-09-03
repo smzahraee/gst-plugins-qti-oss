@@ -1067,6 +1067,7 @@ push_frame_downstream(GstVideoEncoder* encoder, BufferDescriptor* encode_buf) {
   }
 
   if (outbuf) {
+    gst_buffer_set_flags (outbuf, GST_BUFFER_FLAG_SYNC_AFTER);
     GST_BUFFER_TIMESTAMP (outbuf) = gst_util_uint64_scale(encode_buf->timestamp, GST_SECOND,
         C2_TICKS_PER_SECOND);
 
