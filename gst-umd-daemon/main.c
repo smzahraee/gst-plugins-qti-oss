@@ -71,6 +71,7 @@ typedef struct _AutoFramingConfig AutoFramingConfig;
 typedef struct _VideoRectangle VideoRectangle;
 typedef struct _AutoFrmLib AutoFrmLib;
 typedef struct _AutoFrmOps AutoFrmOps;
+typedef struct _MainOps MainOps;
 
 enum
 {
@@ -93,7 +94,29 @@ static AutoFrmOps afrmops = {
   FALSE, 8, 16, 10, 10, ML_CROP_INTERNAL
 };
 
+struct _MainOps
+{
+  gchar * video;
+  gchar * audio;
+};
+
+static MainOps mainops = {
+  NULL, NULL
+};
+
 static const GOptionEntry entries[] = {
+    { "uvc", 'v', 0, G_OPTION_ARG_STRING,
+      &mainops.video,
+      "UVC device "
+      "(default: NULL)",
+      "USB-VIDEO-DEVICE"
+    },
+    { "uac", 'a', 0, G_OPTION_ARG_STRING,
+      &mainops.audio,
+      "UAC device "
+      "(default: NULL)",
+      "USB-AUDIO-DEVICE"
+    },
     { "ml-auto-framing-enable", 'f', 0, G_OPTION_ARG_NONE,
       &afrmops.enable,
       "Enable Machine Learning based auto framing algorithm "
@@ -551,17 +574,17 @@ mle_new_sample (GstElement *sink, gpointer userdata)
   }
 
   {
-    GSList *metalist = NULL;
+    GSList *metalist = NULL, *list = NULL;
     VideoRectangle rectangle = {0};
     gfloat confidence = 0.0;
 
-    metalist = gst_buffer_get_detection_meta (buffer);
+    metalist = list = gst_buffer_get_detection_meta (buffer);
 
-    while (metalist != NULL) {
+    while (list != NULL) {
       GstMLDetectionMeta *meta = NULL;
       GstMLClassificationResult *classification = NULL;
 
-      meta = (GstMLDetectionMeta *) metalist->data;
+      meta = (GstMLDetectionMeta *) list->data;
       classification =
           (GstMLClassificationResult *) g_slist_nth_data (meta->box_info, 0);
 
@@ -575,7 +598,7 @@ mle_new_sample (GstElement *sink, gpointer userdata)
         confidence = classification->confidence;
       }
 
-      metalist = g_slist_next (metalist);
+      list = g_slist_next (list);
     }
 
     g_slist_free (metalist);
@@ -604,9 +627,9 @@ umd_new_sample (GstElement *sink, gpointer userdata)
   gint stream_id = -1;
 
   if (!g_strcmp0 ("umdvsink", gst_element_get_name (sink)))
-    stream_id = VIDEO_STREAM_ID;
+    stream_id = UMD_VIDEO_STREAM_ID;
   else if (!g_strcmp0 ("umdasink", gst_element_get_name (sink)))
-    stream_id = AUDIO_STREAM_ID;
+    stream_id = UMD_AUDIO_STREAM_ID;
   else
     return GST_FLOW_ERROR;
 
@@ -1008,6 +1031,20 @@ create_video_pipeline (GstServiceContext * srvctx)
     return FALSE;
   }
 
+  {
+    // Set the camera ISO mode to manual.
+    GParamSpec *propspecs = NULL;
+    GValue value = G_VALUE_INIT;
+
+    // Get the property specs to initialize the GValue type.
+    propspecs = g_object_class_find_property (
+        G_OBJECT_GET_CLASS (camsrc), "iso-mode");
+    g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+
+    gst_value_deserialize (&value, "manual");
+    g_object_set_property (G_OBJECT (camsrc), "iso-mode", &value);
+  }
+
   // Set emit-signals property and connect a callback to the new-sample signal.
   g_object_set (G_OBJECT (umdvsink), "emit-signals", TRUE, NULL);
   g_signal_connect (umdvsink, "new-sample", G_CALLBACK (umd_new_sample), srvctx);
@@ -1027,7 +1064,7 @@ create_video_pipeline (GstServiceContext * srvctx)
   gst_object_unref (bus);
 
   // Set pipeline into READY state.
-  switch (gst_element_set_state (srvctx->apipeline, GST_STATE_READY)) {
+  switch (gst_element_set_state (srvctx->vpipeline, GST_STATE_READY)) {
     case GST_STATE_CHANGE_FAILURE:
       g_printerr ("\nVideo pipeline failed to transition to READY state!\n");
       return FALSE;
@@ -1040,7 +1077,7 @@ create_video_pipeline (GstServiceContext * srvctx)
 
       g_print ("\nVideo pipeline is PREROLLING ...\n");
 
-      ret = gst_element_get_state (srvctx->apipeline, NULL, NULL,
+      ret = gst_element_get_state (srvctx->vpipeline, NULL, NULL,
           GST_CLOCK_TIME_NONE);
 
       if (ret != GST_STATE_CHANGE_SUCCESS) {
@@ -1809,6 +1846,28 @@ get_antibanding_property (GstElement * element, guint8 * mode)
 }
 
 static void
+set_iso_property (GstElement * element, guint16 isovalue)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  g_value_set_int (&value, isovalue);
+
+  g_object_set_property (G_OBJECT (element), "manual-iso-value", &value);
+}
+
+static void
+get_iso_property (GstElement * element, guint16 * isovalue)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  g_object_get_property (G_OBJECT (element), "manual-iso-value", &value);
+
+  *isovalue = g_value_get_int (&value);
+}
+
+static void
 set_zoom_property (GstElement * element, guint16 magnification,
     gint32 pan, gint32 tilt)
 {
@@ -1978,6 +2037,19 @@ handle_camera_control (uint32_t ctrl, uint32_t request, void * payload,
           break;
         case UMD_CTRL_GET_REQUEST:
           get_antibanding_property (element, (guint8*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_GAIN:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_iso_property (element, *((guint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_iso_property (element, (guint16*) payload);
           break;
         default:
           g_printerr ("\nUnknown control request 0x%X!\n", request);
@@ -2316,19 +2388,20 @@ main (gint argc, gchar *argv[])
   // Initialize GST library.
   gst_init (&argc, &argv);
 
-  if (!create_audio_pipeline (srvctx)) {
+  if (mainops.audio && !create_audio_pipeline (srvctx)) {
     g_printerr ("\nFailed to create audio pipeline!\n");
     gst_service_context_free (srvctx);
     return -1;
   }
 
-  if (!create_video_pipeline (srvctx)) {
+  if (mainops.video && !create_video_pipeline (srvctx)) {
     g_printerr ("\nFailed to create video pipeline!\n");
     gst_service_context_free (srvctx);
     return -1;
   }
 
-  srvctx->gadget = umd_gadget_new ("/dev/video3", "hw:1,0", &callbacks, srvctx);
+  // If a device is not to be initialized, NULL is passed for respective device
+  srvctx->gadget = umd_gadget_new (mainops.video, mainops.audio, &callbacks, srvctx);
   if (NULL == srvctx->gadget) {
     g_printerr ("\nFailed to create UMD gadget!\n");
     gst_service_context_free (srvctx);

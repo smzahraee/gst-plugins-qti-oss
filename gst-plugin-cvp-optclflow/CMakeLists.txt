@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.8.2)
-project(GST_PLUGIN_QTI_OSS_ROIMUX
+project(GST_PLUGINS_QTI_OSS_CVP_OPTCLFLOW
   VERSION ${GST_PLUGINS_QTI_OSS_VERSION}
-  LANGUAGES C
+  LANGUAGES C CXX
 )
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -25,37 +25,41 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # Precompiler definitions.
 add_definitions(-DHAVE_CONFIG_H)
+add_definitions(-DANDROID)
 
 # Common compiler flags.
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-parameter")
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-terminate -Wno-attributes")
 
-# GStreamer plugin.
-set(GST_QTI_ROIMUX gstqtiroimux)
+set(GST_CVP_OPTCLFLOW gstqticvpoptclflow)
 
-add_library(${GST_QTI_ROIMUX} SHARED
-  roimux.c
+add_library(${GST_CVP_OPTCLFLOW} SHARED
+  cvp-optclflow.cc
+  opticalflow.cc
 )
 
-target_include_directories(${GST_QTI_ROIMUX} PUBLIC
+target_include_directories(${GST_CVP_OPTCLFLOW} PUBLIC
   ${GST_INCLUDE_DIRS}
 )
 
-target_link_libraries(${GST_QTI_ROIMUX} PRIVATE
+target_include_directories(${GST_CVP_OPTCLFLOW} PRIVATE
+  ${CMAKE_SOURCE_DIR}
+)
+
+target_link_libraries(${GST_CVP_OPTCLFLOW} PRIVATE
   ${GST_LIBRARIES}
   ${GST_ALLOC_LIBRARIES}
   ${GST_VIDEO_LIBRARIES}
   qtimlmeta
+  gstqtimemorybase
+  cvp2
 )
 
 install(
-  TARGETS ${GST_QTI_ROIMUX}
+  TARGETS ${GST_CVP_OPTCLFLOW}
   LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/gstreamer-1.0
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
               GROUP_EXECUTE GROUP_READ
               GROUP_EXECUTE GROUP_READ
 )
-install(TARGETS ${GST_QTI_ROIMUX} DESTINATION lib OPTIONAL)
-
-FILE(GLOB INCLUDE_FILES "roi-meta.h")
-INSTALL(FILES ${INCLUDE_FILES} DESTINATION include/roi-meta)
