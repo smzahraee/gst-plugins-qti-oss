@@ -439,12 +439,12 @@ c2_status_t C2ComponentAdapter::createBlockpool(C2BlockPool::local_id_t poolType
     c2_status_t ret = C2_OK;
 
     if (poolType == C2BlockPool::BASIC_LINEAR) {
-        ret = android::GetCodec2BlockPool(poolType, mComp, &mLinearPool);
+        ret = android::CreateCodec2BlockPool(C2AllocatorStore::DEFAULT_LINEAR, mComp, &mLinearPool);
         if (ret != C2_OK || mLinearPool == nullptr) {
             return ret;
         }
     } else if (poolType == C2BlockPool::BASIC_GRAPHIC) {
-        ret = android::GetCodec2BlockPool(poolType, mComp, &mGraphicPool);
+        ret = android::CreateCodec2BlockPool(C2AllocatorStore::DEFAULT_GRAPHIC, mComp, &mGraphicPool);
         if (ret != C2_OK || mGraphicPool == nullptr) {
             return ret;
         }
@@ -452,6 +452,25 @@ c2_status_t C2ComponentAdapter::createBlockpool(C2BlockPool::local_id_t poolType
 
     if (ret != C2_OK) {
         LOG_ERROR("Failed (%d) to create block pool (%lu)",ret, poolType);
+    }
+
+    return ret;
+}
+
+c2_status_t C2ComponentAdapter::configBlockPool(C2BlockPool::local_id_t poolType) {
+    C2BlockPool::local_id_t local_id;
+    c2_status_t ret = C2_OK;
+
+    LOG_MESSAGE("Component(%p) config block pool (%lu)", this, poolType);
+
+    local_id = (poolType == C2BlockPool::BASIC_GRAPHIC) ? mGraphicPool->getLocalId() : mLinearPool->getLocalId();
+    LOG_MESSAGE ("Get pool local id:%lu", local_id);
+    std::vector<C2Param*> params;
+    std::unique_ptr<C2PortBlockPoolsTuning::output> pool = C2PortBlockPoolsTuning::output::AllocUnique({local_id});
+    params.push_back(pool.get());
+    ret = mIntf->config (params, C2_DONT_BLOCK);
+    if (ret != C2_OK) {
+        LOG_ERROR("Failed (%d) to config block pool (%lu)", ret, poolType);
     }
 
     return ret;
@@ -493,6 +512,34 @@ void C2ComponentAdapter::handleWorkDone(
         C2FrameData::flags_t outputFrameFlag = worklet->output.flags;
         uint64_t timestamp = worklet->output.ordinal.timestamp.peeku();
 
+        while (!worklet->output.configUpdate.empty()) {
+            std::unique_ptr<C2Param> param;
+            worklet->output.configUpdate.back().swap(param);
+            worklet->output.configUpdate.pop_back();
+            switch (param->coreIndex().coreIndex()) {
+              case C2PortActualDelayTuning::CORE_INDEX: {
+                  if (param->forOutput()) {
+                    C2PortActualDelayTuning::output outputDelay;
+                    std::shared_ptr<C2BlockPool> pool;
+                    std::shared_ptr<C2Allocator> allocator;
+                    if (outputDelay.updateFrom(*param)) {
+                        uint64_t local_id = mGraphicPool->getLocalId();
+                        LOG_MESSAGE ("onWorkDone: updating output delay:%u local_id:%lu", outputDelay.value, local_id);
+                        android::GetCodec2BlockPoolWithAllocator (local_id, mComp, &pool, &allocator);
+                        if (allocator == nullptr) {
+                            LOG_ERROR ("Failed to get allocator");
+                            break;
+                        }
+                        std::shared_ptr<android::C2AllocatorGBM> allocatorGBM =
+                            std::dynamic_pointer_cast<android::C2AllocatorGBM>(allocator);
+                        allocatorGBM->setMaxAllocationCount (outputDelay.value);
+                    }
+                }
+              }
+              break;
+            }
+        }
+
         // Expected only one output stream.
         if (worklet->output.buffers.size() == 1u) {
 
@@ -518,8 +565,11 @@ void C2ComponentAdapter::handleWorkDone(
             if (outputFrameFlag & C2FrameData::FLAG_END_OF_STREAM) {
                 LOG_MESSAGE("Component(%p) reached EOS on output", this);
                 mCallback->onOutputBufferAvailable(NULL, bufferIdx, timestamp, outputFrameFlag);
-            }
-            else {
+            } else if (outputFrameFlag & C2FrameData::FLAG_INCOMPLETE) {
+                LOG_MESSAGE("Component(%p) work incomplete, means an input frame results in multiple"
+                            "output frames, or codec config update event", this);
+                continue;
+            } else {
                 LOG_ERROR("Incorrect number of output buffers: %lu", worklet->output.buffers.size());
             }
             std::unique_lock<std::mutex> ul(mLock);
