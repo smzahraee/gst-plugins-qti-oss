@@ -89,6 +89,7 @@ public:
     c2_status_t release ();
     C2ComponentInterfaceAdapter* intf ();
     c2_status_t createBlockpool(C2BlockPool::local_id_t poolType);
+    c2_status_t configBlockPool(C2BlockPool::local_id_t poolType);
 
     /* Methods implementing Listener */
     void handleWorkDone(std::weak_ptr<C2Component> component, std::list<std::unique_ptr<C2Work>> workItems);
