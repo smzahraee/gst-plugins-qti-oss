@@ -527,6 +527,7 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
   GstStructure* structure;
   const gchar* mode;
   gint retval = 0;
+  gboolean ret = FALSE;
   gint width = 0;
   gint height = 0;
   GstVideoInterlaceMode interlace_mode = GST_VIDEO_INTERLACE_MODE_PROGRESSIVE;
@@ -630,6 +631,18 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
   if(!c2component_start(dec->comp)) {
       GST_ERROR_OBJECT (dec, "Failed to start component");
       goto error_set_format;
+  }
+
+  ret = c2component_createBlockpool (dec->comp, BUFFER_POOL_BASIC_GRAPHIC);
+  if (ret == FALSE) {
+    GST_ERROR_OBJECT (dec, "Failed to create graphic pool");
+    return FALSE;
+  }
+  /* let C2 component use graphic block pool created by client */
+  ret = c2component_configBlockpool (dec->comp, BUFFER_POOL_BASIC_GRAPHIC);
+  if (ret ==  FALSE) {
+    GST_ERROR_OBJECT (dec, "Failed to let component use graphic pool created by client");
+    return FALSE;
   }
 
 done:

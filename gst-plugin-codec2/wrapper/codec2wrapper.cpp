@@ -824,6 +824,27 @@ gboolean c2component_createBlockpool(void* comp, BUFFER_POOL_TYPE poolType) {
     return ret;
 }
 
+gboolean c2component_configBlockpool (void* comp, BUFFER_POOL_TYPE poolType) {
+
+    LOG_MESSAGE("Configing block pool");
+
+    gboolean ret = FALSE;
+    c2_status_t c2Status = C2_NO_INIT;
+
+    if (comp) {
+        C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
+
+        c2Status = comp_wrapper->configBlockPool(toC2BufferPoolType(poolType));
+        if (c2Status == C2_OK) {
+            ret = TRUE;
+        } else {
+            LOG_ERROR("Failed(%d) to allocate block pool(%d)", c2Status, poolType);
+        }
+    }
+
+    return ret;
+}
+
 gboolean c2component_mapOutBuffer (void* const comp, gboolean map) {
 
     gboolean ret = FALSE;

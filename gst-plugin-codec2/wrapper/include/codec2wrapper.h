@@ -297,6 +297,7 @@ gboolean c2component_reset (void* const comp);
 gboolean c2component_release (void* const comp);
 void* c2component_intf (void* const comp);
 gboolean c2component_createBlockpool (void* const comp, BUFFER_POOL_TYPE poolType);
+gboolean c2component_configBlockpool (void* comp, BUFFER_POOL_TYPE poolType);
 gboolean c2component_mapOutBuffer (void* const comp, gboolean map);
 gboolean c2component_freeOutBuffer (void* const comp, guint64 bufferId);
 gboolean c2component_delete (void* comp);
