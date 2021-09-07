@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020, The Linux Foundation. All rights reserved.
+* Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions are
@@ -38,16 +38,36 @@ G_BEGIN_DECLS
 
 typedef struct _GstQmmfContext GstQmmfContext;
 
+typedef void (*GstQmmfCallback) (guint event, gpointer userdata);
+
+enum {
+  EVENT_UNKNOWN,
+  EVENT_SERVICE_DIED,
+  EVENT_CAMERA_ERROR,
+  EVENT_CAMERA_OPENED,
+  EVENT_CAMERA_CLOSING,
+  EVENT_CAMERA_CLOSED,
+  EVENT_FRAME_ERROR,
+  EVENT_METADATA_ERROR,
+};
+
 enum
 {
   PARAM_CAMERA_ID,
   PARAM_CAMERA_SLAVE,
   PARAM_CAMERA_LDC,
-  PARAM_CAMERA_SHDR,
+  PARAM_CAMERA_LCAC,
   PARAM_CAMERA_EIS,
+  PARAM_CAMERA_SHDR,
+  PARAM_CAMERA_ADRC,
   PARAM_CAMERA_EFFECT_MODE,
   PARAM_CAMERA_SCENE_MODE,
   PARAM_CAMERA_ANTIBANDING_MODE,
+  PARAM_CAMERA_SHARPNESS,
+  PARAM_CAMERA_CONTRAST,
+  PARAM_CAMERA_SATURATION,
+  PARAM_CAMERA_ISO_MODE,
+  PARAM_CAMERA_ISO_VALUE,
   PARAM_CAMERA_EXPOSURE_MODE,
   PARAM_CAMERA_EXPOSURE_LOCK,
   PARAM_CAMERA_EXPOSURE_METERING,
@@ -58,9 +78,6 @@ enum
   PARAM_CAMERA_WHITE_BALANCE_LOCK,
   PARAM_CAMERA_MANUAL_WB_SETTINGS,
   PARAM_CAMERA_FOCUS_MODE,
-  PARAM_CAMERA_IR_MODE,
-  PARAM_CAMERA_ADRC,
-  PARAM_CAMERA_ISO_MODE,
   PARAM_CAMERA_NOISE_REDUCTION,
   PARAM_CAMERA_NOISE_REDUCTION_TUNING,
   PARAM_CAMERA_ZOOM,
@@ -69,10 +86,12 @@ enum
   PARAM_CAMERA_SHARPNESS_STRENGTH,
   PARAM_CAMERA_TOF_RANGE_MODE,
   PARAM_CAMERA_TOF_IMAGE_TYPE,
+  PARAM_CAMERA_IR_MODE,
+  PARAM_CAMERA_ACTIVE_SENSOR_SIZE,
 };
 
 GST_API GstQmmfContext *
-gst_qmmf_context_new (void);
+gst_qmmf_context_new (GstQmmfCallback callback, gpointer userdata);
 
 GST_API void
 gst_qmmf_context_free (GstQmmfContext * context);

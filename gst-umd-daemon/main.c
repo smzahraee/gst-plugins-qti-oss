@@ -71,6 +71,7 @@ typedef struct _AutoFramingConfig AutoFramingConfig;
 typedef struct _VideoRectangle VideoRectangle;
 typedef struct _AutoFrmLib AutoFrmLib;
 typedef struct _AutoFrmOps AutoFrmOps;
+typedef struct _MainOps MainOps;
 
 enum
 {
@@ -93,7 +94,29 @@ static AutoFrmOps afrmops = {
   FALSE, 8, 16, 10, 10, ML_CROP_INTERNAL
 };
 
+struct _MainOps
+{
+  gchar * video;
+  gchar * audio;
+};
+
+static MainOps mainops = {
+  NULL, NULL
+};
+
 static const GOptionEntry entries[] = {
+    { "uvc", 'v', 0, G_OPTION_ARG_STRING,
+      &mainops.video,
+      "UVC device "
+      "(default: NULL)",
+      "USB-VIDEO-DEVICE"
+    },
+    { "uac", 'a', 0, G_OPTION_ARG_STRING,
+      &mainops.audio,
+      "UAC device "
+      "(default: NULL)",
+      "USB-AUDIO-DEVICE"
+    },
     { "ml-auto-framing-enable", 'f', 0, G_OPTION_ARG_NONE,
       &afrmops.enable,
       "Enable Machine Learning based auto framing algorithm "
@@ -178,11 +201,14 @@ struct _AutoFrmLib
 
 struct _GstServiceContext
 {
-  // UVC Gadget instance.
+  // UMD Gadget instance.
   UmdGadget       *gadget;
 
-  // GStreamer pipeline instance.
-  GstElement      *pipeline;
+  // GStreamer video pipeline instance.
+  GstElement      *vpipeline;
+
+  // GStreamer audio pipeline instance.
+  GstElement      *apipeline;
 
   // Auto Framing Algorithm library instance.
   AutoFrmLib      *afrmalgo;
@@ -212,9 +238,14 @@ gst_service_context_free (GstServiceContext * ctx)
   if (ctx->gadget != NULL)
     umd_gadget_free (ctx->gadget);
 
-  if (ctx->pipeline != NULL) {
-    gst_element_set_state (ctx->pipeline, GST_STATE_NULL);
-    gst_object_unref (ctx->pipeline);
+  if (ctx->vpipeline != NULL) {
+    gst_element_set_state (ctx->vpipeline, GST_STATE_NULL);
+    gst_object_unref (ctx->vpipeline);
+  }
+
+  if (ctx->apipeline != NULL) {
+    gst_element_set_state (ctx->apipeline, GST_STATE_NULL);
+    gst_object_unref (ctx->apipeline);
   }
 
   if ((ctx->afrmalgo != NULL) && (ctx->afrmalgo->instance != NULL))
@@ -243,7 +274,8 @@ gst_service_context_new ()
     return NULL;
   }
 
-  ctx->pipeline = NULL;
+  ctx->apipeline = NULL;
+  ctx->vpipeline = NULL;
   ctx->gadget = NULL;
 
   if ((ctx->afrmalgo = g_new0 (AutoFrmLib, 1)) == NULL) {
@@ -378,6 +410,10 @@ static gboolean
 handle_bus_message (GstBus * bus, GstMessage * message, gpointer userdata)
 {
   GstServiceContext *srvctx = GST_SERVICE_CONTEXT_CAST (userdata);
+  GstElement *pipeline = srvctx->vpipeline;
+
+  if (GST_MESSAGE_SRC (message) == GST_OBJECT_CAST (srvctx->apipeline))
+    pipeline = srvctx->apipeline;
 
   switch (GST_MESSAGE_TYPE (message)) {
     case GST_MESSAGE_ERROR:
@@ -391,11 +427,13 @@ handle_bus_message (GstBus * bus, GstMessage * message, gpointer userdata)
       g_free (debug);
       g_error_free (error);
 
-      g_async_queue_push (srvctx->pipemsgs,
-          gst_structure_new_empty (PIPELINE_ERROR_MESSAGE));
+      if (GST_MESSAGE_SRC (message) == GST_OBJECT_CAST (srvctx->vpipeline))
+        g_async_queue_push (srvctx->pipemsgs,
+            gst_structure_new_empty (PIPELINE_ERROR_MESSAGE));
 
-      g_print ("\nSetting pipeline to NULL ...\n");
-      gst_element_set_state (srvctx->pipeline, GST_STATE_NULL);
+      g_print ("\nSetting %s pipeline to NULL ...\n",
+          GST_MESSAGE_SRC_NAME (message));
+      gst_element_set_state (pipeline, GST_STATE_NULL);
       break;
     }
     case GST_MESSAGE_WARNING:
@@ -414,8 +452,9 @@ handle_bus_message (GstBus * bus, GstMessage * message, gpointer userdata)
       g_print ("\nReceived End-of-Stream from '%s' ...\n",
           GST_MESSAGE_SRC_NAME (message));
 
-      g_async_queue_push (srvctx->pipemsgs,
-          gst_structure_new_empty (PIPELINE_EOS_MESSAGE));
+      if (GST_MESSAGE_SRC (message) == GST_OBJECT_CAST (srvctx->vpipeline))
+        g_async_queue_push (srvctx->pipemsgs,
+            gst_structure_new_empty (PIPELINE_EOS_MESSAGE));
       break;
     case GST_MESSAGE_REQUEST_STATE:
     {
@@ -423,29 +462,41 @@ handle_bus_message (GstBus * bus, GstMessage * message, gpointer userdata)
       GstState state;
 
       gst_message_parse_request_state (message, &state);
-      g_print ("\nSetting pipeline state to %s as requested by %s...\n",
+      g_print ("\nSetting %s state to %s as requested by %s...\n",
+          GST_MESSAGE_SRC_NAME (message),
           gst_element_state_get_name (state), name);
 
-      gst_element_set_state (srvctx->pipeline, state);
+      gst_element_set_state (pipeline, state);
       g_free (name);
       break;
     }
     case GST_MESSAGE_STATE_CHANGED:
     {
       GstState old, new, pending;
-
-      // Handle state changes only for the pipeline.
-      if (GST_MESSAGE_SRC (message) != GST_OBJECT_CAST (srvctx->pipeline))
-        break;
+      if (GST_MESSAGE_SRC (message) != GST_OBJECT_CAST (pipeline))
+          break;
 
       gst_message_parse_state_changed (message, &old, &new, &pending);
-      g_print ("\nPipeline state changed from %s to %s, pending: %s\n",
-          gst_element_state_get_name (old), gst_element_state_get_name (new),
+      g_print ("\n%s state changed from %s to %s, pending: %s\n",
+          gst_element_get_name (pipeline), gst_element_state_get_name (old),
+          gst_element_state_get_name (new),
           gst_element_state_get_name (pending));
 
-      g_async_queue_push (srvctx->pipemsgs, gst_structure_new (
-          PIPELINE_STATE_MESSAGE, "new", G_TYPE_UINT, new,
-          "pending", G_TYPE_UINT, pending, NULL));
+      if (pipeline == srvctx->vpipeline)
+        g_async_queue_push (srvctx->pipemsgs, gst_structure_new (
+            PIPELINE_STATE_MESSAGE, "new", G_TYPE_UINT, new,
+            "pending", G_TYPE_UINT, pending, NULL));
+
+      if (pipeline == srvctx->apipeline && (new == GST_STATE_PAUSED) &&
+          (old == GST_STATE_READY) && (pending == GST_STATE_VOID_PENDING)) {
+        g_print ("\nSetting %s to PLAYING state ...\n",
+            gst_element_get_name (pipeline));
+
+        if (gst_element_set_state (pipeline, GST_STATE_PLAYING) ==
+                GST_STATE_CHANGE_FAILURE)
+          g_printerr ("\n%s doesn't want to transition to PLAYING state!\n",
+              gst_element_get_name (pipeline));
+      }
       break;
     }
     default:
@@ -523,17 +574,17 @@ mle_new_sample (GstElement *sink, gpointer userdata)
   }
 
   {
-    GSList *metalist = NULL;
+    GSList *metalist = NULL, *list = NULL;
     VideoRectangle rectangle = {0};
     gfloat confidence = 0.0;
 
-    metalist = gst_buffer_get_detection_meta (buffer);
+    metalist = list = gst_buffer_get_detection_meta (buffer);
 
-    while (metalist != NULL) {
+    while (list != NULL) {
       GstMLDetectionMeta *meta = NULL;
       GstMLClassificationResult *classification = NULL;
 
-      meta = (GstMLDetectionMeta *) metalist->data;
+      meta = (GstMLDetectionMeta *) list->data;
       classification =
           (GstMLClassificationResult *) g_slist_nth_data (meta->box_info, 0);
 
@@ -547,7 +598,7 @@ mle_new_sample (GstElement *sink, gpointer userdata)
         confidence = classification->confidence;
       }
 
-      metalist = g_slist_next (metalist);
+      list = g_slist_next (list);
     }
 
     g_slist_free (metalist);
@@ -555,7 +606,7 @@ mle_new_sample (GstElement *sink, gpointer userdata)
     rectangle = srvctx->afrmalgo->process (
         srvctx->afrmalgo->instance, (confidence > 0.0) ? &rectangle : NULL);
 
-    set_crop_rectangle (srvctx->pipeline, rectangle.x, rectangle.y,
+    set_crop_rectangle (srvctx->vpipeline, rectangle.x, rectangle.y,
         rectangle.w, rectangle.h);
   }
 
@@ -573,6 +624,14 @@ umd_new_sample (GstElement *sink, gpointer userdata)
   GstBuffer *buffer = NULL;
   GstMapInfo info;
   gint bufidx = UMD_BUFFER_NOT_SUBMITTED;
+  gint stream_id = -1;
+
+  if (!g_strcmp0 ("umdvsink", gst_element_get_name (sink)))
+    stream_id = UMD_VIDEO_STREAM_ID;
+  else if (!g_strcmp0 ("umdasink", gst_element_get_name (sink)))
+    stream_id = UMD_AUDIO_STREAM_ID;
+  else
+    return GST_FLOW_ERROR;
 
   // New sample is available, retrieve the buffer from the sink.
   g_signal_emit_by_name (sink, "pull-sample", &sample);
@@ -594,9 +653,10 @@ umd_new_sample (GstElement *sink, gpointer userdata)
     return GST_FLOW_ERROR;
   }
 
-  bufidx = umd_gadget_submit_buffer (srvctx->gadget, info.data,
-      info.size, info.maxsize, GST_BUFFER_TIMESTAMP (buffer) / 1000);
-  umd_gadget_wait_buffer (srvctx->gadget, bufidx);
+  bufidx = umd_gadget_submit_buffer (srvctx->gadget, stream_id,
+      info.data, info.size, info.maxsize,
+      GST_BUFFER_TIMESTAMP (buffer) / 1000);
+  umd_gadget_wait_buffer (srvctx->gadget, stream_id, bufidx);
 
   gst_buffer_unmap (buffer, &info);
   gst_sample_unref (sample);
@@ -679,7 +739,8 @@ update_pipeline_state (GstElement * pipeline, GAsyncQueue * messages,
   ret = gst_element_get_state (pipeline, &current, &pending, 0);
 
   if (ret != GST_STATE_CHANGE_SUCCESS) {
-    g_printerr ("Failed to retrieve pipeline state!\n");
+    g_printerr ("Failed to retrieve %s state!\n",
+        gst_element_get_name (pipeline));
     return FALSE;
   }
 
@@ -693,10 +754,12 @@ update_pipeline_state (GstElement * pipeline, GAsyncQueue * messages,
 
   // Check whether to send an EOS event on the pipeline.
   if ((current == GST_STATE_PLAYING) && (state < GST_STATE_PLAYING)) {
-    g_print ("EOS enabled -- Sending EOS on the pipeline\n");
+    g_print ("EOS enabled -- Sending EOS on %s\n",
+        gst_element_get_name (pipeline));
 
     if (!gst_element_send_event (pipeline, gst_event_new_eos ())) {
-      g_printerr ("Failed to send EOS event!");
+      g_printerr ("Failed to send EOS event on %s!\n",
+          gst_element_get_name (pipeline));
       return FALSE;
     }
 
@@ -704,7 +767,8 @@ update_pipeline_state (GstElement * pipeline, GAsyncQueue * messages,
       return FALSE;
   }
 
-  g_print ("Setting pipeline to %s\n", gst_element_state_get_name (state));
+  g_print ("Setting %s to %s\n", gst_element_get_name (pipeline),
+      gst_element_state_get_name (state));
   ret = gst_element_set_state (pipeline, state);
 
   switch (ret) {
@@ -713,20 +777,22 @@ update_pipeline_state (GstElement * pipeline, GAsyncQueue * messages,
           gst_element_state_get_name (state));
       return FALSE;
     case GST_STATE_CHANGE_NO_PREROLL:
-      g_print ("Pipeline is live and does not need PREROLL.\n");
+      g_print ("%s is live and does not need PREROLL.\n",
+          gst_element_get_name (pipeline));
       break;
     case GST_STATE_CHANGE_ASYNC:
-      g_print ("Pipeline is PREROLLING ...\n");
+      g_print ("%s is PREROLLING ...\n", gst_element_get_name (pipeline));
 
       ret = gst_element_get_state (pipeline, NULL, NULL, GST_CLOCK_TIME_NONE);
 
       if (ret != GST_STATE_CHANGE_SUCCESS) {
-        g_printerr ("Pipeline failed to PREROLL!\n");
+        g_printerr ("%s failed to PREROLL!\n", gst_element_get_name (pipeline));
         return FALSE;
       }
       break;
     case GST_STATE_CHANGE_SUCCESS:
-      g_print ("Pipeline state change was successful\n");
+      g_print ("%s state change was successful\n",
+          gst_element_get_name (pipeline));
       break;
   }
 
@@ -737,18 +803,127 @@ update_pipeline_state (GstElement * pipeline, GAsyncQueue * messages,
 }
 
 static gboolean
-create_main_pipeline (GstServiceContext * srvctx)
+create_audio_pipeline (GstServiceContext * srvctx)
+{
+  GstElement *pcmsrc = NULL, *afilter = NULL;
+  GstElement *abufsplit = NULL, *umdasink = NULL;
+  GstCaps *filtercaps = NULL;
+  GstBus *bus = NULL;
+
+  // Create the empty audio pipeline.
+  if ((srvctx->apipeline = gst_pipeline_new ("audio-pipeline")) == NULL) {
+    g_printerr ("\nFailed to create empty audio pipeline.\n");
+    return FALSE;
+  }
+  pcmsrc    = gst_element_factory_make ("pulsesrc", "pcmsrc");
+  afilter   = gst_element_factory_make ("capsfilter", "afilter");
+  abufsplit = gst_element_factory_make ("audiobuffersplit", "abufsplit");
+  umdasink  = gst_element_factory_make ("appsink", "umdasink");
+
+  if (!pcmsrc || !afilter || !abufsplit || !umdasink) {
+    g_printerr ("\nOne audio element could not be created. Exiting.\n");
+
+    if (pcmsrc)
+      gst_object_unref (pcmsrc);
+
+    if (afilter)
+      gst_object_unref (afilter);
+
+    if (abufsplit)
+      gst_object_unref (abufsplit);
+
+    if (umdasink)
+      gst_object_unref (umdasink);
+
+    return FALSE;
+  }
+
+  // Add the elements to the pipeline.
+  gst_bin_add_many (GST_BIN (srvctx->apipeline), pcmsrc, afilter, abufsplit,
+      umdasink, NULL);
+
+  g_object_set (G_OBJECT (pcmsrc), "volume", 10.0, NULL);
+
+  // Set caps for the pulsesrc audio pad.
+  filtercaps = gst_caps_new_simple ("audio/x-raw",
+      "format", G_TYPE_STRING, "S16LE",
+      "channels", G_TYPE_INT, 2,
+      "rate", G_TYPE_INT, 48000,
+      NULL);
+  g_object_set (G_OBJECT (afilter), "caps", filtercaps, NULL);
+  gst_caps_unref (filtercaps);
+
+  g_object_set (G_OBJECT (abufsplit), "output-buffer-duration", 3, 100, NULL);
+
+  // Connect a callback to the new-sample signal.
+  g_object_set (G_OBJECT (umdasink), "emit-signals", TRUE, NULL);
+  g_signal_connect (umdasink, "new-sample", G_CALLBACK (umd_new_sample), srvctx);
+
+  g_object_set (G_OBJECT(umdasink), "wait-on-eos", FALSE, NULL);
+  g_object_set (G_OBJECT(umdasink), "enable-last-sample", FALSE, NULL);
+  g_object_set (G_OBJECT(umdasink), "sync", FALSE, NULL);
+
+  if (!gst_element_link_many (pcmsrc, afilter, abufsplit, umdasink, NULL)) {
+    g_printerr ("\nFailed to link audio pipeline elements.\n");
+    gst_object_unref (srvctx->apipeline);
+    return FALSE;
+  }
+    // Retrieve reference to the pipeline's bus.
+  if ((bus = gst_pipeline_get_bus (GST_PIPELINE (srvctx->apipeline))) == NULL) {
+    g_printerr ("\nERROR: Failed to retrieve audio pipeline bus!\n");
+    gst_object_unref (srvctx->apipeline);
+    return FALSE;
+  }
+
+  // Watch for messages on the pipeline's bus.
+  gst_bus_add_watch (bus, handle_bus_message, srvctx);
+  gst_object_unref (bus);
+
+  // Set pipeline into PAUSED state.
+  switch (gst_element_set_state (srvctx->apipeline, GST_STATE_PAUSED)) {
+    case GST_STATE_CHANGE_FAILURE:
+      g_printerr ("\nAudio pipeline failed to transition to PAUSED state!\n");
+      return FALSE;
+    case GST_STATE_CHANGE_NO_PREROLL:
+      g_print ("\nAudio pipeline is live and does not need PREROLL.\n");
+      break;
+    case GST_STATE_CHANGE_ASYNC:
+    {
+      GstStateChangeReturn ret = GST_STATE_CHANGE_FAILURE;
+
+      g_print ("\nAudio pipeline is PREROLLING ...\n");
+
+      ret = gst_element_get_state (srvctx->apipeline, NULL, NULL,
+          GST_CLOCK_TIME_NONE);
+
+      if (ret != GST_STATE_CHANGE_SUCCESS) {
+        g_printerr ("\nAudio pipeline failed to PREROLL!\n");
+        return FALSE;
+      }
+      break;
+    }
+    case GST_STATE_CHANGE_SUCCESS:
+      g_print ("\nAudio pipeline state change was successful\n");
+      break;
+  }
+
+  return TRUE;
+}
+
+static gboolean
+create_video_pipeline (GstServiceContext * srvctx)
 {
   GstElement *camsrc = NULL, *vtransform = NULL;
   GstElement *mlefilter = NULL, *mletflite = NULL, *mlesink = NULL;
   GstElement *in_mlequeue = NULL, *out_mlequeue = NULL, *vqueue = NULL;
-  GstElement *umdqueue = NULL, *umdfilter = NULL, *umdsink = NULL;
+  GstElement *umdvqueue = NULL, *umdvfilter = NULL, *umdvsink = NULL;
+
   GstCaps *filtercaps = NULL;
   GstBus *bus = NULL;
 
-  // Create the empty pipeline.
-  if ((srvctx->pipeline = gst_pipeline_new ("main-pipeline")) == NULL) {
-    g_printerr ("\nFailed to create empty pipeline.\n");
+  // Create the empty video pipeline.
+  if ((srvctx->vpipeline = gst_pipeline_new ("video-pipeline")) == NULL) {
+    g_printerr ("\nFailed to create empty video pipeline.\n");
     return FALSE;
   }
 
@@ -761,13 +936,13 @@ create_main_pipeline (GstServiceContext * srvctx)
   mletflite = gst_element_factory_make ("qtimletflite", "mletflite");
   out_mlequeue = gst_element_factory_make ("queue", "outmlequeue");
   mlesink  = gst_element_factory_make ("appsink", "mlesink");
-  umdfilter = gst_element_factory_make ("capsfilter", "umdfilter");
-  umdqueue = gst_element_factory_make ("queue", "umdqueue");
-  umdsink = gst_element_factory_make ("appsink", "umdsink");
+  umdvfilter = gst_element_factory_make ("capsfilter", "umdvfilter");
+  umdvqueue = gst_element_factory_make ("queue", "umdvqueue");
+  umdvsink = gst_element_factory_make ("appsink", "umdvsink");
 
   if (!camsrc || !vtransform || !vqueue || !in_mlequeue || !out_mlequeue ||
-      !mlefilter || !mletflite || !mlesink || !umdfilter || !umdqueue ||
-      !umdsink) {
+      !mlefilter || !mletflite || !mlesink || !umdvfilter || !umdvqueue ||
+      !umdvsink) {
     g_printerr ("\nNot all elements could be created.\n");
 
     if (camsrc)
@@ -794,22 +969,22 @@ create_main_pipeline (GstServiceContext * srvctx)
     if (mlesink)
       gst_object_unref (mlesink);
 
-    if (umdfilter)
-      gst_object_unref (umdfilter);
+    if (umdvfilter)
+      gst_object_unref (umdvfilter);
 
-    if (umdqueue)
-      gst_object_unref (umdqueue);
+    if (umdvqueue)
+      gst_object_unref (umdvqueue);
 
-    if (umdsink)
-      gst_object_unref (umdsink);
+    if (umdvsink)
+      gst_object_unref (umdvsink);
 
     return FALSE;
   }
 
   // Add the elements to the pipeline.
-  gst_bin_add_many (GST_BIN (srvctx->pipeline), camsrc, vtransform, vqueue,
-      mlefilter, in_mlequeue, out_mlequeue, mletflite, mlesink, umdfilter,
-      umdqueue, umdsink, NULL);
+  gst_bin_add_many (GST_BIN (srvctx->vpipeline), camsrc, vtransform, vqueue,
+      mlefilter, in_mlequeue, out_mlequeue, mletflite, mlesink, umdvfilter,
+      umdvqueue, umdvsink, NULL);
 
   // Link the plugins in the MLE portion of the pipeline.
   if (!gst_element_link_many (camsrc, mlefilter, in_mlequeue, mletflite,
@@ -846,25 +1021,40 @@ create_main_pipeline (GstServiceContext * srvctx)
       "preprocess-accel", 1, NULL);
 
   // Set emit-signals property and connect a callback to the new-sample signal.
-  g_object_set (G_OBJECT(mlesink), "emit-signals", TRUE, NULL);
+  g_object_set (G_OBJECT (mlesink), "emit-signals", TRUE, NULL);
   g_signal_connect (mlesink, "new-sample", G_CALLBACK (mle_new_sample), srvctx);
 
   // Link the plugins in the UMD portion of the pipeline.
-  if (!gst_element_link_many (camsrc, umdfilter, vqueue, vtransform, umdqueue,
-          umdsink, NULL)) {
+  if (!gst_element_link_many (camsrc, umdvfilter, vqueue, vtransform, umdvqueue,
+          umdvsink, NULL)) {
     g_printerr ("\nFailed to link pipeline UMD elements.\n");
     return FALSE;
   }
 
-  // Set emit-signals property and connect a callback to the new-sample signal.
-  g_object_set (G_OBJECT(umdsink), "emit-signals", TRUE, NULL);
-  g_signal_connect (umdsink, "new-sample", G_CALLBACK (umd_new_sample), srvctx);
+  {
+    // Set the camera ISO mode to manual.
+    GParamSpec *propspecs = NULL;
+    GValue value = G_VALUE_INIT;
 
-  g_object_set (G_OBJECT(umdsink), "wait-on-eos", FALSE, NULL);
-  g_object_set (G_OBJECT(umdsink), "enable-last-sample", FALSE, NULL);
+    // Get the property specs to initialize the GValue type.
+    propspecs = g_object_class_find_property (
+        G_OBJECT_GET_CLASS (camsrc), "iso-mode");
+    g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+
+    gst_value_deserialize (&value, "manual");
+    g_object_set_property (G_OBJECT (camsrc), "iso-mode", &value);
+  }
+
+  // Set emit-signals property and connect a callback to the new-sample signal.
+  g_object_set (G_OBJECT (umdvsink), "emit-signals", TRUE, NULL);
+  g_signal_connect (umdvsink, "new-sample", G_CALLBACK (umd_new_sample), srvctx);
+
+  g_object_set (G_OBJECT (umdvsink), "wait-on-eos", FALSE, NULL);
+  g_object_set (G_OBJECT (umdvsink), "enable-last-sample", FALSE, NULL);
+  g_object_set (G_OBJECT (umdvsink), "sync", FALSE, NULL);
 
   // Retrieve reference to the pipeline's bus.
-  if ((bus = gst_pipeline_get_bus (GST_PIPELINE (srvctx->pipeline))) == NULL) {
+  if ((bus = gst_pipeline_get_bus (GST_PIPELINE (srvctx->vpipeline))) == NULL) {
     g_printerr ("\nFailed to retrieve pipeline bus!\n");
     return FALSE;
   }
@@ -873,13 +1063,41 @@ create_main_pipeline (GstServiceContext * srvctx)
   gst_bus_add_watch (bus, handle_bus_message, srvctx);
   gst_object_unref (bus);
 
+  // Set pipeline into READY state.
+  switch (gst_element_set_state (srvctx->vpipeline, GST_STATE_READY)) {
+    case GST_STATE_CHANGE_FAILURE:
+      g_printerr ("\nVideo pipeline failed to transition to READY state!\n");
+      return FALSE;
+    case GST_STATE_CHANGE_NO_PREROLL:
+      g_print ("\nVideo pipeline is live and does not need PREROLL.\n");
+      break;
+    case GST_STATE_CHANGE_ASYNC:
+    {
+      GstStateChangeReturn ret = GST_STATE_CHANGE_FAILURE;
+
+      g_print ("\nVideo pipeline is PREROLLING ...\n");
+
+      ret = gst_element_get_state (srvctx->vpipeline, NULL, NULL,
+          GST_CLOCK_TIME_NONE);
+
+      if (ret != GST_STATE_CHANGE_SUCCESS) {
+        g_printerr ("\nVideo pipeline failed to PREROLL!\n");
+        return FALSE;
+      }
+      break;
+    }
+    case GST_STATE_CHANGE_SUCCESS:
+      g_print ("\nVideo pipeline state change was successful\n");
+      break;
+  }
+
   return TRUE;
 }
 
 static gboolean
 mle_reconfigure_pipeline (GstServiceContext * srvctx, gboolean enable)
 {
-  GstElement *pipeline = srvctx->pipeline;
+  GstElement *pipeline = srvctx->vpipeline;
   GstElement *mlefilter = NULL, *mletflite = NULL, *mlesink = NULL;
   GstElement *in_mlequeue = NULL, *out_mlequeue = NULL, *fakesink = NULL;
   gboolean success = TRUE;
@@ -952,6 +1170,7 @@ mle_reconfigure_pipeline (GstServiceContext * srvctx, gboolean enable)
 
     g_object_set (G_OBJECT(mlesink), "wait-on-eos", FALSE, NULL);
     g_object_set (G_OBJECT(mlesink), "enable-last-sample", FALSE, NULL);
+    g_object_set (G_OBJECT(mlesink), "sync", FALSE, NULL);
 
     // Retrieve MLE filter plugin in order to link the new elements.
     mlefilter = gst_bin_get_by_name (GST_BIN (pipeline), "mlefilter");
@@ -1033,14 +1252,14 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
     case UMD_VIDEO_FMT_YUYV:
     {
       GstElement *vqueue = NULL, *vtrans = NULL;
-      GstElement  *umdfilter = NULL, *umdqueue = NULL;
+      GstElement  *umdvfilter = NULL, *umdvqueue = NULL;
       GstCaps *filtercaps = NULL;
       gboolean success = TRUE;
 
-      umdfilter = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "umdfilter");
-      umdqueue = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "umdqueue");
-      vtrans = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "vtransform");
-      vqueue = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "vqueue");
+      umdvfilter = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "umdvfilter");
+      umdvqueue = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "umdvqueue");
+      vtrans = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "vtransform");
+      vqueue = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "vqueue");
 
       // Update and set the UMD filter caps.
       filtercaps = gst_caps_new_simple ("video/x-raw",
@@ -1052,7 +1271,7 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
       gst_caps_set_features (filtercaps, 0,
           gst_caps_features_new ("memory:GBM", NULL));
 
-      g_object_set (G_OBJECT (umdfilter), "caps", filtercaps, NULL);
+      g_object_set (G_OBJECT (umdvfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
 
       // Unlink and link pipeline only if elements are not already present.
@@ -1063,21 +1282,21 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
         vqueue = gst_element_factory_make ("queue", "vqueue");
 
         // Add the new elements to the pipeline.
-        gst_bin_add_many (GST_BIN (srvctx->pipeline), vtrans, vqueue, NULL);
+        gst_bin_add_many (GST_BIN (srvctx->vpipeline), vtrans, vqueue, NULL);
 
         // New elements need to be in the same state as the pipeline.
         gst_element_sync_state_with_parent (vqueue);
         gst_element_sync_state_with_parent (vtrans);
 
         // Unlink the plugins where we want to add our new elements.
-        gst_element_unlink (umdfilter, umdqueue);
+        gst_element_unlink (umdvfilter, umdvqueue);
 
         success =
-            gst_element_link_many (umdfilter, vqueue, vtrans, umdqueue, NULL);
+            gst_element_link_many (umdvfilter, vqueue, vtrans, umdvqueue, NULL);
       } else if ((!afrmops.enable || (afrmops.croptype == ML_CROP_INTERNAL)) &&
                  (vtrans != NULL) && (vqueue != NULL)) {
-        gst_bin_remove (GST_BIN (srvctx->pipeline), vtrans);
-        gst_bin_remove (GST_BIN (srvctx->pipeline), vqueue);
+        gst_bin_remove (GST_BIN (srvctx->vpipeline), vtrans);
+        gst_bin_remove (GST_BIN (srvctx->vpipeline), vqueue);
 
         // Removed elements need to be in NULL state before deletion.
         gst_element_set_state (vtrans, GST_STATE_NULL);
@@ -1086,14 +1305,14 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
         gst_object_unref (vqueue);
         gst_object_unref (vtrans);
 
-        success = gst_element_link (umdfilter, umdqueue);
+        success = gst_element_link (umdvfilter, umdvqueue);
       } else if (vtrans && vqueue) {
         gst_object_unref (vqueue);
         gst_object_unref (vtrans);
       }
 
-      gst_object_unref (umdqueue);
-      gst_object_unref (umdfilter);
+      gst_object_unref (umdvqueue);
+      gst_object_unref (umdvfilter);
 
       if (!success) {
         g_printerr ("\nFailed to link pipeline UMD elements.\n");
@@ -1104,14 +1323,14 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
     case UMD_VIDEO_FMT_MJPEG:
     {
       GstElement *vqueue = NULL, *vtrans = NULL;
-      GstElement  *umdfilter = NULL, *umdqueue = NULL;
+      GstElement  *umdvfilter = NULL, *umdvqueue = NULL;
       GstCaps *filtercaps = NULL;
       gboolean success = TRUE;
 
-      vtrans = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "vtransform");
-      vqueue = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "vqueue");
-      umdfilter = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "umdfilter");
-      umdqueue = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "umdqueue");
+      vtrans = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "vtransform");
+      vqueue = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "vqueue");
+      umdvfilter = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "umdvfilter");
+      umdvqueue = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "umdvqueue");
 
       // Update and set the UMD filter caps.
       filtercaps = gst_caps_new_simple ("image/jpeg",
@@ -1120,13 +1339,13 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
           "framerate", GST_TYPE_FRACTION, fps_n, fps_d,
           NULL);
 
-      g_object_set (G_OBJECT (umdfilter), "caps", filtercaps, NULL);
+      g_object_set (G_OBJECT (umdvfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
 
       // Unlink and link pipeline only if elements are already present.
       if ((vtrans != NULL) && (vqueue != NULL)) {
-        gst_bin_remove (GST_BIN (srvctx->pipeline), vtrans);
-        gst_bin_remove (GST_BIN (srvctx->pipeline), vqueue);
+        gst_bin_remove (GST_BIN (srvctx->vpipeline), vtrans);
+        gst_bin_remove (GST_BIN (srvctx->vpipeline), vqueue);
 
         // Removed elements need to be in NULL state before deletion.
         gst_element_set_state (vtrans, GST_STATE_NULL);
@@ -1135,11 +1354,11 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
         gst_object_unref (vqueue);
         gst_object_unref (vtrans);
 
-        success = gst_element_link (umdfilter, umdqueue);
+        success = gst_element_link (umdvfilter, umdvqueue);
       }
 
-      gst_object_unref (umdqueue);
-      gst_object_unref (umdfilter);
+      gst_object_unref (umdvqueue);
+      gst_object_unref (umdvfilter);
 
       if (!success) {
         g_printerr ("\nFailed to link pipeline UMD elements.\n");
@@ -1160,7 +1379,7 @@ setup_camera_stream (UmdVideoSetup * stmsetup, void * userdata)
   }
 
   // Reset the crop parameters.
-  set_crop_rectangle (srvctx->pipeline, 0, 0, 0, 0);
+  set_crop_rectangle (srvctx->vpipeline, 0, 0, 0, 0);
 
   if (!mle_reconfigure_pipeline (srvctx, afrmops.enable)) {
     g_printerr ("\nFailed to reconfigure pipeline MLE elements!\n");
@@ -1208,8 +1427,8 @@ enable_camera_stream (void * userdata)
   GstServiceContext *srvctx = GST_SERVICE_CONTEXT_CAST (userdata);
   GstState state = GST_STATE_PLAYING;
 
-  if (!update_pipeline_state (srvctx->pipeline, srvctx->pipemsgs, state)) {
-    g_printerr ("\nFailed to update pipeline state!\n");
+  if (!update_pipeline_state (srvctx->vpipeline, srvctx->pipemsgs, state)) {
+    g_printerr ("\nFailed to update video pipeline state!\n");
     return false;
   }
 
@@ -1227,8 +1446,8 @@ disable_camera_stream (void * userdata)
   GstServiceContext *srvctx = GST_SERVICE_CONTEXT_CAST (userdata);
   GstState state = GST_STATE_READY;
 
-  if (!update_pipeline_state (srvctx->pipeline, srvctx->pipemsgs, state)) {
-    g_printerr ("\nFailed to update pipeline state!\n");
+  if (!update_pipeline_state (srvctx->vpipeline, srvctx->pipemsgs, state)) {
+    g_printerr ("\nFailed to update video pipeline state!\n");
     return false;
   }
 
@@ -1240,262 +1459,724 @@ disable_camera_stream (void * userdata)
   return true;
 }
 
-static gboolean
-set_control_value (uint32_t id, void * payload, GValue * value)
+static void
+set_exposure_compensation_property (GstElement * element, gint16 compensation)
 {
-  switch (id) {
-    case UMD_VIDEO_CTRL_SHARPNESS:
-      g_value_set_int (value, *((guint32*) payload));
-      break;
-    case UMD_VIDEO_CTRL_WB_TEMPERTURE:
-    {
-      gchar *string = NULL;
+  GValue value = G_VALUE_INIT;
 
-      string = g_strdup_printf ("org.codeaurora.qcamera3.manualWB,"
-          "color_temperature=%d;", *((guint32*) payload));
-      g_value_set_string (value, string);
+  g_value_init (&value, G_TYPE_INT);
+  g_value_set_int (&value, compensation);
 
-      g_free (string);
-      break;
-    }
-    case UMD_VIDEO_CTRL_WB_MODE:
-    {
-      const gchar *mode = NULL;
-
-      switch (*((guint32*) payload)) {
-        case UMD_VIDEO_WB_MODE_AUTO:
-          mode = "auto";
-          break;
-        case UMD_VIDEO_WB_MODE_MANUAL:
-          mode = "manual-cc-temp";
-          break;
-        default:
-          g_printerr ("\nUnsupported WB mode: %d!\n",
-              *((guint32*) payload));
-          return FALSE;
-      }
-
-      gst_value_deserialize (value, mode);
-      break;
-    }
-    case UMD_VIDEO_CTRL_EXPOSURE_TIME:
-      g_value_set_int64 (value, (*((guint32*) payload) * 100000));
-      break;
-    case UMD_VIDEO_CTRL_EXPOSURE_MODE:
-    {
-      const gchar *mode = NULL;
-
-      switch (*((guint32*) payload)) {
-        case UMD_VIDEO_EXPOSURE_MODE_AUTO:
-          mode = "auto";
-          break;
-        case UMD_VIDEO_EXPOSURE_MODE_SHUTTER:
-          mode = "off";
-          break;
-        default:
-          g_printerr ("\nUnsupported Exposure mode: %d!\n",
-              *((guint32*) payload));
-          return FALSE;
-      }
-
-      gst_value_deserialize (value, mode);
-      break;
-    }
-    case UMD_VIDEO_CTRL_FOCUS_MODE:
-    {
-      const gchar *mode = NULL;
-
-      switch (*((guint32*) payload)) {
-        case UMD_VIDEO_FOCUS_MODE_AUTO:
-          mode = "auto";
-          break;
-        case UMD_VIDEO_FOCUS_MODE_MANUAL:
-          mode = "off";
-          break;
-        default:
-          g_printerr ("\nUnsupported Focus mode: %d!\n",
-              *((guint32*) payload));
-          return FALSE;
-      }
-
-      gst_value_deserialize (value, mode);
-      break;
-    }
-    case UMD_VIDEO_CTRL_ANTIBANDING:
-    {
-      const gchar *mode = NULL;
-
-      switch (*((guint32*) payload)) {
-        case UMD_VIDEO_ANTIBANDING_DISABLED:
-          mode = "off";
-          break;
-        case UMD_VIDEO_ANTIBANDING_50HZ:
-          mode = "50hz";
-          break;
-        case UMD_VIDEO_ANTIBANDING_60HZ:
-          mode = "60hz";
-          break;
-        case UMD_VIDEO_ANTIBANDING_AUTO:
-          mode = "auto";
-          break;
-        default:
-          g_printerr ("\nUnsupported Antibanding mode: %d!\n",
-              *((guint32*) payload));
-          return FALSE;
-      }
-
-      gst_value_deserialize (value, mode);
-      break;
-    }
-    default:
-      g_printerr ("\nUnknown control ID 0x%X!\n", id);
-      return FALSE;
-  }
-
-  return TRUE;
+  g_object_set_property (G_OBJECT (element), "exposure-compensation", &value);
 }
 
-static gboolean
-get_control_value (uint32_t id, void * payload, const GValue * value)
+static void
+get_exposure_compensation_property (GstElement * element, gint16 * compensation)
 {
-  switch (id) {
-    case UMD_VIDEO_CTRL_SHARPNESS:
-      *((guint32*) payload) = g_value_get_int (value);
-      break;
-    case UMD_VIDEO_CTRL_WB_TEMPERTURE:
-    {
-      GstStructure *structure =
-          gst_structure_new_from_string (g_value_get_string (value));
+  GValue value = G_VALUE_INIT;
 
-      if (gst_structure_has_field (structure, "color_temperature"))
-        gst_structure_get_int (structure, "color_temperature", (guint32*) payload);
+  g_value_init (&value, G_TYPE_INT);
+  g_object_get_property (G_OBJECT (element), "exposure-compensation", &value);
 
-      gst_structure_free (structure);
-      break;
-    }
-    case UMD_VIDEO_CTRL_WB_MODE:
-    {
-      gchar *mode = gst_value_serialize (value);
+  *compensation = g_value_get_int (&value);
+}
 
-      if (g_strcmp0 (mode, "manual-cc-temp") == 0)
-        *((guint32*) payload) = UMD_VIDEO_WB_MODE_MANUAL;
-      else if (g_strcmp0 (mode, "auto") == 0)
-        *((guint32*) payload) = UMD_VIDEO_WB_MODE_AUTO;
+static void
+set_contrast_property (GstElement * element, guint16 contrast)
+{
+  GValue value = G_VALUE_INIT;
 
-      g_free (mode);
-      break;
-    }
-    case UMD_VIDEO_CTRL_EXPOSURE_TIME:
-      *((guint32*) payload) = g_value_get_int64 (value) / 100000;
-      break;
-    case UMD_VIDEO_CTRL_EXPOSURE_MODE:
-    {
-      gchar *mode = gst_value_serialize (value);
+  g_value_init (&value, G_TYPE_INT);
+  g_value_set_int (&value, ((contrast * 2) - 100));
 
-      if (g_strcmp0 (mode, "off") == 0)
-        *((guint32*) payload) = UMD_VIDEO_EXPOSURE_MODE_SHUTTER;
-      else if (g_strcmp0 (mode, "auto") == 0)
-        *((guint32*) payload) = UMD_VIDEO_EXPOSURE_MODE_AUTO;
+  g_object_set_property (G_OBJECT (element), "contrast", &value);
+}
 
-      g_free (mode);
-      break;
-    }
-    case UMD_VIDEO_CTRL_FOCUS_MODE:
-    {
-      gchar *mode = gst_value_serialize (value);
+static void
+get_contrast_property (GstElement * element, guint16 * contrast)
+{
+  GValue value = G_VALUE_INIT;
 
-      if (g_strcmp0 (mode, "off") == 0)
-        *((guint32*) payload) = UMD_VIDEO_FOCUS_MODE_MANUAL;
-      else if (g_strcmp0 (mode, "auto") == 0)
-        *((guint32*) payload) = UMD_VIDEO_FOCUS_MODE_AUTO;
+  g_value_init (&value, G_TYPE_INT);
+  g_object_get_property (G_OBJECT (element), "contrast", &value);
 
-      g_free (mode);
-      break;
-    }
-    case UMD_VIDEO_CTRL_ANTIBANDING:
-    {
-      gchar *mode = gst_value_serialize (value);
+  *contrast = (g_value_get_int (&value) + 100) / 2;
+}
 
-      if (g_strcmp0 (mode, "off") == 0)
-        *((guint32*) payload) = UMD_VIDEO_ANTIBANDING_DISABLED;
-      else if (g_strcmp0 (mode, "50hz") == 0)
-        *((guint32*) payload) = UMD_VIDEO_ANTIBANDING_50HZ;
-      else if (g_strcmp0 (mode, "60hz") == 0)
-        *((guint32*) payload) = UMD_VIDEO_ANTIBANDING_60HZ;
-      else if (g_strcmp0 (mode, "auto") == 0)
-        *((guint32*) payload) = UMD_VIDEO_ANTIBANDING_AUTO;
+static void
+set_saturation_property (GstElement * element, guint16 saturation)
+{
+  GValue value = G_VALUE_INIT;
 
-      g_free (mode);
-      break;
-    }
-    default:
-      g_printerr ("\nUnknown control ID 0x%X!\n", id);
-      return FALSE;
+  g_value_init (&value, G_TYPE_INT);
+  g_value_set_int (&value, saturation);
+
+  g_object_set_property (G_OBJECT (element), "saturation", &value);
+}
+
+static void
+get_saturation_property (GstElement * element, guint16 * saturation)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  g_object_get_property (G_OBJECT (element), "saturation", &value);
+
+  *saturation = g_value_get_int (&value);
+}
+
+static void
+set_sharpness_property (GstElement * element, guint16 sharpness)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  g_value_set_int (&value, sharpness);
+
+  g_object_set_property (G_OBJECT (element), "sharpness", &value);
+}
+
+static void
+get_sharpness_property (GstElement * element, guint16 * sharpness)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  g_object_get_property (G_OBJECT (element), "sharpness", &value);
+
+  *sharpness = g_value_get_int (&value);
+}
+
+static void
+set_adrc_property (GstElement * element, guint16 adrc)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_BOOLEAN);
+  g_value_set_boolean (&value, adrc);
+
+  g_object_set_property (G_OBJECT (element), "adrc", &value);
+}
+
+static void
+get_adrc_property (GstElement * element, guint16 * adrc)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_BOOLEAN);
+  g_object_get_property (G_OBJECT (element), "adrc", &value);
+
+  *adrc = g_value_get_boolean (&value);
+}
+
+static void
+set_wb_temperature_property (GstElement * element, guint16 temperature)
+{
+  GValue value = G_VALUE_INIT;
+  gchar *string = NULL;
+
+  g_value_init (&value, G_TYPE_STRING);
+  string = g_strdup_printf ("org.codeaurora.qcamera3.manualWB,"
+      "color_temperature=%u;", temperature);
+
+  g_value_set_string (&value, string);
+  g_free (string);
+
+  g_object_set_property (G_OBJECT (element), "manual-wb-settings", &value);
+}
+
+static void
+get_wb_temperature_property (GstElement * element, guint16 * temperature)
+{
+  GValue value = G_VALUE_INIT;
+  GstStructure *structure = NULL;
+
+  g_value_init (&value, G_TYPE_STRING);
+  g_object_get_property (G_OBJECT (element), "manual-wb-settings", &value);
+
+  structure = gst_structure_new_from_string (g_value_get_string (&value));
+
+  if (gst_structure_has_field (structure, "color_temperature")) {
+    guint32 wbtemp = 4600;
+    gst_structure_get_uint (structure, "color_temperature", &wbtemp);
+    *temperature = wbtemp;
   }
 
-  return TRUE;
+  gst_structure_free (structure);
+}
+
+static void
+set_wb_mode_property (GstElement * element, guint8 mode)
+{
+  GParamSpec *propspecs = NULL;
+  GValue value = G_VALUE_INIT;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "white-balance-mode");
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+
+  switch (mode) {
+    case UMD_VIDEO_WB_MODE_AUTO:
+      gst_value_deserialize (&value, "auto");
+      break;
+    case UMD_VIDEO_WB_MODE_MANUAL:
+      gst_value_deserialize (&value, "manual-cc-temp");
+      break;
+    default:
+      g_printerr ("\nUnsupported WB mode: %d!\n", mode);
+      return;
+  }
+
+  g_object_set_property (G_OBJECT (element), "white-balance-mode", &value);
+}
+
+static void
+get_wb_mode_property (GstElement * element, guint8 * mode)
+{
+  GParamSpec *propspecs = NULL;
+  GEnumClass *enumklass = NULL;
+  GValue value = G_VALUE_INIT;
+  GEnumValue *v = NULL;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "white-balance-mode");
+  enumklass = G_ENUM_CLASS (g_type_class_ref (propspecs->value_type));
+
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+  g_object_get_property (G_OBJECT (element), "white-balance-mode", &value);
+
+  v = g_enum_get_value (enumklass, g_value_get_enum (&value));
+
+  if (g_strcmp0 (v->value_nick, "manual-cc-temp") == 0)
+    *mode = UMD_VIDEO_WB_MODE_MANUAL;
+  else if (g_strcmp0 (v->value_nick, "auto") == 0)
+    *mode = UMD_VIDEO_WB_MODE_AUTO;
+
+  g_type_class_unref (enumklass);
+}
+
+static void
+set_exposure_time_property (GstElement * element, guint32 time)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT64);
+  g_value_set_int64 (&value, (guint64) time * 100000);
+
+  g_object_set_property (G_OBJECT (element), "manual-exposure-time", &value);
+}
+
+static void
+get_exposure_time_property (GstElement * element, guint32 * time)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT64);
+  g_object_get_property (G_OBJECT (element), "manual-exposure-time", &value);
+
+  *time = g_value_get_int64 (&value) / 100000;
+}
+
+static void
+set_exposure_mode_property (GstElement * element, guint8 mode)
+{
+  GParamSpec *propspecs = NULL;
+  GValue value = G_VALUE_INIT;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "exposure-mode");
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+
+  switch (mode) {
+    case UMD_VIDEO_EXPOSURE_MODE_AUTO:
+      gst_value_deserialize (&value, "auto");
+      break;
+    case UMD_VIDEO_EXPOSURE_MODE_SHUTTER:
+      gst_value_deserialize (&value, "off");
+      break;
+    default:
+      g_printerr ("\nUnsupported Exposure mode: %d!\n", mode);
+      return;
+  }
+
+  g_object_set_property (G_OBJECT (element), "exposure-mode", &value);
+}
+
+static void
+get_exposure_mode_property (GstElement * element, guint8 * mode)
+{
+  GParamSpec *propspecs = NULL;
+  GEnumClass *enumklass = NULL;
+  GValue value = G_VALUE_INIT;
+  GEnumValue *v = NULL;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "exposure-mode");
+  enumklass = G_ENUM_CLASS (g_type_class_ref (propspecs->value_type));
+
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+  g_object_get_property (G_OBJECT (element), "exposure-mode", &value);
+
+  v = g_enum_get_value (enumklass, g_value_get_enum (&value));
+
+  if (g_strcmp0 (v->value_nick, "off") == 0)
+    *mode = UMD_VIDEO_EXPOSURE_MODE_SHUTTER;
+  else if (g_strcmp0 (v->value_nick, "auto") == 0)
+    *mode = UMD_VIDEO_EXPOSURE_MODE_AUTO;
+
+  g_type_class_unref (enumklass);
+}
+
+static void
+set_focus_mode_property (GstElement * element, guint8 mode)
+{
+  GParamSpec *propspecs = NULL;
+  GValue value = G_VALUE_INIT;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "focus-mode");
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+
+  switch (mode) {
+    case UMD_VIDEO_FOCUS_MODE_AUTO:
+      gst_value_deserialize (&value, "auto");
+      break;
+    case UMD_VIDEO_FOCUS_MODE_MANUAL:
+      gst_value_deserialize (&value, "off");
+      break;
+    default:
+      g_printerr ("\nUnsupported Focus mode: %d!\n", mode);
+      return;
+  }
+
+  g_object_set_property (G_OBJECT (element), "focus-mode", &value);
+}
+
+static void
+get_focus_mode_property (GstElement * element, guint8 * mode)
+{
+  GParamSpec *propspecs = NULL;
+  GEnumClass *enumklass = NULL;
+  GValue value = G_VALUE_INIT;
+  GEnumValue *v = NULL;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "focus-mode");
+  enumklass = G_ENUM_CLASS (g_type_class_ref (propspecs->value_type));
+
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+  g_object_get_property (G_OBJECT (element), "focus-mode", &value);
+
+  v = g_enum_get_value (enumklass, g_value_get_enum (&value));
+
+  if (g_strcmp0 (v->value_nick, "off") == 0)
+    *mode = UMD_VIDEO_FOCUS_MODE_MANUAL;
+  else if (g_strcmp0 (v->value_nick, "auto") == 0)
+    *mode = UMD_VIDEO_FOCUS_MODE_AUTO;
+
+  g_type_class_unref (enumklass);
+}
+
+static void
+set_antibanding_property (GstElement * element, guint8 mode)
+{
+  GParamSpec *propspecs = NULL;
+  GValue value = G_VALUE_INIT;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "antibanding");
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+
+  switch (mode) {
+    case UMD_VIDEO_ANTIBANDING_AUTO:
+      gst_value_deserialize (&value, "auto");
+      break;
+    case UMD_VIDEO_ANTIBANDING_DISABLED:
+      gst_value_deserialize (&value, "off");
+      break;
+    case UMD_VIDEO_ANTIBANDING_60HZ:
+      gst_value_deserialize (&value, "60hz");
+      break;
+    case UMD_VIDEO_ANTIBANDING_50HZ:
+      gst_value_deserialize (&value, "50hz");
+      break;
+    default:
+      g_printerr ("\nUnsupported Antibanding mode: %d!\n", mode);
+      return;
+  }
+
+  g_object_set_property (G_OBJECT (element), "antibanding", &value);
+}
+
+static void
+get_antibanding_property (GstElement * element, guint8 * mode)
+{
+  GParamSpec *propspecs = NULL;
+  GEnumClass *enumklass = NULL;
+  GValue value = G_VALUE_INIT;
+  GEnumValue *v = NULL;
+
+  // Get the property specs to initialize the GValue type.
+  propspecs = g_object_class_find_property (
+      G_OBJECT_GET_CLASS (element), "antibanding");
+  enumklass = G_ENUM_CLASS (g_type_class_ref (propspecs->value_type));
+
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+  g_object_get_property (G_OBJECT (element), "antibanding", &value);
+
+  v = g_enum_get_value (enumklass, g_value_get_enum (&value));
+
+  if (g_strcmp0 (v->value_nick, "off") == 0)
+    *mode = UMD_VIDEO_ANTIBANDING_DISABLED;
+  else if (g_strcmp0 (v->value_nick, "50hz") == 0)
+    *mode = UMD_VIDEO_ANTIBANDING_50HZ;
+  else if (g_strcmp0 (v->value_nick, "60hz") == 0)
+    *mode = UMD_VIDEO_ANTIBANDING_60HZ;
+  else if (g_strcmp0 (v->value_nick, "auto") == 0)
+    *mode = UMD_VIDEO_ANTIBANDING_AUTO;
+
+  g_type_class_unref (enumklass);
+}
+
+static void
+set_iso_property (GstElement * element, guint16 isovalue)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  g_value_set_int (&value, isovalue);
+
+  g_object_set_property (G_OBJECT (element), "manual-iso-value", &value);
+}
+
+static void
+get_iso_property (GstElement * element, guint16 * isovalue)
+{
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  g_object_get_property (G_OBJECT (element), "manual-iso-value", &value);
+
+  *isovalue = g_value_get_int (&value);
+}
+
+static void
+set_zoom_property (GstElement * element, guint16 magnification,
+    gint32 pan, gint32 tilt)
+{
+  GValue value = G_VALUE_INIT, v = G_VALUE_INIT;
+  GstVideoRectangle sensor = {}, zoom = {};
+
+  g_value_init (&value, GST_TYPE_ARRAY);
+  g_object_get_property (G_OBJECT (element), "active-sensor-size", &value);
+
+  sensor.x = g_value_get_int (gst_value_array_get_value (&value, 0));
+  sensor.y = g_value_get_int (gst_value_array_get_value (&value, 1));
+  sensor.w = g_value_get_int (gst_value_array_get_value (&value, 2));
+  sensor.h = g_value_get_int (gst_value_array_get_value (&value, 3));
+
+  g_value_unset (&value);
+  g_value_init (&value, GST_TYPE_ARRAY);
+
+  g_object_get_property (G_OBJECT (element), "zoom", &value);
+
+  zoom.x = g_value_get_int (gst_value_array_get_value (&value, 0));
+  zoom.y = g_value_get_int (gst_value_array_get_value (&value, 1));
+  zoom.w = g_value_get_int (gst_value_array_get_value (&value, 2));
+  zoom.h = g_value_get_int (gst_value_array_get_value (&value, 3));
+
+  zoom.w = (sensor.w - sensor.x) / (magnification / 100.0);
+  zoom.h = (sensor.h - sensor.y) / (magnification / 100.0);
+
+  zoom.x = ((sensor.w - sensor.x) - zoom.w) / 2;
+  zoom.x += zoom.x * pan / (100.0 * 3600);
+
+  zoom.y = ((sensor.h - sensor.y) - zoom.h) / 2;
+  zoom.y += zoom.y * tilt / (100.0 * 3600);
+
+  g_value_unset (&value);
+  g_value_init (&value, GST_TYPE_ARRAY);
+
+  g_value_init (&v, G_TYPE_INT);
+
+  g_value_set_int (&v, zoom.x);
+  gst_value_array_append_value (&value, &v);
+
+  g_value_set_int (&v, zoom.y);
+  gst_value_array_append_value (&value, &v);
+
+  g_value_set_int (&v, zoom.w);
+  gst_value_array_append_value (&value, &v);
+
+  g_value_set_int (&v, zoom.h);
+  gst_value_array_append_value (&value, &v);
+
+  g_object_set_property (G_OBJECT (element), "zoom", &value);
+}
+
+static void
+get_zoom_property (GstElement * element, guint16 * magnification)
+{
+  GValue value = G_VALUE_INIT;
+  GstVideoRectangle sensor = {}, zoom = {};
+
+  g_value_init (&value, GST_TYPE_ARRAY);
+  g_object_get_property (G_OBJECT (element), "zoom", &value);
+
+  zoom.x = g_value_get_int (gst_value_array_get_value (&value, 0));
+  zoom.y = g_value_get_int (gst_value_array_get_value (&value, 1));
+  zoom.w = g_value_get_int (gst_value_array_get_value (&value, 2));
+  zoom.h = g_value_get_int (gst_value_array_get_value (&value, 3));
+
+  g_value_unset (&value);
+  g_value_init (&value, GST_TYPE_ARRAY);
+
+  // Get the active sensor size in order to determine the magnification.
+  g_object_get_property (G_OBJECT (element), "active-sensor-size", &value);
+
+  sensor.x = g_value_get_int (gst_value_array_get_value (&value, 0));
+  sensor.y = g_value_get_int (gst_value_array_get_value (&value, 1));
+  sensor.w = g_value_get_int (gst_value_array_get_value (&value, 2));
+  sensor.h = g_value_get_int (gst_value_array_get_value (&value, 3));
+
+  // Zoom width and height of 0 means it is equal to the sensor size.
+  zoom.w = (zoom.w == 0) ? sensor.w : zoom.w;
+  zoom.h = (zoom.h == 0) ? sensor.h : zoom.h;
+
+  *magnification = ((((gfloat) sensor.w / zoom.w) +
+      ((gfloat) sensor.h / zoom.h)) / 2) * 100;
 }
 
 static bool
-handle_camera_control (uint32_t id, uint32_t request, void * payload,
+handle_camera_control (uint32_t ctrl, uint32_t request, void * payload,
     void * userdata)
 {
   GstServiceContext *srvctx = GST_SERVICE_CONTEXT_CAST (userdata);
   GstElement *element = NULL;
-  GParamSpec *propspecs = NULL;
-  GValue value = G_VALUE_INIT;
-  const gchar *propname = NULL;
+
+  element = gst_bin_get_by_name (GST_BIN (srvctx->vpipeline), "camsrc");
 
   // Retrieve the property name corresponding the to control ID.
-  switch (id) {
+  switch (ctrl) {
+    case UMD_VIDEO_CTRL_BRIGHTNESS:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_exposure_compensation_property (element, *((gint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_exposure_compensation_property (element, (gint16*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_CONTRAST:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_contrast_property (element, *((guint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_contrast_property (element, (guint16*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_SATURATION:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_saturation_property (element, *((guint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_saturation_property (element, (guint16*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
     case UMD_VIDEO_CTRL_SHARPNESS:
-      propname = "sharpness";
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_sharpness_property (element, *((guint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_sharpness_property (element, (guint16*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
       break;
-    case UMD_VIDEO_CTRL_WB_TEMPERTURE:
-      propname = "manual-wb-settings";
-      break;
-    case UMD_VIDEO_CTRL_WB_MODE:
-      propname = "white-balance-mode";
-      break;
-    case UMD_VIDEO_CTRL_EXPOSURE_TIME:
-      propname = "manual-exposure-time";
-      break;
-    case UMD_VIDEO_CTRL_EXPOSURE_MODE:
-      propname = "exposure-mode";
-      break;
-    case UMD_VIDEO_CTRL_FOCUS_MODE:
-      propname = "focus-mode";
+    case UMD_VIDEO_CTRL_BACKLIGHT_COMPENSATION:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_adrc_property (element, *((guint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_adrc_property (element, (guint16*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
       break;
     case UMD_VIDEO_CTRL_ANTIBANDING:
-      propname = "antibanding";
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_antibanding_property (element, *((guint8*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_antibanding_property (element, (guint8*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
       break;
+    case UMD_VIDEO_CTRL_GAIN:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_iso_property (element, *((guint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_iso_property (element, (guint16*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_WB_TEMPERTURE:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_wb_temperature_property (element, *((guint16*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_wb_temperature_property (element, (guint16*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_WB_MODE:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_wb_mode_property (element, *((guint8*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_wb_mode_property (element, (guint8*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_EXPOSURE_TIME:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_exposure_time_property (element, *((guint32*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_exposure_time_property (element, (guint32*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_EXPOSURE_MODE:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_exposure_mode_property (element, *((guint8*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_exposure_mode_property (element, (guint8*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_EXPOSURE_PRIORITY:
+      break;
+    case UMD_VIDEO_CTRL_FOCUS_MODE:
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          set_focus_mode_property (element, *((guint8*) payload));
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_focus_mode_property (element, (guint8*) payload);
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    case UMD_VIDEO_CTRL_ZOOM:
+    case UMD_VIDEO_CTRL_PANTILT:
+    {
+      // We need to cache the values.
+      static gint32 pan = 0, tilt = 0;
+      static guint16 magnification = 100;
+
+      switch (request) {
+        case UMD_CTRL_SET_REQUEST:
+          if (ctrl == UMD_VIDEO_CTRL_ZOOM)
+            magnification = *((guint16*) payload);
+
+          if (ctrl == UMD_VIDEO_CTRL_PANTILT) {
+            guint8 *data = (guint8*) payload;
+
+            pan = (gint32) data[0] | (data[1] << 8) | (data[2] << 16) |
+                (data[3] << 24);
+            tilt = (gint32) data[4] | (data[5] << 8) | (data[6] << 16) |
+                (data[7] << 24);
+          }
+
+          set_zoom_property (element, magnification, pan, tilt);
+          break;
+        case UMD_CTRL_GET_REQUEST:
+          get_zoom_property (element, &magnification);
+
+          if (ctrl == UMD_VIDEO_CTRL_ZOOM)
+            *((guint16*) payload) = magnification;
+
+          if (ctrl == UMD_VIDEO_CTRL_PANTILT) {
+            guint8 *data = (guint8*) payload;
+
+            data[0] = pan & 0xFF;
+            data[1] = (pan >> 8) & 0xFF;
+            data[2] = (pan >> 16) & 0xFF;
+            data[3] = (pan >> 24) & 0xFF;
+
+            data[4] = tilt & 0xFF;
+            data[5] = (tilt >> 8) & 0xFF;
+            data[6] = (tilt >> 16) & 0xFF;
+            data[7] = (tilt >> 24) & 0xFF;
+          }
+          break;
+        default:
+          g_printerr ("\nUnknown control request 0x%X!\n", request);
+          break;
+      }
+      break;
+    }
     default:
-      g_printerr ("\nUnknown control request 0x%X!\n", id);
-      return false;
+      g_printerr ("\nUnknown control request 0x%X!\n", ctrl);
+      break;
   }
 
-  element = gst_bin_get_by_name (GST_BIN (srvctx->pipeline), "camsrc");
-
-  // Get the property specs and initialize the GValue type.
-  propspecs = g_object_class_find_property (
-      G_OBJECT_GET_CLASS (element), propname);
-  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
-
-  switch (request) {
-    case UMD_CTRL_SET_REQUEST:
-      set_control_value (id, payload, &value);
-      g_object_set_property (G_OBJECT (element), propname, &value);
-      break;
-    case UMD_CTRL_GET_REQUEST:
-      g_object_get_property (G_OBJECT (element), propname, &value);
-      get_control_value (id, payload, &value);
-      break;
-    default:
-      g_printerr ("\nUnknown control request 0x%X!\n", request);
-      break;
-  }
-
-  g_value_unset (&value);
   gst_object_unref (element);
 
   return true;
@@ -1707,16 +2388,22 @@ main (gint argc, gchar *argv[])
   // Initialize GST library.
   gst_init (&argc, &argv);
 
-  if (!create_main_pipeline (srvctx)) {
-    g_printerr ("\nFailed to create main pipeline!\n");
+  if (mainops.audio && !create_audio_pipeline (srvctx)) {
+    g_printerr ("\nFailed to create audio pipeline!\n");
     gst_service_context_free (srvctx);
     return -1;
   }
 
-  srvctx->gadget = umd_gadget_new ("/dev/video3", &callbacks, srvctx);
+  if (mainops.video && !create_video_pipeline (srvctx)) {
+    g_printerr ("\nFailed to create video pipeline!\n");
+    gst_service_context_free (srvctx);
+    return -1;
+  }
 
+  // If a device is not to be initialized, NULL is passed for respective device
+  srvctx->gadget = umd_gadget_new (mainops.video, mainops.audio, &callbacks, srvctx);
   if (NULL == srvctx->gadget) {
-    g_printerr ("\nFailed to create UVC gadget!\n");
+    g_printerr ("\nFailed to create UMD gadget!\n");
     gst_service_context_free (srvctx);
     return -1;
   }
