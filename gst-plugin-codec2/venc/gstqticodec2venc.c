@@ -53,11 +53,11 @@ G_DEFINE_TYPE (Gstqticodec2venc, gst_qticodec2venc, GST_TYPE_VIDEO_ENCODER);
 
 #define GST_TYPE_CODEC2_ENC_MIRROR_TYPE (gst_qticodec2venc_mirror_get_type ())
 #define GST_TYPE_CODEC2_ENC_RATE_CONTROL (gst_qticodec2venc_rate_control_get_type ())
-#define GST_TYPE_CODEC2_ENC_INTRA_REFRESH_MODE (gst_qticodec2venc_intra_refresh_mode_get_type ())
 #define GST_TYPE_CODEC2_ENC_COLOR_PRIMARIES (gst_qticodec2venc_color_primaries_get_type())
 #define GST_TYPE_CODEC2_ENC_MATRIX_COEFFS (gst_qticodec2venc_matrix_coeffs_get_type())
 #define GST_TYPE_CODEC2_ENC_TRANSFER_CHAR (gst_qticodec2venc_transfer_characteristics_get_type())
 #define GST_TYPE_CODEC2_ENC_FULL_RANGE (gst_qticodec2venc_full_range_get_type())
+#define GST_TYPE_CODEC2_ENC_INTRA_REFRESH_MODE (gst_qticodec2venc_intra_refresh_mode_get_type ())
 #define parent_class gst_qticodec2venc_parent_class
 #define NANO_TO_MILLI(x)  ((x) / 1000)
 #define EOS_WAITING_TIMEOUT 5
@@ -73,8 +73,6 @@ enum
   PROP_RATE_CONTROL,
   PROP_DOWNSCALE_WIDTH,
   PROP_DOWNSCALE_HEIGHT,
-  PROP_INTRA_REFRESH_MODE,
-  PROP_INTRA_REFRESH_MBS,
   PROP_COLOR_SPACE_PRIMARIES,
   PROP_COLOR_SPACE_MATRIX_COEFFS,
   PROP_COLOR_SPACE_TRANSFER_CHAR,
@@ -82,6 +80,9 @@ enum
   PROP_COLOR_SPACE_CONVERSION,
   PROP_MIRROR,
   PROP_ROTATION,
+  PROP_INTRA_REFRESH_MODE,
+  PROP_INTRA_REFRESH_MBS,
+  PROP_TARGET_BITRATE,
 };
 
 /* GstVideoEncoder base class method */
@@ -154,6 +155,19 @@ GST_STATIC_PAD_TEMPLATE (GST_VIDEO_ENCODER_SINK_NAME,
         "framerate = " GST_VIDEO_FPS_RANGE ""
       )
     );
+
+static ConfigParams
+make_bitrate_param (guint32 bitrate, gboolean isInput) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_BITRATE;
+  param.isInput = isInput;
+  param.val.u32 = bitrate;
+
+  return param;
+}
 
 static ConfigParams
 make_resolution_param (guint32 width, guint32 height, gboolean isInput) {
@@ -270,6 +284,19 @@ make_colorAspects_param (COLOR_PRIMARIES primaries, TRANSFER_CHAR transfer_char,
   param.colorAspects.transfer_char = transfer_char;
   param.colorAspects.matrix = matrix;
   param.colorAspects.full_range = full_range;
+
+  return param;
+}
+
+static ConfigParams
+make_intraRefresh_param (IR_MODE_TYPE mode, guint32 intra_refresh_mbs) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_INTRAREFRESH;
+  param.irMode.type = mode;
+  param.irMode.intra_refresh_mbs = (float)intra_refresh_mbs;
 
   return param;
 }
@@ -433,6 +460,23 @@ gst_qticodec2venc_full_range_get_type (void)
     };
 
     qtype = g_enum_register_static ("GstCodec2VencFullRange", values);
+  }
+  return qtype;
+}
+
+static GType
+gst_qticodec2venc_intra_refresh_mode_get_type (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {IR_NONE, "None", "none"},
+      {IR_RANDOM, "Random", "random"},
+      {0, NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("GstCodec2VencIntraRefreshMode", values);
   }
   return qtype;
 }
@@ -663,6 +707,8 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   ConfigParams downscale;
   ConfigParams color_space_conversion;
   ConfigParams color_aspects;
+  ConfigParams intra_refresh;
+  ConfigParams bitrate;
 
   GST_DEBUG_OBJECT (enc, "set_format");
 
@@ -730,6 +776,12 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
 
   config = g_ptr_array_new ();
 
+  if (enc->target_bitrate > 0) {
+    bitrate = make_bitrate_param (enc->target_bitrate, FALSE);
+    g_ptr_array_add (config, &bitrate);
+    GST_DEBUG_OBJECT (enc, "set target bitrate:%u", enc->target_bitrate);
+  }
+
   resolution = make_resolution_param(width, height, TRUE);
   g_ptr_array_add (config, &resolution);
 
@@ -761,6 +813,12 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
     GST_DEBUG_OBJECT (enc, "set color aspect info");
     color_aspects = make_colorAspects_param (enc->primaries, enc->transfer_char, enc->matrix, enc->full_range);
     g_ptr_array_add (config, &color_aspects);
+  }
+
+  if (enc->intra_refresh_mode && enc->intra_refresh_mbs) {
+    GST_DEBUG_OBJECT (enc, "set intra refresh mode: %d, mbs:%d", enc->intra_refresh_mode, enc->intra_refresh_mbs);
+    intra_refresh = make_intraRefresh_param (enc->intra_refresh_mode, enc->intra_refresh_mbs);
+    g_ptr_array_add (config, &intra_refresh);
   }
 
   /* Create component */
@@ -1022,6 +1080,7 @@ push_frame_downstream(GstVideoEncoder* encoder, BufferDescriptor* encode_buf) {
   }
 
   if (outbuf) {
+    gst_buffer_set_flags (outbuf, GST_BUFFER_FLAG_SYNC_AFTER);
     GST_BUFFER_TIMESTAMP (outbuf) = gst_util_uint64_scale(encode_buf->timestamp, GST_SECOND,
         C2_TICKS_PER_SECOND);
 
@@ -1252,6 +1311,15 @@ gst_qticodec2venc_set_property (GObject* object, guint prop_id,
     case PROP_COLOR_SPACE_CONVERSION:
       enc->color_space_conversion = g_value_get_boolean (value);
       break;
+    case PROP_INTRA_REFRESH_MODE:
+      enc->intra_refresh_mode = g_value_get_enum (value);
+      break;
+    case PROP_INTRA_REFRESH_MBS:
+      enc->intra_refresh_mbs = g_value_get_uint (value);
+      break;
+    case PROP_TARGET_BITRATE:
+      enc->target_bitrate = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1299,6 +1367,15 @@ gst_qticodec2venc_get_property (GObject* object, guint prop_id,
       break;
     case PROP_COLOR_SPACE_CONVERSION:
       g_value_set_boolean (value, enc->color_space_conversion);
+      break;
+    case PROP_INTRA_REFRESH_MODE:
+      g_value_set_enum (value, enc->intra_refresh_mode);
+      break;
+    case PROP_INTRA_REFRESH_MBS:
+      g_value_set_uint (value, enc->intra_refresh_mbs);
+      break;
+    case PROP_TARGET_BITRATE:
+      g_value_set_uint (value, enc->target_bitrate);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1435,6 +1512,29 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
+  g_object_class_install_property (gobject_class, PROP_INTRA_REFRESH_MODE,
+      g_param_spec_enum ("intra-refresh-mode", "Intra refresh mode",
+          "Intra refresh mode, only support random mode. Allow IR only for CBR(_CFR/VFR) RC modes",
+          GST_TYPE_CODEC2_ENC_INTRA_REFRESH_MODE,
+          IR_NONE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (gobject_class, PROP_INTRA_REFRESH_MBS,
+      g_param_spec_uint ("intra-refresh-mbs", "Intra refresh mbs/period",
+          "For random modes, it means period of intra refresh. Only support random mode.",
+          0, G_MAXUINT, 0,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_TARGET_BITRATE,
+      g_param_spec_uint ("target-bitrate", "Target bitrate",
+          "Target bitrate in bits per second (0 means not explicitly set bitrate)",
+          0, G_MAXUINT, 0,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+
   video_encoder_class->start = GST_DEBUG_FUNCPTR (gst_qticodec2venc_start);
   video_encoder_class->stop = GST_DEBUG_FUNCPTR (gst_qticodec2venc_stop);
   video_encoder_class->set_format = GST_DEBUG_FUNCPTR (gst_qticodec2venc_set_format);
@@ -1474,6 +1574,7 @@ gst_qticodec2venc_init (Gstqticodec2venc* enc) {
   enc->rotation = 0;
   enc->downscale_width = 0;
   enc->downscale_height = 0;
+  enc->target_bitrate = 0;
 
   memset(enc->queued_frame, 0, MAX_QUEUED_FRAME);
 

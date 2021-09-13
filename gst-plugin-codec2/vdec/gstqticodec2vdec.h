@@ -98,6 +98,7 @@ struct _Gstqticodec2vdec
   gboolean downstream_supports_dma;
   gboolean output_picture_order_mode;
   gboolean low_latency_mode;
+  gboolean map_outbuf;
 
   GMutex pending_lock;
   GCond  pending_cond;
