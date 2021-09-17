@@ -87,6 +87,22 @@ REFERENCES
 #include "gbm_priv.h"
 #endif
 
+enum {
+  PRIO_ERROR=0x1,
+  PRIO_INFO=0x2,
+  PRIO_HIGH=0x4,
+  PRIO_LOW=0x8
+};
+
+static int omx_debug_level = PRIO_ERROR|PRIO_INFO|PRIO_HIGH|PRIO_LOW;
+
+void omx_debug_level_init(void)
+{
+  char *ptr = getenv("OMX_DEBUG_LEVEL");
+  omx_debug_level = ptr ? atoi(ptr) : omx_debug_level;
+  printf("omx_debug_level=0x%x\n", omx_debug_level);
+}
+
 typedef struct PrependSPSPPSToIDRFramesParams {
   OMX_U32 nSize;
   OMX_VERSIONTYPE nVersion;
@@ -102,10 +118,14 @@ typedef struct PrependSPSPPSToIDRFramesParams {
 #ifdef VENC_SYSLOG
 #include <cutils/log.h>
 /// Debug message macro
-#define D(fmt, ...) ALOGE("venc_test Debug %s::%d "fmt,              \
-                         __FUNCTION__, __LINE__,                        \
-                         ## __VA_ARGS__)
-
+#define D(fmt, ...) \
+  do { \
+    if (omx_debug_level & PRIO_LOW) { \
+      ALOGE("venc_test Debug %s::%d "fmt, \
+      __FUNCTION__, __LINE__,             \
+      ## __VA_ARGS__); \
+    } \
+  } while(0)
 /// Error message macro
 #define E(fmt, ...) ALOGE("venc_test Error %s::%d "fmt,            \
                          __FUNCTION__, __LINE__,                      \
@@ -113,10 +133,14 @@ typedef struct PrependSPSPPSToIDRFramesParams {
 
 #else
 #ifdef TEST_LOG
-#define D(fmt, ...) fprintf(stderr, "venc_test Debug %s::%d " fmt "\n",   \
-                            __FUNCTION__, __LINE__,                     \
-                            ## __VA_ARGS__)
-
+#define D(fmt, ...) \
+  do { \
+    if (omx_debug_level & PRIO_LOW) { \
+      fprintf(stderr, "venc_test Debug %s::%d " fmt "\n", \
+      __FUNCTION__, __LINE__,                             \
+      ## __VA_ARGS__); \
+    } \
+  } while(0)
 /// Error message macro
 #define E(fmt, ...) fprintf(stderr, "venc_test Error %s::%d " fmt "\n", \
                             __FUNCTION__, __LINE__,                   \
@@ -1807,7 +1831,7 @@ OMX_ERRORTYPE VencTest_ReadAndEmpty(OMX_BUFFERHEADERTYPE* pYUVBuffer)
     read_bytes += bytes;
     yuv += cstride;
   }
-  E("\n\nActual read bytes: %d from file, which will be filled into NV12 buf area size: %d\n\n\n", read_bytes, m_sProfile.nFrameRead);
+  D("\n\nActual read bytes: %d from file, which will be filled into NV12 buf area size: %d\n\n\n", read_bytes, m_sProfile.nFrameRead);
   if(m_eMetaMode){
     OMX_S32 nFds = 1;
     OMX_S32 nInts = 3;
@@ -2269,6 +2293,8 @@ int main(int argc, char** argv)
     help();
     return 0;
   }
+
+  omx_debug_level_init();
 
   D("fps=%f, bitrate=%u, width=%u, height=%u, frame bytes=%u",
     m_sProfile.nFramerate,

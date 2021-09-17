@@ -58,7 +58,7 @@ c2d_blend::c2d_blend()
 
 c2d_blend::~c2d_blend()
 {
-    if (m_gbm_dev) gbm_device_destroy (m_gbm_dev);
+    if (m_gbm_dev && gbm_device_destroy) gbm_device_destroy (m_gbm_dev);
     m_gbm_dev = NULL;
     if (m_gbm_client_fd != -1) close(m_gbm_client_fd);
     m_gbm_client_fd = -1;
@@ -122,7 +122,7 @@ bool c2d_blend::Init()
 
     if (!bStatus)
     {
-        if (m_gbm_dev)
+        if (m_gbm_dev && gbm_device_destroy)
             gbm_device_destroy (m_gbm_dev);
         m_gbm_dev = NULL;
         if (m_gbm_client_fd != -1) close (m_gbm_client_fd);
@@ -232,7 +232,10 @@ bool c2d_blend::AllocateBuffer(int port,struct C2DBuffer *buffer)
 
     buffer->fd = -1;
     buffer->meta_fd = -1;
-    buffer->fd = gbm_bo_get_fd (buffer->gbm_bo);
+    //buffer->fd = gbm_bo_get_fd (buffer->gbm_bo);
+    //2021.08, gbm api changed, after calling gbm_bo_get_fd, need manually close that fd.
+    //After gbm code stable, will use gbm_bo_get_fd() and close().
+    buffer->fd = buffer->gbm_bo->ion_fd;
     gbm_perform (GBM_PERFORM_GET_METADATA_ION_FD, buffer->gbm_bo, &buffer->meta_fd);
     if (buffer->fd <= 0 || buffer->meta_fd <= 0) {
         GST_ERROR ("the fds(bo_fd:%d, meta_fd:%d) are invalid",
