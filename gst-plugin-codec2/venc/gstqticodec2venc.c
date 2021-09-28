@@ -122,6 +122,10 @@ static GstStaticPadTemplate gst_qtivenc_src_template =
         "video/x-h265,"
         "stream-format = (string) { byte-stream },"
         "alignment = (string) { au }"
+        ";"
+        "video/x-heic,"
+        "stream-format = (string) { byte-stream },"
+        "alignment = (string) { au }"
       )
     );
 
@@ -310,6 +314,9 @@ gst_to_c2_streamformat (GstStructure* structure) {
   }
   else if (gst_structure_has_name (structure, "video/x-h265")) {
     ret = g_strdup("c2.qti.hevc.encoder");
+  }
+  else if (gst_structure_has_name (structure, "video/x-heic")) {
+    ret = g_strdup("c2.qti.heic.encoder");
   }
 
   return ret;
