@@ -152,6 +152,7 @@ typedef enum {
     RC_CBR_VFR,
     RC_VBR_CFR,
     RC_VBR_VFR,
+    RC_CQ,
     RC_UNSET = 0xFFFF
 } RC_MODE_TYPE;
 
