@@ -1013,11 +1013,6 @@ int parse_argv1_mode_and_infile(const char *argv1)
   }
   strlcpy(in_filename, filename, sizeof(in_filename));
 
-  if (kpi_mode) {
-    // For early kpi mode, wait to ensure all is ready during board bootup.
-    usleep(30000);
-  }
-
   return 0;
 }
 
@@ -1141,6 +1136,14 @@ int main(int argc, char **argv)
     picture_order.eOutputPictureOrder = QOMX_VIDEO_DECODE_ORDER;
 
   printf("Input values: inputfilename[%s]\n", in_filename);
+
+  if (kpi_mode) {
+    // For early kpi mode, wait to ensure all is ready during board bootup.
+    // Otherwise, opening dec node probably cost much time and fail.
+    kpi_place_marker("M - Video Decoding before preparing");
+    usleep(30000);
+  }
+
   printf("*******************************************************\n");
   gettimeofday(&t_main, NULL);
   if (kpi_mode) {
