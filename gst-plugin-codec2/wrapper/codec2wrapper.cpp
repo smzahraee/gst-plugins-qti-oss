@@ -921,22 +921,6 @@ gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config,
     return ret;
 }
 
-gboolean c2componentInterface_delete(void* comp_intf) {
-
-    LOG_MESSAGE("Deleting component interface");
-
-    gboolean ret = FALSE;
-
-    if (comp_intf) {
-        C2ComponentInterfaceAdapter* intf_wrapper = (C2ComponentInterfaceAdapter*)comp_intf;
-
-        delete intf_wrapper;
-        ret = TRUE;
-    }
-
-    return ret;
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Helper API
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
