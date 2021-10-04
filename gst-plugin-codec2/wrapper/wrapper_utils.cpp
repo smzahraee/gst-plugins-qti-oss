@@ -30,35 +30,35 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
-#include <QC2Config.h>
-#include <QC2Constants.h>
-#include <QC2V4L2Config.h>
+#include "wrapper_utils.h"
+#include <types.h>
+#include <C2Config.h>
+#include <codec2wrapper.h>
 
 namespace QTI {
 
-qc2::InterlaceType toC2InterlaceType(INTERLACE_MODE_TYPE interlace_type) {
-
-    qc2::InterlaceType type =  qc2::INTERLACE_NONE;
+uint32_t toC2InterlaceType(INTERLACE_MODE_TYPE interlace_type) {
+    uint32_t type = 0;
 
     switch(interlace_type){
         case INTERLACE_MODE_PROGRESSIVE : {
-            type = qc2::INTERLACE_NONE;
+            type = C2_INTERLACE_MODE_PROGRESSIVE;
             break;
         }
         case INTERLACE_MODE_INTERLEAVED_TOP_FIRST : {
-            type = qc2::INTERLACE_INTERLEAVED_TOP_FIRST;
+            type = C2_INTERLACE_MODE_INTERLEAVED_TOP_FIRST;
             break;
         }
         case INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST : {
-            type = qc2::INTERLACE_INTERLEAVED_BOTTOM_FIRST;
+            type = C2_INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST;
             break;
         }
         case INTERLACE_MODE_FIELD_TOP_FIRST : {
-            type = qc2::INTERLACE_FIELD_TOP_FIRST;
+            type = C2_INTERLACE_MODE_FIELD_TOP_FIRST;
             break;
         }
         case INTERLACE_MODE_FIELD_BOTTOM_FIRST : {
-            type = qc2::INTERLACE_FIELD_BOTTOM_FIRST;
+            type = C2_INTERLACE_MODE_FIELD_BOTTOM_FIRST;
             break;
         }
         default:{
@@ -162,27 +162,27 @@ C2Component::flush_mode_t toC2FlushMode (FLUSH_MODE_TYPE mode){
 }
 
 uint32_t toC2RateControlMode (RC_MODE_TYPE mode){
-    uint32_t rcMode = qc2::QC_RC_MODE_DISABLE;
+    uint32_t rcMode = 0x7F000000; //RC_MODE_EXT_DISABLE
 
     switch (mode) {
         case RC_OFF: {
-            rcMode = qc2::RC_MODE_EXT_DISABLE;
+            rcMode = 0x7F000000; //RC_MODE_EXT_DISABLE
             break;
         }
         case RC_CONST : {
-            rcMode = qc2::RC_MODE_CBR_CFR;
+            rcMode = C2Config::BITRATE_CONST;
             break;
         }
         case RC_CBR_VFR : {
-            rcMode = qc2::RC_MODE_CBR_VFR;
+            rcMode = C2Config::BITRATE_CONST_SKIP_ALLOWED;
             break;
         }
         case RC_VBR_CFR : {
-            rcMode = qc2::RC_MODE_VBR_CFR;
+            rcMode = C2Config::BITRATE_VARIABLE;
             break;
         }
         case RC_VBR_VFR : {
-            rcMode = qc2::RC_MODE_VBR_VFR;
+            rcMode = C2Config::BITRATE_VARIABLE_SKIP_ALLOWED;
             break;
         }
         default : {
@@ -236,24 +236,59 @@ uint32_t toC2PixelFormat(PIXEL_FORMAT_TYPE pixel) {
 
     switch(pixel) {
         case PIXEL_FORMAT_NV12_LINEAR:{
-            result = PixFormat::VENUS_NV12;
+            result = C2_PIXEL_FORMAT_VENUS_NV12;
             break;
         }
         case PIXEL_FORMAT_NV12_UBWC:{
-            result = PixFormat::VENUS_NV12_UBWC;
+            result = C2_PIXEL_FORMAT_VENUS_NV12_UBWC;
             break;
         }
         case PIXEL_FORMAT_RGBA_8888:{
-            result = PixFormat::RGBA8888;
+            result = C2_PIXEL_FORMAT_RGBA8888;
             break;
         }
         case PIXEL_FORMAT_YV12 : {
-            result = PixFormat::YV12;
+            result = C2_PIXEL_FORMAT_YV12;
+            break;
+        }
+        default: {
+            LOG_ERROR("unsupported pixel format!");
             break;
         }
     }
 
     return result;
+}
+
+guint32
+gst_to_c2_gbmformat (GstVideoFormat format) {
+  guint32 result = 0;
+
+  switch(format) {
+    case GST_VIDEO_FORMAT_NV12 :
+    case GST_VIDEO_FORMAT_NV12_UBWC :
+      result = GBM_FORMAT_NV12;
+      break;
+    default:
+      LOG_WARNING("unsupported video format:%s", gst_video_format_to_string(format));
+      break;
+  }
+
+  return result;
+}
+
+guint32 to_c2_gbm_ubwc_flag (GstVideoFormat format) {
+  guint32 result = 0;
+
+  switch(format) {
+    case GST_VIDEO_FORMAT_NV12_UBWC :
+      result = GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+      break;
+    default:
+      break;
+  }
+
+  return result;
 }
 
 } // namespace QTI

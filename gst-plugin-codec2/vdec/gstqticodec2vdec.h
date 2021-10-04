@@ -89,7 +89,6 @@ struct _Gstqticodec2vdec
 
   gint width;
   gint height;
-  guint32 output_size;
   gchar* streamformat;
   guint64 frame_index;
   GstVideoInterlaceMode interlace_mode;

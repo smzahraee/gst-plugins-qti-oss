@@ -87,7 +87,6 @@ gst_qticodec2_allocator_alloc (GstAllocator * alloc, gsize size,
   guint32 width;
   guint32 height;
   BufferDescriptor buffer;
-  BUFFER_POOL_TYPE poolType;
 
   c2_allocator = GST_QTICODEC2_ALLOCATOR_CAST (alloc);
   info = c2_allocator->info;
@@ -95,6 +94,9 @@ gst_qticodec2_allocator_alloc (GstAllocator * alloc, gsize size,
   format = GST_VIDEO_FORMAT_INFO_FORMAT(info->finfo);
   width = info->width;
   height = info->height;
+  buffer.width = width;
+  buffer.height = height;
+  buffer.format = format;
 
   /* Note: size is not used here for graphic buffer */
   GST_DEBUG_OBJECT (c2_allocator, "Allocating buffer size: %lu, format: %s, width: %d, height: %d",
@@ -102,9 +104,9 @@ gst_qticodec2_allocator_alloc (GstAllocator * alloc, gsize size,
 
   /*TODO: add support for Linear buffer */
   if (format == GST_VIDEO_FORMAT_NV12 || format == GST_VIDEO_FORMAT_NV12_UBWC) {
-      poolType = BUFFER_POOL_BASIC_GRAPHIC;
+      buffer.pool_type = BUFFER_POOL_BASIC_GRAPHIC;
 
-      if(!c2component_alloc (c2_allocator->comp, &buffer, poolType)) {
+      if(!c2component_alloc (c2_allocator->comp, &buffer)) {
         GST_ERROR_OBJECT (c2_allocator, "Failed to allocate graphic buffer");
       } else {
         GST_DEBUG_OBJECT (c2_allocator, "Allocated buffer fd: %d, size: %d",
