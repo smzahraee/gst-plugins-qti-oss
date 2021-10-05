@@ -87,6 +87,11 @@ struct _Gstqticodec2venc
   RC_MODE_TYPE rcMode;
   guint32 downscale_width;
   guint32 downscale_height;
+  gboolean color_space_conversion;
+  COLOR_PRIMARIES primaries;
+  TRANSFER_CHAR transfer_char;
+  MATRIX matrix;
+  FULL_RANGE full_range;
 
   GMutex pending_lock;
   GCond  pending_cond;

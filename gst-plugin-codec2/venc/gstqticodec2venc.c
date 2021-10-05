@@ -46,11 +46,17 @@
 
 GST_DEBUG_CATEGORY_STATIC (gst_qticodec2venc_debug);
 #define GST_CAT_DEFAULT gst_qticodec2venc_debug
+#define GST_QTI_CODEC2_ENC_COLOR_SPACE_CONVERSION             (FALSE)
 
 /* class initialization */
 G_DEFINE_TYPE (Gstqticodec2venc, gst_qticodec2venc, GST_TYPE_VIDEO_ENCODER);
 
 #define GST_TYPE_CODEC2_ENC_RATE_CONTROL (gst_qticodec2venc_rate_control_get_type ())
+#define GST_TYPE_CODEC2_ENC_INTRA_REFRESH_MODE (gst_qticodec2venc_intra_refresh_mode_get_type ())
+#define GST_TYPE_CODEC2_ENC_COLOR_PRIMARIES (gst_qticodec2venc_color_primaries_get_type())
+#define GST_TYPE_CODEC2_ENC_MATRIX_COEFFS (gst_qticodec2venc_matrix_coeffs_get_type())
+#define GST_TYPE_CODEC2_ENC_TRANSFER_CHAR (gst_qticodec2venc_transfer_characteristics_get_type())
+#define GST_TYPE_CODEC2_ENC_FULL_RANGE (gst_qticodec2venc_full_range_get_type())
 #define parent_class gst_qticodec2venc_parent_class
 #define NANO_TO_MILLI(x)  ((x) / 1000)
 #define EOS_WAITING_TIMEOUT 5
@@ -66,6 +72,13 @@ enum
   PROP_RATE_CONTROL,
   PROP_DOWNSCALE_WIDTH,
   PROP_DOWNSCALE_HEIGHT,
+  PROP_INTRA_REFRESH_MODE,
+  PROP_INTRA_REFRESH_MBS,
+  PROP_COLOR_SPACE_PRIMARIES,
+  PROP_COLOR_SPACE_MATRIX_COEFFS,
+  PROP_COLOR_SPACE_TRANSFER_CHAR,
+  PROP_COLOR_SPACE_FULL_RANGE,
+  PROP_COLOR_SPACE_CONVERSION,
 };
 
 /* GstVideoEncoder base class method */
@@ -208,6 +221,34 @@ make_downscale_param (guint32 width, guint32 height) {
   return param;
 }
 
+static ConfigParams
+make_colorSpaceConv_param (gboolean csc) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_ENC_CSC;
+  param.color_space_conversion = csc;
+
+  return param;
+}
+
+static ConfigParams
+make_colorAspects_param (COLOR_PRIMARIES primaries, TRANSFER_CHAR transfer_char,
+    MATRIX matrix, FULL_RANGE full_range) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO;
+  param.colorAspects.primaries = primaries;
+  param.colorAspects.transfer_char = transfer_char;
+  param.colorAspects.matrix = matrix;
+  param.colorAspects.full_range = full_range;
+
+  return param;
+}
+
 static gchar*
 gst_to_c2_streamformat (GstStructure* structure) {
   gchar *ret = NULL;
@@ -243,6 +284,7 @@ gst_to_c2_pixelformat (GstVideoFormat format) {
   return result;
 }
 
+static GType
 gst_qticodec2venc_rate_control_get_type (void)
 {
   static GType qtype = 0;
@@ -259,6 +301,98 @@ gst_qticodec2venc_rate_control_get_type (void)
     };
 
     qtype = g_enum_register_static ("GstCodec2VencRateControl", values);
+  }
+  return qtype;
+}
+
+static GType
+gst_qticodec2venc_color_primaries_get_type (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {COLOR_PRIMARIES_UNSPECIFIED, "primaries are unspecified", "NONE"},
+      {COLOR_PRIMARIES_BT709, "Rec.ITU-R BT.709-6 or equivalent","BT709"},
+      {COLOR_PRIMARIES_BT470_M, "Rec.ITU-R BT.470-6 System M or equivalent", "BT470_M"},
+      {COLOR_PRIMARIES_BT601_625, "Rec.ITU-R BT.601-6 625 or equivalent", "BT601_625"},
+      {COLOR_PRIMARIES_BT601_525, "Rec.ITU-R BT.601-6 525 or equivalent", "BT601_525"},
+      {COLOR_PRIMARIES_GENERIC_FILM, "Generic Film", "GENERIC_FILM"},
+      {COLOR_PRIMARIES_BT2020, "Rec.ITU-R BT.2020 or equivalent", "BT2020"},
+      {COLOR_PRIMARIES_RP431, "SMPTE RP 431-2 or equivalent", "RP431"},
+      {COLOR_PRIMARIES_EG432, "SMPTE EG 432-1 or equivalent", "EG432"},
+      {COLOR_PRIMARIES_EBU3213, "EBU Tech.3213-E or equivalent", "EBU3213"},
+      {0, NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("GstCodec2VencColorPrimaries", values);
+  }
+  return qtype;
+}
+
+static GType
+gst_qticodec2venc_matrix_coeffs_get_type (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {COLOR_MATRIX_UNSPECIFIED, "Matrix coefficients are unspecified", "NONE"},
+      {COLOR_MATRIX_BT709, "Rec.ITU-R BT.709-5 or equivalent", "BT709"},
+      {COLOR_MATRIX_FCC47_73_682, "FCC Title 47 CFR 73.682 or equivalent (KR=0.30, KB=0.11)", "FCC47_73_682"},
+      {COLOR_MATRIX_BT601, "FCC Title 47 CFR 73.682 or equivalent (KR=0.30, KB=0.11)", "BT601"},
+      {COLOR_MATRIX_240M, "SMPTE 240M or equivalent", "240M"},
+      {COLOR_MATRIX_BT2020, "Rec.ITU-R BT.2020 non-constant luminance", "BT2020"},
+      {COLOR_MATRIX_BT2020_CONSTANT, "Rec.ITU-R BT.2020 constant luminance", "BT2020_CONSTANT"},
+      {0, NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("GstCodec2VencMatrixCoeffs", values);
+  }
+  return qtype;
+}
+
+static GType
+gst_qticodec2venc_transfer_characteristics_get_type (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {COLOR_TRANSFER_UNSPECIFIED, "Transfer is unspecified", "NONE"},
+      {COLOR_TRANSFER_LINEAR, "Linear transfer characteristics", "LINEAR"},
+      {COLOR_TRANSFER_SRGB, "sRGB or equivalent", "SRGB"},
+      {COLOR_TRANSFER_170M, "SMPTE 170M or equivalent (e.g. BT.601/709/2020)", "170M"},
+      {COLOR_TRANSFER_GAMMA22, "Assumed display gamma 2.2", "GAMMA22"},
+      {COLOR_TRANSFER_GAMMA28, "Assumed display gamma 2.8", "GAMMA28"},
+      {COLOR_TRANSFER_ST2084, "SMPTE ST 2084 for 10/12/14/16 bit systems", "ST2084"},
+      {COLOR_TRANSFER_HLG, "ARIB STD-B67 hybrid-log-gamma", "HLG"},
+      {COLOR_TRANSFER_240M, "SMPTE 240M or equivalent", "240M"},
+      {COLOR_TRANSFER_XVYCC, "IEC 61966-2-4 or equivalent", "XVYCC"},
+      {COLOR_TRANSFER_BT1361, "Rec.ITU-R BT.1361 extended gamut", "BT1361"},
+      {COLOR_TRANSFER_ST428, "SMPTE ST 428-1 or equivalent", "ST428"},
+      {0, NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("GstCodec2VencTransferChar", values);
+  }
+  return qtype;
+}
+
+static GType
+gst_qticodec2venc_full_range_get_type (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {COLOR_RANGE_UNSPECIFIED, "Range is unspecified", "NONE"},
+      {COLOR_RANGE_FULL, "Full range", "FULL"},
+      {COLOR_RANGE_LIMITED, "Limited range", "LIMITED"},
+      {0, NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("GstCodec2VencFullRange", values);
   }
   return qtype;
 }
@@ -474,6 +608,8 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   ConfigParams pixelformat;
   ConfigParams rate_control;
   ConfigParams downscale;
+  ConfigParams color_space_conversion;
+  ConfigParams color_aspects;
 
   GST_DEBUG_OBJECT (enc, "set_format");
 
@@ -553,6 +689,15 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   if (enc->downscale_width > 0 && enc->downscale_height > 0) {
     downscale = make_downscale_param (enc->downscale_width, enc->downscale_height);
     g_ptr_array_add (config, &downscale);
+  }
+
+  if (enc->color_space_conversion) {
+    GST_DEBUG_OBJECT (enc, "enable color space conversion");
+    color_space_conversion = make_colorSpaceConv_param (enc->color_space_conversion);
+    g_ptr_array_add (config, &color_space_conversion);
+    GST_DEBUG_OBJECT (enc, "set color aspect info");
+    color_aspects = make_colorAspects_param (enc->primaries, enc->transfer_char, enc->matrix, enc->full_range);
+    g_ptr_array_add (config, &color_aspects);
   }
 
   /* Create component */
@@ -1023,6 +1168,21 @@ gst_qticodec2venc_set_property (GObject* object, guint prop_id,
     case PROP_DOWNSCALE_HEIGHT:
       enc->downscale_height = g_value_get_uint (value);
       break;
+    case PROP_COLOR_SPACE_PRIMARIES:
+      enc->primaries = g_value_get_enum (value);
+      break;
+    case PROP_COLOR_SPACE_MATRIX_COEFFS:
+      enc->transfer_char = g_value_get_enum (value);
+      break;
+    case PROP_COLOR_SPACE_TRANSFER_CHAR:
+      enc->matrix = g_value_get_enum (value);
+      break;
+    case PROP_COLOR_SPACE_FULL_RANGE:
+      enc->full_range = g_value_get_enum (value);
+      break;
+    case PROP_COLOR_SPACE_CONVERSION:
+      enc->color_space_conversion = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1049,6 +1209,21 @@ gst_qticodec2venc_get_property (GObject* object, guint prop_id,
       break;
     case PROP_DOWNSCALE_HEIGHT:
       g_value_set_uint (value, enc->downscale_height);
+      break;
+    case PROP_COLOR_SPACE_PRIMARIES:
+      g_value_set_enum (value, enc->primaries);
+      break;
+    case PROP_COLOR_SPACE_MATRIX_COEFFS:
+      g_value_set_enum (value, enc->transfer_char);
+      break;
+    case PROP_COLOR_SPACE_TRANSFER_CHAR:
+      g_value_set_enum (value, enc->matrix);
+      break;
+    case PROP_COLOR_SPACE_FULL_RANGE:
+      g_value_set_enum (value, enc->full_range);
+      break;
+    case PROP_COLOR_SPACE_CONVERSION:
+      g_value_set_boolean (value, enc->color_space_conversion);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1130,6 +1305,45 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
   g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_DOWNSCALE_HEIGHT,
       g_param_spec_uint ("downscale-height", "Downscale height", "Specify the downscale height",
           0, UINT_MAX, 0, G_PARAM_READWRITE));
+
+  g_object_class_install_property (gobject_class, PROP_COLOR_SPACE_PRIMARIES,
+      g_param_spec_enum ("color-primaries", "Input colour primaries",
+          "Chromaticity coordinates of the source primaries",
+          GST_TYPE_CODEC2_ENC_COLOR_PRIMARIES,
+          COLOR_PRIMARIES_UNSPECIFIED,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (gobject_class, PROP_COLOR_SPACE_MATRIX_COEFFS,
+      g_param_spec_enum ("matrix-coeffs", "Input matrix coefficients",
+          "Matrix coefficients used in deriving luma and chroma signals from RGB primaries",
+          GST_TYPE_CODEC2_ENC_MATRIX_COEFFS,
+          COLOR_MATRIX_UNSPECIFIED,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (gobject_class, PROP_COLOR_SPACE_TRANSFER_CHAR,
+      g_param_spec_enum ("transfer-char", "Input transfer characteristics",
+          "The opto-electronic transfer characteristics to use.",
+          GST_TYPE_CODEC2_ENC_TRANSFER_CHAR,
+          COLOR_TRANSFER_UNSPECIFIED,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (gobject_class, PROP_COLOR_SPACE_FULL_RANGE,
+      g_param_spec_enum ("full-range", "Full range flag",
+          "Black level and range of the luma and chroma signals.",
+          GST_TYPE_CODEC2_ENC_FULL_RANGE,
+          COLOR_RANGE_UNSPECIFIED,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_COLOR_SPACE_CONVERSION,
+      g_param_spec_boolean ("color-space-conversion", "Color space conversion",
+          "If enabled, should be in color space conversion mode",
+          GST_QTI_CODEC2_ENC_COLOR_SPACE_CONVERSION,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
 
   video_encoder_class->start = GST_DEBUG_FUNCPTR (gst_qticodec2venc_start);
   video_encoder_class->stop = GST_DEBUG_FUNCPTR (gst_qticodec2venc_stop);
