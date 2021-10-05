@@ -149,6 +149,7 @@ make_resolution_param (guint32 width, guint32 height, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_RESOLUTION;
   param.isInput = isInput;
   param.resolution.width = width;
   param.resolution.height = height;
@@ -162,6 +163,7 @@ make_pixelFormat_param (guint32 fmt, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_PIXELFORMAT;
   param.isInput = isInput;
   param.pixelFormat.fmt = fmt;
 
@@ -174,6 +176,7 @@ make_interlace_param (INTERLACE_MODE_TYPE mode, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_INTERLACE;
   param.isInput = isInput;
   param.interlaceMode.type = mode;
 
@@ -186,6 +189,7 @@ make_rateControl_param (RC_MODE_TYPE mode) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_RATECONTROL;
   param.rcMode.type = mode;
 
   return param;
@@ -197,6 +201,7 @@ make_downscale_param (guint32 width, guint32 height) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_DOWNSCALE;
   param.resolution.width = width;
   param.resolution.height = height;
 
@@ -462,7 +467,7 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   GstVideoFormat input_format = GST_VIDEO_FORMAT_UNKNOWN;
   GstVideoInterlaceMode interlace_mode = GST_VIDEO_INTERLACE_MODE_PROGRESSIVE;
   INTERLACE_MODE_TYPE c2interlace_mode = INTERLACE_MODE_PROGRESSIVE;
-  GHashTable* config = NULL;
+  GPtrArray* config = NULL;
   ConfigParams resolution;
   ConfigParams interlace;
   ConfigParams pixelformat;
@@ -533,20 +538,20 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
     goto error_output;
   }
 
-  config = g_hash_table_new(g_str_hash, g_str_equal);
+  config = g_ptr_array_new ();
 
   resolution = make_resolution_param(width, height, TRUE);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_RESOLUTION, &resolution);
+  g_ptr_array_add (config, &resolution);
 
   pixelformat = make_pixelFormat_param(gst_to_c2_pixelformat(input_format), TRUE);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_PIXELFORMAT, &pixelformat);
+  g_ptr_array_add (config, &pixelformat);
 
   rate_control = make_rateControl_param (enc->rcMode);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_RATECONTROL, &rate_control);
+  g_ptr_array_add (config, &rate_control);
 
   if (enc->downscale_width > 0 && enc->downscale_height > 0) {
     downscale = make_downscale_param (enc->downscale_width, enc->downscale_height);
-    g_hash_table_insert(config, CONFIG_FUNCTION_KEY_DOWNSCALE, &downscale);
+    g_ptr_array_add (config, &downscale);
   }
 
   /* Create component */
@@ -564,7 +569,7 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
       GST_WARNING_OBJECT (enc, "Failed to set encoder config");
   }
 
-  g_hash_table_destroy (config);
+  g_ptr_array_free (config, FALSE);
 
   if (!c2component_start(enc->comp)) {
     GST_DEBUG_OBJECT (enc, "Failed to start component");

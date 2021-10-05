@@ -88,7 +88,7 @@ static gboolean gst_qticodec2vdec_destroy_component (GstVideoDecoder* decoder);
 static void handle_video_event (const void* handle, EVENT_TYPE type, void* data);
 
 static GstFlowReturn gst_qticodec2vdec_decode (GstVideoDecoder * decoder, GstVideoCodecFrame * frame);
-static GstFlowReturn gst_qticodec2vdec_setup_output (GstVideoDecoder * decoder, GHashTable* config);
+static GstFlowReturn gst_qticodec2vdec_setup_output (GstVideoDecoder * decoder, GPtrArray* config);
 static GstBuffer* gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor* buffer);
 static void gst_video_decoder_buffer_release (GstStructure* structure);
 
@@ -136,6 +136,7 @@ make_resolution_param (guint32 width, guint32 height, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_RESOLUTION;
   param.isInput = isInput;
   param.resolution.width = width;
   param.resolution.height = height;
@@ -149,6 +150,7 @@ make_pixelFormat_param (guint32 fmt, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_PIXELFORMAT;
   param.isInput = isInput;
   param.pixelFormat.fmt = fmt;
 
@@ -161,6 +163,7 @@ make_interlace_param (INTERLACE_MODE_TYPE mode, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_INTERLACE;
   param.isInput = isInput;
   param.interlaceMode.type = mode;
 
@@ -173,6 +176,7 @@ make_output_picture_order_param (guint output_picture_order_mode) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE;
   param.output_picture_order_mode = output_picture_order_mode;
 
   return param;
@@ -184,6 +188,7 @@ make_low_latency_param (gboolean low_latency_mode) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY;
   param.low_latency_mode = low_latency_mode;
 
   return param;
@@ -309,7 +314,7 @@ gst_qticodec2vdec_destroy_component (GstVideoDecoder* decoder) {
 }
 
 static GstFlowReturn
-gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GHashTable* config) {
+gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GPtrArray* config) {
   Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
   GstVideoAlignment align;
   GstFlowReturn ret = GST_FLOW_OK;
@@ -418,7 +423,7 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GHashTable* config) {
   if (config) {
     pixelformat = make_pixelFormat_param(gst_to_c2_pixelformat(decoder, output_format), FALSE);
     GST_LOG_OBJECT (dec, "set c2 output format: %d", pixelformat.pixelFormat.fmt);
-    g_hash_table_insert(config, CONFIG_FUNCTION_KEY_PIXELFORMAT, &pixelformat);
+    g_ptr_array_add (config, &pixelformat);
   }
   else {
     goto error_setup_output;
@@ -512,7 +517,7 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
   GstVideoInterlaceMode interlace_mode = GST_VIDEO_INTERLACE_MODE_PROGRESSIVE;
   INTERLACE_MODE_TYPE c2interlace_mode = INTERLACE_MODE_PROGRESSIVE;
   gchar* streamformat;
-  GHashTable* config = NULL;
+  GPtrArray *config = NULL;
   ConfigParams resolution;
   ConfigParams interlace;
   ConfigParams output_picture_order_mode;
@@ -573,27 +578,27 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
       goto error_set_format;
   }
 
-  config = g_hash_table_new(g_str_hash, g_str_equal);
+  config = g_ptr_array_new ();
 
   resolution = make_resolution_param(width, height, TRUE);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_RESOLUTION, &resolution);
+  g_ptr_array_add (config, &resolution);
 
   interlace = make_interlace_param(c2interlace_mode, FALSE);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_INTERLACE, &interlace);
+  g_ptr_array_add (config, &interlace);
 
   if (dec->output_picture_order_mode != GST_QTI_CODEC2_DEC_OUTPUT_PICTURE_ORDER_MODE_DEFAULT) {
     output_picture_order_mode = make_output_picture_order_param(dec->output_picture_order_mode);
-    g_hash_table_insert(config, CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE, &output_picture_order_mode);
+    g_ptr_array_add (config, &output_picture_order_mode);
   }
 
   if (dec->low_latency_mode) {
     low_latency_mode = make_low_latency_param(dec->low_latency_mode);
-    g_hash_table_insert(config, CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, &low_latency_mode);
+    g_ptr_array_add (config, &low_latency_mode);
   }
 
   /* Negotiate with downstream and setup output */
   if (GST_FLOW_OK != gst_qticodec2vdec_setup_output (decoder, config)) {
-      g_hash_table_destroy (config);
+      g_ptr_array_free (config, FALSE);
       goto error_set_format;
   }
 
@@ -604,7 +609,7 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
       GST_WARNING_OBJECT (dec, "Failed to set config");
   }
 
-  g_hash_table_destroy (config);
+  g_ptr_array_free (config, FALSE);
 
   /* Start decoder */
   if(!c2component_start(dec->comp)) {
