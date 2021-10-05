@@ -185,6 +185,10 @@ uint32_t toC2RateControlMode (RC_MODE_TYPE mode){
             rcMode = C2Config::BITRATE_VARIABLE_SKIP_ALLOWED;
             break;
         }
+        case RC_CQ : {
+            rcMode = C2Config::BITRATE_IGNORE;
+            break;
+        }
         default : {
             LOG_ERROR("Invalid RC Mode: %d", mode);
         }
