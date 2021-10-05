@@ -782,52 +782,37 @@ push_frame_downstream(GstVideoEncoder* encoder, BufferDescriptor* encode_buf) {
   state = gst_video_encoder_get_output_state (encoder);
   if (state) {
     vinfo = &state->info;
-  }
-  else {
+  } else {
     GST_ERROR_OBJECT (enc, "video codec state is NULL, unexpected!");
     goto out;
   }
 
-  if (encode_buf->flag & FLAG_TYPE_CODEC_CONFIG) {
-    GST_DEBUG_OBJECT (enc, "Allocate codec data frame with size: %d", encode_buf->size);
-    frame = g_slice_new (GstVideoCodecFrame);
-    if (frame == NULL) {
-      GST_ERROR_OBJECT (enc, "Error in allocating frame");
-      goto out;
-    }
-  } else {
-    frame = gst_video_encoder_get_frame (encoder, encode_buf->index);
-    if (frame == NULL) {
-      GST_ERROR_OBJECT (enc, "Error in gst_video_encoder_get_frame, frame number: %lu",
-          encode_buf->index);
-      goto out;
-    }
-
-    /* If using our own buffer pool, unref the corresponding input buffer
-     * so that it can be returned into the pool
-     * */
-    if (enc->pool) {
-      GST_DEBUG_OBJECT (enc, "unref input buffer: %p", frame->input_buffer);
-      gst_buffer_unref (frame->input_buffer);
-    }
+  frame = gst_video_encoder_get_frame (encoder, encode_buf->index);
+  if (frame == NULL) {
+    GST_ERROR_OBJECT (enc, "Error in gst_video_encoder_get_frame, frame number: %lu",
+        encode_buf->index);
+    goto out;
   }
 
-  outbuf = gst_buffer_new_and_alloc (encode_buf->size);
-  gst_buffer_fill(outbuf, 0, encode_buf->data, encode_buf->size);
+  /* If using our own buffer pool, unref the corresponding input buffer
+   * so that it can be returned into the pool
+   * */
+  if (enc->pool) {
+    GST_DEBUG_OBJECT (enc, "unref input buffer: %p", frame->input_buffer);
+    gst_buffer_unref (frame->input_buffer);
+  }
 
-  if (outbuf && (encode_buf->flag & FLAG_TYPE_CODEC_CONFIG)) {
-    GST_DEBUG_OBJECT (enc, "Received codec data size: %d", encode_buf->size);
+  if (encode_buf->flag & FLAG_TYPE_CODEC_CONFIG) {
+    GST_DEBUG_OBJECT (enc, "fill codec config size:%d first frame size:%d", encode_buf->config_size, encode_buf->size);
+    outbuf = gst_buffer_new_and_alloc (encode_buf->size + encode_buf->config_size);
+    gst_buffer_fill(outbuf, 0, encode_buf->config_data, encode_buf->config_size);
+    gst_buffer_fill(outbuf, encode_buf->config_size, encode_buf->data, encode_buf->size);
+  } else {
+    outbuf = gst_buffer_new_and_alloc (encode_buf->size);
+    gst_buffer_fill(outbuf, 0, encode_buf->data, encode_buf->size);
+  }
 
-    GST_BUFFER_PTS (outbuf) = gst_util_uint64_scale(encode_buf->timestamp, GST_SECOND,
-        C2_TICKS_PER_SECOND);
-
-    frame->output_buffer = outbuf;
-    ret = gst_pad_push (GST_VIDEO_ENCODER_SRC_PAD (encoder), outbuf);
-    if(ret != GST_FLOW_OK){
-      GST_ERROR_OBJECT (enc, "Failed(%d) to push frame downstream", ret);
-      goto out;
-    }
-  } else if (outbuf) {
+  if (outbuf) {
     GST_BUFFER_TIMESTAMP (outbuf) = gst_util_uint64_scale(encode_buf->timestamp, GST_SECOND,
         C2_TICKS_PER_SECOND);
 
@@ -854,6 +839,9 @@ push_frame_downstream(GstVideoEncoder* encoder, BufferDescriptor* encode_buf) {
       GST_ERROR_OBJECT (enc, "Failed to finish frame, outbuf: %p", outbuf);
       goto out;
     }
+  } else {
+    GST_ERROR_OBJECT (enc, "Failed to create outbuf");
+    goto out;
   }
 
   return ret;
@@ -901,7 +889,7 @@ handle_video_event (const void* handle, EVENT_TYPE type, void* data) {
       BufferDescriptor* outBuffer = (BufferDescriptor*)data;
 
       GST_DEBUG_OBJECT (enc, "Event output done, va: %p, offset: %d, index: %lu, fd: %u, \
-          filled len: %lu, buffer size: %u, timestamp: %lu, flag: %x", outBuffer->data,
+          filled len: %u, buffer size: %u, timestamp: %lu, flag: %x", outBuffer->data,
           outBuffer->offset, outBuffer->index, outBuffer->fd, outBuffer->size,
           outBuffer->capacity, outBuffer->timestamp, outBuffer->flag);
 

@@ -158,6 +158,8 @@ typedef struct {
     guint32 ubwc_flag;
     FLAG_TYPE flag;
     BUFFER_POOL_TYPE pool_type;
+    guint8* config_data; // codec config data
+    guint32 config_size; // size of codec config data
 } BufferDescriptor;
 
 typedef struct {
