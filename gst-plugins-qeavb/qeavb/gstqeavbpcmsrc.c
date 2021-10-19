@@ -28,6 +28,7 @@
  *
  */
 
+#include <stdio.h>
 #include "gstqeavbpcmsrc.h"
 
 GST_DEBUG_CATEGORY_STATIC (qeavbpcmsrc_debug);
@@ -370,32 +371,37 @@ gst_qeavb_pcm_src_fill (GstPushSrc * pushsrc, GstBuffer * buffer)
   GstFlowReturn error = GST_FLOW_OK;
   int err = 0;
   guint32 payload_size = 0;
+  char tips[64];
 
   if(qeavbpcmsrc->stream_info.wakeup_period_us != 0)
     sleep_us = qeavbpcmsrc->stream_info.wakeup_period_us;
 
   payload_size = qeavbpcmsrc->stream_info.max_buffer_size * qeavbpcmsrc->stream_info.pkts_per_wake;
 
+  GST_DEBUG_OBJECT (qeavbpcmsrc, "pkts_per_wake %d, payload_size %u, wakeup_period_us %d", qeavbpcmsrc->stream_info.pkts_per_wake, payload_size, qeavbpcmsrc->stream_info.wakeup_period_us);
+
   if (qeavbpcmsrc->is_first_pcmpacket) {
     kpi_place_marker("M - qeavbpcmsrc begin recv 1st pkt.");
   }
+
 retry:
+#define PCMSRC_RETRY_KPILOG_SUPPRESS 50  //Every PCMSRC_RETRY_KPILOG_SUPPRESS, will print one KPI log
   g_mutex_lock(&qeavbpcmsrc->lock);
   if (qeavbpcmsrc->started) {
     memset(&qavb_buffer, 0, sizeof(eavb_ioctl_buf_data_t));
     qavb_buffer.hdr.payload_size = payload_size;
     qavb_buffer.pbuf = (uint64_t)qeavbpcmsrc->eavb_addr;
-    GST_DEBUG_OBJECT (qeavbpcmsrc, "pkts_per_wake %d, qavb_buffer.hdr.payload_size %d",qeavbpcmsrc->stream_info.pkts_per_wake, qavb_buffer.hdr.payload_size);
-    if (qeavbpcmsrc->is_first_pcmpacket) {
-      kpi_place_marker("M - qeavbpcmsrc recving 1st pkt.");
-    }
-    recv_len = qeavb_receive_data(qeavbpcmsrc->eavb_fd, &(qeavbpcmsrc->hdr), &qavb_buffer);
-    if (qeavbpcmsrc->is_first_pcmpacket) {
-      char tips[64];
-      snprintf(tips, sizeof(tips), "M - qeavbpcmsrc recv 1st pkt ret %d.", recv_len);
+    GST_LOG_OBJECT (qeavbpcmsrc, "will call qeavb_receive_data(), retry %d", retry_time);
+    if (qeavbpcmsrc->is_first_pcmpacket && 0 == retry_time%PCMSRC_RETRY_KPILOG_SUPPRESS) {
+      snprintf(tips, sizeof(tips), "M - qeavbpcmsrc recving 1st pkt, retry %d.", retry_time);
       kpi_place_marker(tips);
     }
-    GST_DEBUG_OBJECT (qeavbpcmsrc, "receive data len %d", recv_len);
+    recv_len = qeavb_receive_data(qeavbpcmsrc->eavb_fd, &(qeavbpcmsrc->hdr), &qavb_buffer);
+    if (qeavbpcmsrc->is_first_pcmpacket && (0==retry_time%PCMSRC_RETRY_KPILOG_SUPPRESS || recv_len>0)) {
+      snprintf(tips, sizeof(tips), "M - qeavbpcmsrc recv 1st pkt rt %d retry %d.", recv_len, retry_time);
+      kpi_place_marker(tips);
+    }
+    GST_LOG_OBJECT (qeavbpcmsrc, "receive data len %d", recv_len);
     if (recv_len > 0) {
       if (qeavbpcmsrc->is_first_pcmpacket) {
         kpi_place_marker("M - qeavbpcmsrc receive the first packet");
@@ -422,7 +428,7 @@ retry:
       if (retry_time < RETRY_COUNT){
         retry_time ++;
         g_mutex_unlock(&qeavbpcmsrc->lock);
-        GST_DEBUG_OBJECT (qeavbpcmsrc,"retry to receive data %d, will sleep time %d us\n", retry_time, sleep_us);
+        GST_LOG_OBJECT (qeavbpcmsrc,"retry to receive data %d, will sleep time %d us\n", retry_time, sleep_us);
         g_usleep(sleep_us);
         goto retry;
       } else {
