@@ -54,6 +54,7 @@ extern "C" {
 #define CONFIG_FUNCTION_KEY_DOWNSCALE       "downscale"
 #define CONFIG_FUNCTION_KEY_ENC_CSC         "enc_colorspace_conversion"
 #define CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO   "colorspace_color_aspects"
+#define CONFIG_FUNCTION_KEY_SLICE_MODE      "slice_mode"
 
 #define C2_TICKS_PER_SECOND 1000000
 
@@ -157,6 +158,12 @@ typedef enum {
 } RC_MODE_TYPE;
 
 typedef enum {
+    SLICE_MODE_DISABLE,
+    SLICE_MODE_MB,
+    SLICE_MODE_BYTES,
+} SLICE_MODE;
+
+typedef enum {
     COLOR_PRIMARIES_UNSPECIFIED,
     COLOR_PRIMARIES_BT709,
     COLOR_PRIMARIES_BT470_M,
@@ -254,6 +261,10 @@ typedef struct {
     union{
         RC_MODE_TYPE type;
     } rcMode;
+
+    union{
+        SLICE_MODE type;
+    } SliceMode;
 
     struct {
         IR_MODE_TYPE type;

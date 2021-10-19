@@ -97,7 +97,8 @@ struct _Gstqticodec2venc
   IR_MODE_TYPE intra_refresh_mode;
   guint32 intra_refresh_mbs;
   guint32 target_bitrate;
-
+  SLICE_MODE slice_mode;
+  guint32 slice_size;
   GMutex pending_lock;
   GCond  pending_cond;
 };
