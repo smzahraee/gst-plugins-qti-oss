@@ -353,8 +353,9 @@ void CodecCallback::onOutputBufferAvailable (
             guint64 usage = 0;
             guint32 size = 0;
             guint32 format = 0;
+            guint64 bo = 0;
 
-            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &outBuf.width, &outBuf.height, &format, &usage, &stride, &size);
+            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &outBuf.width, &outBuf.height, &format, &usage, &stride, &size, &bo);
 
             outBuf.size = size;
             if (mMapBufferToCpu) {
