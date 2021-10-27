@@ -1050,7 +1050,7 @@ static void print_usage(char **argv)
 {
   printf("%s <infile_path> <codec_type> <file_type> <output_op> <test_op> <num_frames> <output_buf>\n", argv[0]);
   printf("<codec_type>\t1:h264, 9:h265\n");
-  printf("<file_type>\t4:byte-stream\n");
+  printf("<file_type>\t4:byte-stream without container\n");
   printf("<output_op>\t"
     "0: decoded as linear yuv but no output, 2: decoded as linear yuv but dump frames to yuvframes.yuv file under current dir\n\t\t"
     "8: decoded as UBWC yuv but no output,  10: decoded as UBWC yuv but dump frames to yuvframes.yuv file under current dir\n");
@@ -1064,6 +1064,9 @@ static void print_usage(char **argv)
   printf("For h264: %s xxx.h264 1 4 2 1 0 0\n", argv[0]);
   printf("For h265: %s xxx.h265 9 4 2 1 0 0\n", argv[0]);
   printf("Above cmd will output NV12 file as yuvframes.yuv under current directory.\n\n");
+  printf("For h264: %s xxx.h264 1 4 0 1 0 0\n", argv[0]);
+  printf("For h265: %s xxx.h265 9 4 8 1 0 0\n", argv[0]);
+  printf("Above cmd will decode video as NV12 or NV12_UBWC, but no yuvframes.yuv generated.\n\n");
 
   printf("For kpi mode, add %s before input file without blank\n", KPI_INDICATOR_STR);
   printf("Example: %s %s/data/xxx.h264 1 4 0 1 0 0\n\n", argv[0], KPI_INDICATOR_STR);
