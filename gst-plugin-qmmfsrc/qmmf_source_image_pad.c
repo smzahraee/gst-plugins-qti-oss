@@ -392,6 +392,10 @@ qmmfsrc_image_pad_fixate_caps (GstPad * pad)
     }
   }
 
+  // Always fixate pixel aspect ratio to 1/1.
+  gst_structure_set (structure, "pixel-aspect-ratio", GST_TYPE_FRACTION,
+        1, 1, NULL);
+
   caps = gst_caps_fixate (caps);
   gst_pad_set_caps (pad, caps);
 
@@ -528,18 +532,6 @@ qmmfsrc_image_pad_init (GstQmmfSrcImagePad * pad)
   // TODO temporality solution until properties are implemented.
   gst_structure_set (pad->params, "quality", G_TYPE_UINT,
       DEFAULT_PROP_QUALITY, NULL);
-  gst_structure_set (pad->params, "thumbnail-width", G_TYPE_UINT,
-      DEFAULT_PROP_THUMBNAIL_WIDTH, NULL);
-  gst_structure_set (pad->params, "thumbnail-height", G_TYPE_UINT,
-      DEFAULT_PROP_THUMBNAIL_HEIGHT, NULL);
-  gst_structure_set (pad->params, "thumbnail-quality", G_TYPE_UINT,
-      DEFAULT_PROP_THUMBNAIL_QUALITY, NULL);
-  gst_structure_set (pad->params, "screennail-width", G_TYPE_UINT,
-      DEFAULT_PROP_SCREENNAIL_WIDTH, NULL);
-  gst_structure_set (pad->params, "screennail-height", G_TYPE_UINT,
-      DEFAULT_PROP_SCREENNAIL_HEIGHT, NULL);
-  gst_structure_set (pad->params, "screennail-quality", G_TYPE_UINT,
-      DEFAULT_PROP_SCREENNAIL_QUALITY, NULL);
 
   pad->buffers   = gst_data_queue_new (queue_is_full_cb, NULL, NULL, pad);
 }

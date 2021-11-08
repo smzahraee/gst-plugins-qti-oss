@@ -32,11 +32,11 @@
 #include <adreno/c2d2.h>
 #include <cutils/properties.h>
 #include <ion/ion.h>
-#include <linux/dma-buf.h>
 #include <linux/msm_ion.h>
 #include <linux/msm_kgsl.h>
 #include <gst/gst.h>
 #include <cairo/cairo.h>
+#include <sys/time.h>
 
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
@@ -50,9 +50,6 @@ namespace overlay {
 #define BG_TRANSPARENT_COLOR 0xFFFFFF00
 #define BG_DEBUG_COLOR       0xFFE5CC80 //Light gray.
 #define DOWNSCALE_FACTOR     4
-
-#define BLIT_KERNEL      "/usr/lib/overlay_blit_kernel.cl"
-#define BLIT_KERNEL_NAME "overlay_cl"
 
 // Remove comment marker to enable backgroud surface drawing of overlay objects.
 //#define DEBUG_BACKGROUND_SURFACE
@@ -74,12 +71,42 @@ struct OpenClFrame {
   cl_ushort swap_uv;
 };
 
-struct OpenCLArgs {
+enum CLKernelIds {
+  CL_KERNEL_BLIT_RGBA,
+  CL_KERNEL_BLIT_BGRA,
+  CL_KERNEL_PRIVACY_MASK,
+  CL_KERNEL_NONE, // use C2D
+};
+
+struct CLKernelDescriptor {
+  CLKernelIds id;
+  std::string kernel_path;
+  std::string kernel_name;
+  bool use_alpha_only;
+  bool use_2D_image;
+  size_t global_devider_w;
+  size_t global_devider_h;
+  size_t local_size_w;
+  size_t local_size_h;
+  std::shared_ptr<OpenClKernel> instance;
+};
+
+struct DrawInfo {
   uint32_t width;
   uint32_t height;
   uint32_t x;
   uint32_t y;
   cl_mem mask;
+  std::shared_ptr<OpenClKernel> blit_inst;
+  uint32_t c2dSurfaceId;
+  uint32_t in_width;
+  uint32_t in_height;
+  uint32_t in_x;
+  uint32_t in_y;
+  size_t global_devider_w;
+  size_t global_devider_h;
+  size_t local_size_w;
+  size_t local_size_h;
 };
 
 class OpenClKernel {
@@ -120,7 +147,7 @@ class OpenClKernel {
 
   int32_t BuildProgram (const std::string &path_to_src);
 
-  int32_t SetKernelArgs (OpenClFrame &frame, OpenCLArgs &args);
+  int32_t SetKernelArgs (OpenClFrame &frame, DrawInfo args);
 
   int32_t RunCLKernel (bool wait_to_finish);
 
@@ -133,6 +160,8 @@ class OpenClKernel {
       size_t width, size_t height, uint32_t stride);
 
   static int32_t unMapImage (cl_mem &cl_buffer);
+
+  static CLKernelDescriptor supported_kernels [];
 
  private:
 
@@ -171,20 +200,6 @@ class OpenClKernel {
   } sync_;
 };
 
-struct DrawInfo {
-  uint32_t width;
-  uint32_t height;
-  uint32_t x;
-  uint32_t y;
-  cl_mem mask;
-  std::shared_ptr<OpenClKernel> blit_inst;
-  uint32_t c2dSurfaceId;
-  uint32_t in_width;
-  uint32_t in_height;
-  uint32_t in_x;
-  uint32_t in_y;
-};
-
 struct RGBAValues {
   double red;
   double green;
@@ -196,23 +211,33 @@ struct C2dObjects {
   C2D_OBJECT objects[MAX_OVERLAYS * 2];
 };
 
+enum class SurfaceFormat {
+  kARGB,
+  kABGR,
+  kRGB,
+  kA8,
+  kA1
+};
+
 class OverlaySurface {
  public:
   OverlaySurface () :
           width_ (0),
           height_ (0),
+          stride_ (0),
+          format_ (SurfaceFormat::kARGB),
           gpu_addr_ (nullptr),
           vaddr_ (nullptr),
           ion_fd_ (0),
-          size_ (0)
-  {
-    cl_buffer_ = nullptr;
-    blit_inst_ = nullptr;
-    c2dsurface_id_ = -1;
-  }
+          size_ (0),
+          cl_buffer_ (nullptr),
+          blit_inst_ (nullptr),
+          c2dsurface_id_ (-1) {}
 
   uint32_t width_;
   uint32_t height_;
+  uint32_t stride_;
+  SurfaceFormat format_;
   void * gpu_addr_;
   void * vaddr_;
   int32_t ion_fd_;
@@ -227,8 +252,7 @@ class OverlaySurface {
 class OverlayItem {
  public:
 
-  OverlayItem (int32_t ion_device, OverlayType type,
-      std::shared_ptr<OpenClKernel> &blit);
+  OverlayItem (int32_t ion_device, OverlayType type, CLKernelIds kernel_id);
 
   virtual ~OverlayItem ();
 
@@ -248,11 +272,6 @@ class OverlayItem {
     return type_;
   }
 
-  void SetBlitType (OverlayBlitType type)
-  {
-    blit_type_ = type;
-  }
-
   void MarkDirty (bool dirty);
 
   void Activate (bool value);
@@ -261,6 +280,12 @@ class OverlayItem {
   {
     return is_active_;
   }
+
+  uint32_t CalcStride (uint32_t width, SurfaceFormat format);
+
+  uint32_t GetC2DFormat (SurfaceFormat format);
+
+  cairo_format_t GetCairoFormat (SurfaceFormat format);
 
 protected:
 
@@ -274,8 +299,7 @@ protected:
 
   void FreeIonMemory (void *&vaddr, int32_t &ion_fd, uint32_t size);
 
-  int32_t MapOverlaySurface (OverlaySurface &surface, IonMemInfo &mem_info,
-      int32_t format);
+  int32_t MapOverlaySurface (OverlaySurface &surface, IonMemInfo &mem_info);
 
   void UnMapOverlaySurface (OverlaySurface &surface);
 
@@ -298,6 +322,14 @@ protected:
   cairo_surface_t* cr_surface_;
   cairo_t* cr_context_;
   OverlayBlitType blit_type_;
+  CLKernelIds kernel_id_;
+  std::shared_ptr<OpenClKernel> blit_;
+  bool use_alpha_only_;
+  bool use_2D_image_;
+  size_t global_devider_w_;
+  size_t global_devider_h_;
+  size_t local_size_w_;
+  size_t local_size_h_;
 
  private:
 
@@ -307,9 +339,8 @@ protected:
 class OverlayItemStaticImage : public OverlayItem {
  public:
 
-  OverlayItemStaticImage (int32_t ion_device,
-      std::shared_ptr<OpenClKernel> &blit) :
-          OverlayItem (ion_device, OverlayType::kStaticImage, blit) {};
+  OverlayItemStaticImage (int32_t ion_device, CLKernelIds kernel_id) :
+          OverlayItem (ion_device, OverlayType::kStaticImage, kernel_id) {};
 
   virtual ~OverlayItemStaticImage () {};
 
@@ -343,8 +374,7 @@ class OverlayItemStaticImage : public OverlayItem {
 class OverlayItemDateAndTime : public OverlayItem {
  public:
 
-  OverlayItemDateAndTime (int32_t ion_device,
-      std::shared_ptr<OpenClKernel> &blit);
+  OverlayItemDateAndTime (int32_t ion_device, CLKernelIds kernel_id);
 
   virtual ~OverlayItemDateAndTime ();
 
@@ -375,8 +405,7 @@ private:
 class OverlayItemBoundingBox : public OverlayItem {
  public:
 
-  OverlayItemBoundingBox (int32_t ion_device,
-      std::shared_ptr<OpenClKernel> &blit);
+  OverlayItemBoundingBox (int32_t ion_device, CLKernelIds kernel_id);
 
   virtual ~OverlayItemBoundingBox ();
 
@@ -419,8 +448,8 @@ class OverlayItemBoundingBox : public OverlayItem {
 class OverlayItemText : public OverlayItem {
  public:
 
-  OverlayItemText (int32_t ion_device, std::shared_ptr<OpenClKernel> &blit) :
-      OverlayItem (ion_device, OverlayType::kUserText, blit) {};
+  OverlayItemText (int32_t ion_device, CLKernelIds kernel_id) :
+      OverlayItem (ion_device, OverlayType::kUserText, kernel_id) {};
 
   virtual ~OverlayItemText ();
 
@@ -450,9 +479,8 @@ class OverlayItemText : public OverlayItem {
 class OverlayItemPrivacyMask : public OverlayItem {
  public:
 
-  OverlayItemPrivacyMask (int32_t ion_device,
-      std::shared_ptr<OpenClKernel> &blit) :
-          OverlayItem (ion_device, OverlayType::kPrivacyMask, blit) {};
+  OverlayItemPrivacyMask (int32_t ion_device, CLKernelIds kernel_id) :
+          OverlayItem (ion_device, OverlayType::kPrivacyMask, kernel_id) {};
 
   virtual ~OverlayItemPrivacyMask () {};
 
@@ -469,7 +497,7 @@ class OverlayItemPrivacyMask : public OverlayItem {
 
  private:
 
-  static const uint32_t kMaskBoxBufWidth = 1920;
+  static const uint32_t kMaskBoxBufWidth = 3840;
 
   int32_t CreateSurface ();
   uint32_t mask_color_;
@@ -479,8 +507,8 @@ class OverlayItemPrivacyMask : public OverlayItem {
 class OverlayItemGraph : public OverlayItem {
  public:
 
-  OverlayItemGraph (int32_t ion_device, std::shared_ptr<OpenClKernel> &blit) :
-      OverlayItem (ion_device, OverlayType::kGraph, blit) {};
+  OverlayItemGraph (int32_t ion_device, CLKernelIds kernel_id) :
+      OverlayItem (ion_device, OverlayType::kGraph, kernel_id) {};
 
   virtual ~OverlayItemGraph () {};
 
@@ -508,5 +536,80 @@ class OverlayItemGraph : public OverlayItem {
   float downscale_ratio_;
   OverlayGraph graph_;
 };
+
+class OverlayItemArrow : public OverlayItem {
+ public:
+
+  OverlayItemArrow (int32_t ion_device, CLKernelIds kernel_id);
+
+  virtual ~OverlayItemArrow ();
+
+  int32_t Init (OverlayParam& param) override;
+
+  int32_t UpdateAndDraw () override;
+
+  void GetDrawInfo (uint32_t target_width, uint32_t target_height,
+      std::vector<DrawInfo>& draw_infos) override;
+
+  void GetParameters (OverlayParam& param) override;
+
+  int32_t UpdateParameters (OverlayParam& param) override;
+
+ private:
+  static const int32_t kStrokeWidth = 4;
+  static const uint32_t kBufferDiv = 2;
+  int32_t CreateSurface ();
+  void calcVertexes(int32_t start_x, int32_t start_y, int32_t end_x,
+      int32_t end_y, double& x1, double& y1, double& x2, double& y2);
+
+  uint32_t arrow_color_;
+  OverlayArrow *arrows_;
+  uint32_t arrows_count_ = 0;
+};
+
+
+#ifdef DEBUG_BLIT_TIME
+class Timer {
+  std::string str;
+  uint64_t begin;
+  uint64_t *avr_time;
+
+public:
+
+  Timer (std::string s) : str(s), avr_time(nullptr) {
+    begin = GetMicroSeconds();
+  }
+
+  Timer (std::string s, uint64_t * avrg) : str(s), avr_time(avrg) {
+    begin = GetMicroSeconds();
+  }
+
+  ~Timer () {
+    uint64_t diff = GetMicroSeconds() - begin;
+
+    if (avr_time) {
+      if (!(*avr_time)) {
+        *avr_time = diff;
+      }
+      *avr_time = (15 * (*avr_time) + diff) / 16;
+      OVDBG_INFO ("%s: Current: %.2f ms Avrg: %.2f ms", str.c_str(),
+          diff / 1000.0, (*avr_time) / 1000.0);
+    } else {
+      OVDBG_INFO ("%s: %.2f ms", str.c_str(), diff / 1000.0);
+    }
+  }
+
+  uint64_t GetMicroSeconds() {
+    timespec time;
+
+    clock_gettime(CLOCK_MONOTONIC, &time);
+
+    uint64_t microSeconds = (static_cast<uint32_t>(time.tv_sec) * 1000000ULL) +
+                            (static_cast<uint32_t>(time.tv_nsec)) / 1000;
+
+    return microSeconds;
+  }
+};
+#endif // DEBUG_BLIT_TIME
 
 }; // namespace overlay

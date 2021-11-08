@@ -19,6 +19,10 @@ target_include_directories(overlay_lib
 target_include_directories(overlay_lib
  PRIVATE $<BUILD_INTERFACE:${KERNEL_BUILDDIR}/usr/include>)
 
+# Headers path for msm-5.4 media on qrbx210 targets.
+target_include_directories(overlay_lib
+ PRIVATE $<BUILD_INTERFACE:${KERNEL_BUILDDIR}/usr/include/vidc>)
+
 # TODO remove this hack when camx issue with propagating c and cpp flags is solved
 target_include_directories(overlay_lib
  PRIVATE ${PKG_CONFIG_SYSROOT_DIR}/usr/include/ion_headers)
@@ -33,6 +37,8 @@ file(GLOB_RECURSE RGB_FILES ${CMAKE_CURRENT_LIST_DIR}/raw_image/*.rgba)
 install(FILES ${RGB_FILES} DESTINATION /data/misc)
 
 install(
-    FILES ${CMAKE_CURRENT_SOURCE_DIR}/overlay_blit_kernel.cl
+    FILES ${CMAKE_CURRENT_SOURCE_DIR}/overlay_blit_rgba_kernel.cl
+          ${CMAKE_CURRENT_SOURCE_DIR}/overlay_blit_bgra_kernel.cl
+          ${CMAKE_CURRENT_SOURCE_DIR}/overlay_mask_kernel.cl
     DESTINATION /usr/lib
 )

@@ -71,7 +71,7 @@
 #define DEFAULT_OPT_FLIP_HORIZONTAL FALSE
 #define DEFAULT_OPT_FLIP_VERTICAL   FALSE
 #define DEFAULT_OPT_ROTATION        GST_C2D_VIDEO_ROTATE_NONE
-#define DEFAULT_OPT_BACKGROUND      0xFF808080
+#define DEFAULT_OPT_BACKGROUND      0x00000000
 #define DEFAULT_OPT_UBWC_FORMAT     FALSE
 
 #define GET_OPT_FLIP_HORIZONTAL(s) get_opt_bool (s, \
@@ -241,6 +241,36 @@ update_options (GQuark field, const GValue * value, gpointer userdata)
   return TRUE;
 }
 
+static guint
+rectangles_overlapping_area (C2D_RECT * l_rect, C2D_RECT * r_rect)
+{
+  gint width = 0, height = 0;
+
+  // Figure out the width of the intersecting rectangle.
+  // 1st: Find out the X axis coordinate of left most Top-Right point.
+  width = MIN ((l_rect->x >> 16) + (l_rect->width >> 16),
+      (r_rect->x >> 16) + (r_rect->width >> 16));
+  // 2nd: Find out the X axis coordinate of right most Top-Left point
+  // and substract from the previously found value.
+  width -= MAX ((l_rect->x >> 16), (r_rect->x >> 16));
+
+  // Negative width means that there is no overlapping, zero the value.
+  width = (width < 0) ? 0 : width;
+
+  // Figure out the height of the intersecting rectangle.
+  // 1st: Find out the Y axis coordinate of bottom most Left-Top point.
+  height = MIN ((l_rect->y >> 16) + (l_rect->height >> 16),
+      (r_rect->y >> 16) + (r_rect->height >> 16));
+  // 2nd: Find out the Y axis coordinate of top most Left-Bottom point
+  // and substract from the previously found value.
+  height -= MAX ((l_rect->y >> 16), (r_rect->y >> 16));
+
+  // Negative height means that there is no overlapping, zero the value.
+  height = (height < 0) ? 0 : height;
+
+  return (width * height);
+}
+
 static gpointer
 map_gpu_address (GstC2dVideoConverter * convert, const GstVideoFrame * frame)
 {
@@ -321,27 +351,35 @@ gst_video_format_to_c2d_format (GstVideoFormat format)
     case GST_VIDEO_FORMAT_Y444:
       return C2D_COLOR_FORMAT_444_Y_U_V;
     case GST_VIDEO_FORMAT_BGRx:
-      return C2D_COLOR_FORMAT_8888_ARGB | C2D_FORMAT_DISABLE_ALPHA;
-    case GST_VIDEO_FORMAT_RGBx:
-      return C2D_COLOR_FORMAT_8888_ARGB | C2D_FORMAT_DISABLE_ALPHA |
-          C2D_FORMAT_SWAP_RB;
-    case GST_VIDEO_FORMAT_xBGR:
-      return C2D_COLOR_FORMAT_8888_RGBA | C2D_FORMAT_DISABLE_ALPHA;
-    case GST_VIDEO_FORMAT_xRGB:
       return C2D_COLOR_FORMAT_8888_RGBA | C2D_FORMAT_DISABLE_ALPHA |
-          C2D_FORMAT_SWAP_RB;
+          C2D_FORMAT_SWAP_ENDIANNESS | C2D_FORMAT_SWAP_RB;
+    case GST_VIDEO_FORMAT_RGBx:
+      return C2D_COLOR_FORMAT_8888_RGBA | C2D_FORMAT_DISABLE_ALPHA |
+          C2D_FORMAT_SWAP_ENDIANNESS;
+    case GST_VIDEO_FORMAT_xBGR:
+      return C2D_COLOR_FORMAT_8888_ARGB | C2D_FORMAT_DISABLE_ALPHA |
+          C2D_FORMAT_SWAP_ENDIANNESS | C2D_FORMAT_SWAP_RB;
+    case GST_VIDEO_FORMAT_xRGB:
+      return C2D_COLOR_FORMAT_8888_ARGB | C2D_FORMAT_DISABLE_ALPHA |
+          C2D_FORMAT_SWAP_ENDIANNESS;
+    case GST_VIDEO_FORMAT_RGBA:
+      return C2D_COLOR_FORMAT_8888_RGBA | C2D_FORMAT_SWAP_ENDIANNESS;
     case GST_VIDEO_FORMAT_BGRA:
-      return C2D_COLOR_FORMAT_8888_ARGB;
+      return C2D_COLOR_FORMAT_8888_RGBA | C2D_FORMAT_SWAP_ENDIANNESS |
+          C2D_FORMAT_SWAP_RB;
     case GST_VIDEO_FORMAT_ABGR:
-      return C2D_COLOR_FORMAT_8888_RGBA;
+      return C2D_COLOR_FORMAT_8888_ARGB | C2D_FORMAT_SWAP_ENDIANNESS |
+          C2D_FORMAT_SWAP_RB;
     case GST_VIDEO_FORMAT_BGR:
-      return C2D_COLOR_FORMAT_888_RGB;
+      return C2D_COLOR_FORMAT_888_RGB | C2D_FORMAT_SWAP_ENDIANNESS |
+          C2D_FORMAT_SWAP_RB;
     case GST_VIDEO_FORMAT_RGB:
-      return C2D_COLOR_FORMAT_888_RGB | C2D_FORMAT_SWAP_RB;
+      return C2D_COLOR_FORMAT_888_RGB | C2D_FORMAT_SWAP_ENDIANNESS;
     case GST_VIDEO_FORMAT_BGR16:
-      return C2D_COLOR_FORMAT_565_RGB;
+      return C2D_COLOR_FORMAT_565_RGB | C2D_FORMAT_SWAP_ENDIANNESS |
+          C2D_FORMAT_SWAP_RB;
     case GST_VIDEO_FORMAT_RGB16:
-      return C2D_COLOR_FORMAT_565_RGB | C2D_FORMAT_SWAP_RB;
+      return C2D_COLOR_FORMAT_565_RGB | C2D_FORMAT_SWAP_ENDIANNESS;
     case GST_VIDEO_FORMAT_GRAY8:
       return C2D_COLOR_FORMAT_8_L;
     default:
@@ -557,13 +595,27 @@ update_object (C2D_OBJECT * object, guint surface_id, const GstStructure * opts,
   // Setup rotation angle and adjustments.
   switch (GET_OPT_ROTATION (opts)) {
     case GST_C2D_VIDEO_ROTATE_90_CW:
+    {
+      gint dar_n = 0, dar_d = 0;
+
+      gst_util_fraction_multiply (
+          GST_VIDEO_FRAME_WIDTH (inframe), GST_VIDEO_FRAME_HEIGHT (inframe),
+          GST_VIDEO_INFO_PAR_N (&(inframe)->info),
+          GST_VIDEO_INFO_PAR_D (&(inframe)->info),
+          &dar_n, &dar_d
+      );
+
       object->config_mask |= (C2D_OVERRIDE_GLOBAL_TARGET_ROTATE_CONFIG |
           C2D_OVERRIDE_TARGET_ROTATE_270);
       GST_LOG ("Input surface %x - rotate 90° clockwise", surface_id);
 
       // Adjust the target rectangle dimensions.
-      width = (width == 0) ? GST_VIDEO_FRAME_HEIGHT (inframe) : width;
-      height = (height == 0) ? GST_VIDEO_FRAME_WIDTH (inframe) : height;
+      width = (width != 0) ? width :
+          GST_VIDEO_FRAME_HEIGHT (outframe) * dar_d / dar_n;
+      height = (height != 0) ? height : GST_VIDEO_FRAME_HEIGHT (outframe);
+
+      x = (GET_OPT_DEST_WIDTH (opts, 0) && GET_OPT_DEST_HEIGHT (opts, 0)) ?
+          x : (GST_VIDEO_FRAME_WIDTH (outframe) - width) / 2;
 
       object->target_rect.width = height << 16;
       object->target_rect.height = width << 16;
@@ -573,14 +625,15 @@ update_object (C2D_OBJECT * object, guint surface_id, const GstStructure * opts,
           (GST_VIDEO_FRAME_WIDTH (outframe) - (x + width)) << 16;
       object->target_rect.x = y << 16;
       break;
+    }
     case GST_C2D_VIDEO_ROTATE_180:
       object->config_mask |= (C2D_OVERRIDE_GLOBAL_TARGET_ROTATE_CONFIG |
           C2D_OVERRIDE_TARGET_ROTATE_180);
       GST_LOG ("Input surface %x - rotate 180°", surface_id);
 
       // Adjust the target rectangle dimensions.
-      width = (width == 0) ? GST_VIDEO_FRAME_WIDTH (inframe) : width;
-      height = (height == 0) ? GST_VIDEO_FRAME_HEIGHT (inframe) : height;
+      width = (width == 0) ? GST_VIDEO_FRAME_WIDTH (outframe) : width;
+      height = (height == 0) ? GST_VIDEO_FRAME_HEIGHT (outframe) : height;
 
       object->target_rect.width = width << 16;
       object->target_rect.height = height << 16;
@@ -592,25 +645,40 @@ update_object (C2D_OBJECT * object, guint surface_id, const GstStructure * opts,
           (GST_VIDEO_FRAME_HEIGHT (outframe) - (y + height)) << 16;
       break;
     case GST_C2D_VIDEO_ROTATE_90_CCW:
+    {
+      gint dar_n = 0, dar_d = 0;
+
+      gst_util_fraction_multiply (
+          GST_VIDEO_FRAME_WIDTH (inframe), GST_VIDEO_FRAME_HEIGHT (inframe),
+          GST_VIDEO_INFO_PAR_N (&(inframe)->info),
+          GST_VIDEO_INFO_PAR_D (&(inframe)->info),
+          &dar_n, &dar_d
+      );
+
       object->config_mask |= (C2D_OVERRIDE_GLOBAL_TARGET_ROTATE_CONFIG |
           C2D_OVERRIDE_TARGET_ROTATE_90);
       GST_LOG ("Input surface %x - rotate 90° counter-clockwise", surface_id);
 
       // Adjust the target rectangle dimensions.
-      width = (width == 0) ? GST_VIDEO_FRAME_HEIGHT (inframe) : width;
-      height = (height == 0) ? GST_VIDEO_FRAME_WIDTH (inframe) : height;
+      width = (width != 0) ? width :
+          GST_VIDEO_FRAME_HEIGHT (outframe) * dar_d / dar_n;
+      height = (height != 0) ? height : GST_VIDEO_FRAME_HEIGHT (outframe);
 
       object->target_rect.width = height << 16;
       object->target_rect.height = width << 16;
+
+      x = (GET_OPT_DEST_WIDTH (opts, 0) && GET_OPT_DEST_HEIGHT (opts, 0)) ?
+          x : (GST_VIDEO_FRAME_WIDTH (outframe) - width) / 2;
 
       // Adjust the target rectangle coordinates.
       object->target_rect.x =
           (GST_VIDEO_FRAME_HEIGHT (outframe) - (y + height)) << 16;
       object->target_rect.y = x << 16;
       break;
+    }
     default:
-      width = (width == 0) ? GST_VIDEO_FRAME_WIDTH (inframe) : width;
-      height = (height == 0) ? GST_VIDEO_FRAME_HEIGHT (inframe) : height;
+      width = (width == 0) ? GST_VIDEO_FRAME_WIDTH (outframe) : width;
+      height = (height == 0) ? GST_VIDEO_FRAME_HEIGHT (outframe) : height;
 
       object->target_rect.width = width << 16;
       object->target_rect.height = height << 16;
@@ -860,7 +928,7 @@ gst_c2d_video_converter_submit_request (GstC2dVideoConverter * convert,
     const GstVideoFrame * inframes, guint n_inputs, GstVideoFrame * outframe)
 {
   GstMemory *memory = NULL;
-  guint id = 0, idx = 0, fd = 0, surface_id = 0;
+  guint id = 0, idx = 0, fd = 0, surface_id = 0, area = 0;
   C2D_STATUS status = C2D_STATUS_OK;
   C2D_OBJECT *objects = NULL;
   c2d_ts_handle timestamp;
@@ -871,6 +939,10 @@ gst_c2d_video_converter_submit_request (GstC2dVideoConverter * convert,
 
   // Allocate memory for the C2D draw objects.
   objects = g_new0 (C2D_OBJECT, n_inputs);
+
+  // Total area of the output frame that is to be used in later calculations
+  // to determine whether there are unoccupied background pixels to be filled.
+  area = GST_VIDEO_FRAME_WIDTH (outframe) * GST_VIDEO_FRAME_HEIGHT (outframe);
 
   GST_C2D_LOCK (convert);
 
@@ -919,6 +991,21 @@ gst_c2d_video_converter_submit_request (GstC2dVideoConverter * convert,
     // Update the input C2D object.
     update_object (&objects[id], surface_id, opts, inframe, outframe);
 
+    // Calculate the output area filled with frame content.
+    {
+      C2D_RECT *l_rect = &objects[id].target_rect;
+      guint num = 0;
+
+      // Subtract the rectangle area of current C2D object to the total area.
+      area -= (l_rect->width >> 16) * (l_rect->height >> 16);
+
+      // Add overlapping area from the total rectangle area.
+      for (num = 0; num < id; num++) {
+        C2D_RECT *r_rect = &objects[num].target_rect;
+        area += rectangles_overlapping_area (l_rect, r_rect);
+      }
+    }
+
     // Set the previous object to point to current one (linked list).
     if (id >= 1)
       objects[(id - 1)].next = &objects[id];
@@ -951,14 +1038,19 @@ gst_c2d_video_converter_submit_request (GstC2dVideoConverter * convert,
         g_hash_table_lookup (convert->outsurfaces, GUINT_TO_POINTER (fd)));
   }
 
+  // Fill the surface if there is visible background area.
+  if ((GET_OPT_BACKGROUND (convert->outopts) != 0x00000000) && (area > 0)) {
+    GST_LOG ("Fill output surface %x", surface_id);
+
+    status = convert->FillSurface (surface_id,
+        GET_OPT_BACKGROUND (convert->outopts), NULL);
+
+    C2D_RETURN_NULL_IF_FAIL_WITH_MSG (C2D_STATUS_OK == status,
+        GST_C2D_UNLOCK (convert); g_free (objects), "c2dFillSurface failed"
+        " for target surface %x, error: %d!", surface_id, status);
+  }
+
   GST_LOG ("Draw output surface %x", surface_id);
-
-  status = convert->FillSurface (surface_id,
-      GET_OPT_BACKGROUND (convert->outopts), NULL);
-
-  C2D_RETURN_NULL_IF_FAIL_WITH_MSG (C2D_STATUS_OK == status,
-      GST_C2D_UNLOCK (convert); g_free (objects), "c2dFillSurface failed for"
-      " target surface %x, error: %d!", surface_id, status);
 
   status = convert->Draw (surface_id, 0, NULL, 0, 0, objects, 0);
 

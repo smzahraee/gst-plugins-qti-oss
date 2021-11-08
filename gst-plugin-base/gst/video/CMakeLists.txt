@@ -18,6 +18,11 @@ target_include_directories(${GST_QTI_VIDEO_BASE} PRIVATE
   ${KERNEL_BUILDDIR}/usr/include
 )
 
+# Headers path for msm-5.4 media on qrbx210 targets.
+target_include_directories(${GST_QTI_VIDEO_BASE} PRIVATE
+  ${KERNEL_BUILDDIR}/usr/include/vidc
+)
+
 target_link_libraries(${GST_QTI_VIDEO_BASE} PRIVATE
   ${GST_LIBRARIES}
   ${GST_ALLOC_LIBRARIES}
@@ -29,6 +34,6 @@ install(
   LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
               GROUP_EXECUTE GROUP_READ
-              GROUP_EXECUTE GROUP_READ
+              WORLD_EXECUTE WORLD_READ
   PUBLIC_HEADER DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_INCDIR}/gstreamer-1.0/gst/video/
 )
