@@ -34,7 +34,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <dlfcn.h>
-#include <linux/msm_ion.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <pthread.h>
@@ -44,12 +43,12 @@
 #include "c2d_blend.h"
 #define ALIGN4K 4096
 
+GST_DEBUG_CATEGORY_EXTERN (gst_videoblend_debug);
+#define GST_CAT_DEFAULT gst_videoblend_debug
+
 c2d_blend::c2d_blend()
     : m_c2d_conv(NULL),
-    m_handle(NULL),
     m_src_format(RGBA8888),
-    mOpen(NULL),
-    mClose(NULL),
     m_gbm_client_fd(-1),
     m_gbm_dev(NULL),
     m_bInit(false)
@@ -59,17 +58,7 @@ c2d_blend::c2d_blend()
 
 c2d_blend::~c2d_blend()
 {
-    if (m_handle)
-    {
-        if (mClose && m_c2d_conv)
-        {
-            pthread_mutex_lock(&m_lock);
-            mClose(m_c2d_conv);
-            pthread_mutex_unlock(&m_lock);
-        }
-        dlclose(m_handle);
-    }
-    if (m_gbm_dev) gbm_device_destroy (m_gbm_dev);
+    if (m_gbm_dev && gbm_device_destroy) gbm_device_destroy (m_gbm_dev);
     m_gbm_dev = NULL;
     if (m_gbm_client_fd != -1) close(m_gbm_client_fd);
     m_gbm_client_fd = -1;
@@ -81,24 +70,6 @@ bool c2d_blend::Init()
     bool bStatus = true;
 
     if (m_bInit) bStatus = false;
-
-    if (bStatus)
-    {
-        m_handle = dlopen("libc2dcolorconvert.so", RTLD_LAZY);
-        if (m_handle)
-        {
-            mOpen = (createC2DColorConverter_t *)
-                dlsym(m_handle,"createC2DColorConverter");
-            mClose = (destroyC2DColorConverter_t *)
-                dlsym(m_handle,"destroyC2DColorConverter");
-            if (!mOpen || !mClose)
-                bStatus = false;
-        }
-        else
-        {
-            bStatus = false;
-        }
-    }
 
     if (bStatus)
     {
@@ -136,7 +107,7 @@ bool c2d_blend::Init()
 
     if (bStatus)
     {
-        m_gbm_client_fd = ::open ("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+        m_gbm_client_fd = ::open ("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
         if (m_gbm_client_fd < 0) {
             GST_ERROR("failed to open gbm device");
             bStatus = false;
@@ -151,15 +122,11 @@ bool c2d_blend::Init()
 
     if (!bStatus)
     {
-        if (m_handle) dlclose(m_handle);
-        if (m_gbm_dev)
+        if (m_gbm_dev && gbm_device_destroy)
             gbm_device_destroy (m_gbm_dev);
         m_gbm_dev = NULL;
         if (m_gbm_client_fd != -1) close (m_gbm_client_fd);
         m_gbm_client_fd = -1;
-        m_handle = NULL;
-        mOpen = NULL;
-        mClose = NULL;
     }
     if(bStatus) m_bInit = true;
     return bStatus;
@@ -188,9 +155,10 @@ bool c2d_blend::Open(unsigned int src_height,unsigned int src_width,
     bool bStatus = false;
     pthread_mutex_lock(&m_lock);
     if (!m_c2d_conv) {
-        m_c2d_conv = mOpen(src_width, src_height, dst_width, dst_height,
-                           src, dest, flag ,src_stride);
+        m_c2d_conv = new C2DColorConverter ();
         if (m_c2d_conv) {
+            m_c2d_conv->setResolution(src_width, src_height, dst_width, dst_height,
+               src, dest, flag, src_stride);
             m_src_format = src;
             bStatus = true;
         } else
@@ -202,10 +170,9 @@ bool c2d_blend::Open(unsigned int src_height,unsigned int src_width,
 
 void c2d_blend::Close()
 {
-    if (m_handle) {
+    if (m_c2d_conv) {
         pthread_mutex_lock(&m_lock);
-        if (mClose && m_c2d_conv)
-            mClose(m_c2d_conv);
+        delete (m_c2d_conv);
         pthread_mutex_unlock(&m_lock);
         m_c2d_conv = NULL;
     }
@@ -265,7 +232,10 @@ bool c2d_blend::AllocateBuffer(int port,struct C2DBuffer *buffer)
 
     buffer->fd = -1;
     buffer->meta_fd = -1;
-    buffer->fd = gbm_bo_get_fd (buffer->gbm_bo);
+    //buffer->fd = gbm_bo_get_fd (buffer->gbm_bo);
+    //2021.08, gbm api changed, after calling gbm_bo_get_fd, need manually close that fd.
+    //After gbm code stable, will use gbm_bo_get_fd() and close().
+    buffer->fd = buffer->gbm_bo->ion_fd;
     gbm_perform (GBM_PERFORM_GET_METADATA_ION_FD, buffer->gbm_bo, &buffer->meta_fd);
     if (buffer->fd <= 0 || buffer->meta_fd <= 0) {
         GST_ERROR ("the fds(bo_fd:%d, meta_fd:%d) are invalid",
@@ -339,7 +309,8 @@ int32_t c2d_blend::DumpInput(char * filename, char mode)
         GST_ERROR("Null pointer for file name");
         return -1;
     }
-    return m_c2d_conv->dumpInput(filename, mode);
+    GST_ERROR("Not support dump input, return directly");
+    return 0;
 }
 
 void c2d_blend::SetInputCrop(int x, int y, int width, int height)

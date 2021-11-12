@@ -36,7 +36,6 @@
 #include <sys/ioctl.h>
 
 #include <gst/gst.h>
-#include <gst/video/video.h>
 
 #include <string.h>
 #include <math.h>
@@ -125,7 +124,6 @@ struct _GstQContext {
   gint width, height;  /*screen width and height*/
   GstCaps *caps;
   void *gbmhandle;
-  GstVideoFormat format;
   int (*gbm_bo_get_fd)(struct gbm_bo *bo);
   int (*gbm_perform )(int operation,...);
   struct gbm_bo * (*gbm_bo_create)(struct gbm_device *gbm,uint32_t width, uint32_t height,uint32_t format, uint32_t flags);

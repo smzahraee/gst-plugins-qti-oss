@@ -717,8 +717,14 @@ void destroy_display(QDisplay *qdisplay)
     if (qdisplay->xdg_surface)
        xdg_surface_destroy(qdisplay->xdg_surface);
 #endif
-    if (qdisplay->ivi_application)
+    if (qdisplay->ivi_surface) {
        ivi_surface_destroy(qdisplay->ivi_surface);
+       qdisplay->ivi_surface = NULL;
+    }
+    if (qdisplay->ivi_application) {
+       ivi_application_destroy(qdisplay->ivi_application);
+       qdisplay->ivi_application = NULL;
+    }
     if (qdisplay->surface)
        wl_surface_destroy(qdisplay->surface);
 
@@ -883,7 +889,7 @@ gst_qscreencapbuf_new (GstQCtx * qctx,
   GstVideoMeta * QGVMeta = NULL;
   gsize offsets[GST_VIDEO_MAX_PLANES] = {0};
   gint strides[GST_VIDEO_MAX_PLANES] = {0};
-  GstVideoFormat gstfmt;
+  GstVideoFormat gstfmt = GST_VIDEO_FORMAT_RGBA;
 
   qscreencapbuf = gst_buffer_new ();
   GST_MINI_OBJECT_CAST (qscreencapbuf)->dispose =
@@ -906,7 +912,6 @@ gst_qscreencapbuf_new (GstQCtx * qctx,
     meta->size = bostride * height;
     meta->stride = bostride;
     strides[0] = bostride;
-    gstfmt = qctx->format;
     meta->data = (unsigned char *)mmap(NULL, meta->size,
                                 PROT_READ|PROT_WRITE, MAP_SHARED,
                                 meta->gbminfo->bo_fd,0);
@@ -1016,8 +1021,6 @@ QGbm_info * gbm_memory_alloc(GstQCtx * qctx,int w,int h)
     QGbm_info *op_buf_gbm_info = g_malloc(sizeof(QGbm_info));
     struct gbm_bo *bo = NULL;
     int bo_fd = -1, meta_fd = -1;
-    int gbm_flags = GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING;
-
     memset(op_buf_gbm_info,0,sizeof(QGbm_info));
     if (!op_buf_gbm_info) {
         GST_ERROR("Invalid arguments to alloc_map_ion_memory");
@@ -1025,11 +1028,8 @@ QGbm_info * gbm_memory_alloc(GstQCtx * qctx,int w,int h)
     }
 
     GST_DEBUG("create NV12 gbm_bo with width=%d, height=%d", w, h);
-    if(qctx->format ==  GST_VIDEO_FORMAT_RGBA_UBWC){
-      gbm_flags |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
-    }
     bo = qctx->gbm_bo_create(qctx->gbm, w, h,GBM_FORMAT_ABGR8888,
-              gbm_flags);
+              GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
 
 
     if (bo == NULL) {

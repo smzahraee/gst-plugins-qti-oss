@@ -89,7 +89,6 @@ struct _Gstqticodec2vdec
 
   gint width;
   gint height;
-  guint32 output_size;
   gchar* streamformat;
   guint64 frame_index;
   GstVideoInterlaceMode interlace_mode;
@@ -97,9 +96,14 @@ struct _Gstqticodec2vdec
   guint64 num_input_queued;
   guint64 num_output_done;
   gboolean downstream_supports_dma;
+  gboolean output_picture_order_mode;
+  gboolean low_latency_mode;
+  gboolean map_outbuf;
 
   GMutex pending_lock;
   GCond  pending_cond;
+  struct timeval start_time;
+  struct timeval first_frame_time;
 };
 
 /*

@@ -31,13 +31,22 @@
 #include "c2ComponentAdapter.h"
 #include "c2ComponentInterfaceAdapter.h"
 #include "codec2wrapper.h"
-#include "utils.h"
+#include "wrapper_utils.h"
+#include <sys/mman.h>
 
-#include <QC2Platform.h>
+
 #include <string.h>
 #include <C2PlatformSupport.h>
-#include <QC2ComponentStore.h>
-#include <QC2Buffer.h>
+#include <C2Buffer.h>
+#include <gst/gst.h>
+#include <C2AllocatorGBM.h>
+// config for some vendor parameters
+#include "QC2V4L2Config.h"
+#include <media/msm_media_info.h>
+
+
+GST_DEBUG_CATEGORY (gst_qticodec2wrapper_debug);
+#define GST_CAT_DEFAULT gst_qticodec2wrapper_debug
 
 using namespace QTI;
 
@@ -53,14 +62,32 @@ typedef std::map<const char*, configFunction, char_cmp> configFunctionMap;
 std::unique_ptr<C2Param> setVideoPixelformat (gpointer param);
 std::unique_ptr<C2Param> setVideoResolution (gpointer param);
 std::unique_ptr<C2Param> setVideoBitrate (gpointer param);
-std::unique_ptr<C2Param> setVideoInterlaceMode (gpointer param);
+std::unique_ptr<C2Param> setRotation (gpointer param);
+std::unique_ptr<C2Param> setMirrorType (gpointer param);
+std::unique_ptr<C2Param> setRateControl (gpointer param);
+std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param);
+std::unique_ptr<C2Param> setDecLowLatency (gpointer param);
+std::unique_ptr<C2Param> setDownscale (gpointer param);
+std::unique_ptr<C2Param> setEncColorSpaceConv (gpointer param);
+std::unique_ptr<C2Param> setColorAspectsInfo (gpointer param);
+std::unique_ptr<C2Param> setIntraRefresh (gpointer param);
+std::unique_ptr<C2Param> setSliceMode (gpointer param);
 
 // Function map for parameter configuration
 static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_PIXELFORMAT, setVideoPixelformat},
     {CONFIG_FUNCTION_KEY_RESOLUTION, setVideoResolution},
     {CONFIG_FUNCTION_KEY_BITRATE, setVideoBitrate},
-    {CONFIG_FUNCTION_KEY_INTERLACE, setVideoInterlaceMode}
+    {CONFIG_FUNCTION_KEY_ROTATION, setRotation},
+    {CONFIG_FUNCTION_KEY_MIRROR, setMirrorType},
+    {CONFIG_FUNCTION_KEY_RATECONTROL, setRateControl},
+    {CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE, setOutputPictureOrderMode},
+    {CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY, setDecLowLatency},
+    {CONFIG_FUNCTION_KEY_DOWNSCALE, setDownscale},
+    {CONFIG_FUNCTION_KEY_ENC_CSC, setEncColorSpaceConv},
+    {CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO, setColorAspectsInfo},
+    {CONFIG_FUNCTION_KEY_INTRAREFRESH, setIntraRefresh},
+    {CONFIG_FUNCTION_KEY_SLICE_MODE, setSliceMode},
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -136,7 +163,94 @@ std::unique_ptr<C2Param> setVideoBitrate (gpointer param) {
     return nullptr;
 }
 
-std::unique_ptr<C2Param> setVideoInterlaceMode (gpointer param) {
+std::unique_ptr<C2Param> setMirrorType (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    if (config->isInput) {
+        qc2::C2VideoMirrorTuning::input mirror;
+        mirror.mirrorType = qc2::QCMirrorType(config->mirror.type);
+        return C2Param::Copy(mirror);
+    } else {
+        LOG_WARNING("setMirrorType output not implemented");
+    }
+
+    return nullptr;
+}
+
+std::unique_ptr<C2Param> setRotation (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    if (config->isInput) {
+        qc2::C2VideoRotation::input rotation;
+        rotation.angle = config->val.u32;
+        return C2Param::Copy(rotation);
+    } else {
+        LOG_WARNING("setRotation output not implemented");
+    }
+
+    return nullptr;
+}
+
+std::unique_ptr<C2Param> setRateControl (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2StreamBitrateModeTuning::output bitrateMode;
+    bitrateMode.value = (C2Config::bitrate_mode_t) toC2RateControlMode(config->rcMode.type);
+    return C2Param::Copy(bitrateMode);
+}
+
+std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    qc2::C2VideoPictureOrder::output outputPictureOrderMode;
+    if (config->output_picture_order_mode == DECODER_ORDER)
+        outputPictureOrderMode.enable = C2_TRUE;
+    return C2Param::Copy(outputPictureOrderMode);
+}
+
+std::unique_ptr<C2Param> setSliceMode (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+    if (config->SliceMode.type == SLICE_MODE_BYTES) {
+        qc2::C2VideoSliceSizeBytes::output SliceModeBytes;
+        SliceModeBytes.value = config->val.u32;
+        return C2Param::Copy(SliceModeBytes);
+    } else if (config->SliceMode.type == SLICE_MODE_MB) {
+        qc2::C2VideoSliceSizeMBCount::output SliceModeMb;
+        SliceModeMb.value = config->val.u32;
+        return C2Param::Copy(SliceModeMb);
+    } else {
+        return nullptr;
+    }
+}
+
+std::unique_ptr<C2Param> setDecLowLatency (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2GlobalLowLatencyModeTuning lowLatencyMode;
+    lowLatencyMode.value = C2_TRUE;
+
+    return C2Param::Copy(lowLatencyMode);
+}
+
+std::unique_ptr<C2Param> setDownscale (gpointer param) {
 
     if (param == NULL) {
         return nullptr;
@@ -145,21 +259,54 @@ std::unique_ptr<C2Param> setVideoInterlaceMode (gpointer param) {
     ConfigParams* config = (ConfigParams*)param;
 
     if (config->isInput) {
-        C2VideoInterlaceInfo::input interlaceMode;
-
-        interlaceMode.format = toC2InterlaceType(config->interlaceMode.type);
-
-        return C2Param::Copy(interlaceMode);
-
+      LOG_WARNING("setDownscale input not implemented");
     } else {
-        C2VideoInterlaceInfo::output interlaceMode;
+      qc2::C2VideoDownScalarSetting::output scale;
 
-        interlaceMode.format = toC2InterlaceType(config->interlaceMode.type);
+      scale.width = config->resolution.width;
+      scale.height = config->resolution.height;
 
-        return C2Param::Copy(interlaceMode);
+      return C2Param::Copy(scale);
     }
 
     return nullptr;
+}
+
+std::unique_ptr<C2Param> setEncColorSpaceConv (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    qc2::C2VideoCSC::input colorSpaceConv;
+    colorSpaceConv.value = config->color_space_conversion;
+    return C2Param::Copy(colorSpaceConv);
+}
+
+std::unique_ptr<C2Param> setColorAspectsInfo (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2StreamColorAspectsInfo::input colorAspects;
+    colorAspects.primaries  = toC2Primaries(config->colorAspects.primaries);
+    colorAspects.transfer   = toC2TransferChar(config->colorAspects.transfer_char);
+    colorAspects.matrix     = toC2Matrix(config->colorAspects.matrix);
+    colorAspects.range      = toC2FullRange(config->colorAspects.full_range);
+    return C2Param::Copy(colorAspects);
+}
+
+std::unique_ptr<C2Param> setIntraRefresh (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+
+    C2StreamIntraRefreshTuning::output intraRefreshMode;
+    intraRefreshMode.mode = (C2Config::intra_refresh_mode_t)config->irMode.type;
+    intraRefreshMode.period = config->irMode.intra_refresh_mbs;
+    return C2Param::Copy(intraRefreshMode);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -171,20 +318,14 @@ public:
     ~CodecCallback ();
 
     void onOutputBufferAvailable (
-        const std::shared_ptr<QC2Buffer> &buffer, 
+        const std::shared_ptr<C2Buffer> &buffer,
         uint64_t index,
-        uint64_t timestamp, 
+        uint64_t timestamp,
         C2FrameData::flags_t flag) override;
     void onTripped(uint32_t errorCode) override;
     void onError(uint32_t errorCode) override;
     void setMapBufferToCpu (bool enable) override;
 private:
-    int32_t getBufferFD (const std::shared_ptr<QC2Buffer> &buffer);
-    int32_t getBufferMetaFD (const std::shared_ptr<QC2Buffer> &buffer);
-    uint32_t getBufferCapacity (const std::shared_ptr<QC2Buffer> &buffer);
-    uint32_t getBufferSize (const std::shared_ptr<QC2Buffer> &buffer);
-    uint32_t getBufferOffset (const std::shared_ptr<QC2Buffer> &buffer);
-
     listener_cb mCallback;
     const void* mHandle;
     bool mMapBufferToCpu;
@@ -205,7 +346,7 @@ CodecCallback::~CodecCallback () {
 }
 
 void CodecCallback::onOutputBufferAvailable (
-    const std::shared_ptr<QC2Buffer> &buffer, 
+    const std::shared_ptr<C2Buffer> &buffer,
     uint64_t index,
     uint64_t timestamp,
     C2FrameData::flags_t flag) {
@@ -216,54 +357,58 @@ void CodecCallback::onOutputBufferAvailable (
     }
 
     BufferDescriptor outBuf;
+    memset (&outBuf, 0, sizeof(BufferDescriptor));
 
     if (buffer) {
-        outBuf.fd = getBufferFD(buffer);
-        outBuf.size = getBufferSize(buffer);
-        outBuf.capacity = getBufferCapacity(buffer);
-        outBuf.offset = getBufferOffset(buffer);
+        C2BufferData::type_t buf_type = buffer->data().type();
         outBuf.timestamp = timestamp;
         outBuf.index = index;
         outBuf.flag = toWrapperFlag(flag);
 
-        if (buffer->isGraphic()) {
-            outBuf.meta_fd = getBufferMetaFD(buffer);
+        if (buf_type == C2BufferData::GRAPHIC) {
+            const C2ConstGraphicBlock graphic_block = buffer->data().graphicBlocks().front();
+            outBuf.fd = graphic_block.handle()->data[0];
+            outBuf.meta_fd = graphic_block.handle()->data[1];
+            guint32 stride = 0;
+            guint64 usage = 0;
+            guint32 size = 0;
+            guint32 format = 0;
+
+            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &outBuf.width, &outBuf.height, &format, &usage, &stride, &size);
+
+            outBuf.size = size;
             if (mMapBufferToCpu) {
-                auto& g = buffer->graphic();
-                auto map = g.mapReadOnly();
-                outBuf.data = (guint8 *)map->base();
-            }
-            else {
-                outBuf.data = NULL;
-            }
-            mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
-        } else if (buffer->isLinear()) {
-            /* Check for codec data */
-            auto& infos = buffer->infos();
-            for (auto& info : infos) {
-                if (info && info->coreIndex().coreIndex() ==
-                    C2StreamInitDataInfo::output::CORE_INDEX) {
-                    BufferDescriptor codecConfigBuf;
-                    auto csd = (C2StreamInitDataInfo::output*)info.get();
-
-                    LOG_INFO("get codec config data, size: %d", csd->flexCount());
-                    codecConfigBuf.data = csd->m.value;
-                    codecConfigBuf.size = csd->flexCount();
-                    codecConfigBuf.timestamp = 0;
-                    codecConfigBuf.fd = -1;
-                    codecConfigBuf.meta_fd = -1;
-                    codecConfigBuf.capacity = 0;
-                    codecConfigBuf.offset = 0;
-                    codecConfigBuf.index = 0;
-                    codecConfigBuf.flag = FLAG_TYPE_CODEC_CONFIG;
-                    mCallback(mHandle, EVENT_OUTPUTS_DONE, &codecConfigBuf);
+                /* get valid size for NV12_UBWC format */
+                if (format == GBM_FORMAT_NV12 && (usage & GBM_BO_USAGE_UBWC_ALIGNED_QTI)) {
+                    outBuf.size = VENUS_BUFFER_SIZE_USED (COLOR_FMT_NV12_UBWC, outBuf.width, outBuf.height, 0);
                 }
+                C2GraphicView view(graphic_block.map().get());
+                outBuf.data = (guint8 *)view.data()[0];
+                /* graphic_block unmapped once out of scope. */
+                mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
+            } else {
+                outBuf.data = NULL;
+                mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             }
 
-            /* Always map output buffer for linear output */
-            auto& l = buffer->linear();
-            auto map = l.mapReadOnly();
-            outBuf.data = (guint8 *)map->base();
+            LOG_INFO("out buffer size:%d width:%d height:%d stride:%d data:%p\n",
+                size, outBuf.width, outBuf.height, stride, outBuf.data);
+        } else if (buf_type == C2BufferData::LINEAR) {
+            const C2ConstLinearBlock linear_block = buffer->data().linearBlocks().front();
+            C2ReadView view(linear_block.map().get());
+            outBuf.size = linear_block.size();
+            outBuf.fd = linear_block.handle()->data[0];
+            outBuf.data = (guint8 *)view.data();
+            LOG_INFO("outBuf linear data:%p fd:%d size:%d\n", outBuf.data, outBuf.fd, outBuf.size);
+            /* Check for codec data */
+            auto csd = std::static_pointer_cast<const C2StreamInitDataInfo::output>(
+              buffer->getInfo(C2StreamInitDataInfo::output::PARAM_TYPE));
+            if (csd) {
+              LOG_INFO("get codec config data, size: %lu data:%p", csd->flexCount(), (guint8 *)csd->m.value);
+              outBuf.config_data = (guint8 *)&csd->m.value;
+              outBuf.config_size = csd->flexCount();
+              outBuf.flag = FLAG_TYPE_CODEC_CONFIG;
+            }
             mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
         }
     }
@@ -306,76 +451,6 @@ void CodecCallback::onError(uint32_t errorCode) {
     mCallback(mHandle, EVENT_ERROR, &errorCode);
 }
 
-int32_t CodecCallback::getBufferFD(const std::shared_ptr<QC2Buffer> &buffer) {
-
-    int32_t fd = 0;
-    if (buffer->isGraphic()) {
-        fd = buffer->graphic().fd();
-    }
-    else if (buffer->isLinear()) {
-        fd = buffer->linear().fd();
-    }
-
-    return fd;
-}
-
-int32_t CodecCallback::getBufferMetaFD(const std::shared_ptr<QC2Buffer> &buffer) {
-
-    int32_t meta_fd = -1;
-
-    if (buffer->isGraphic()) {
-        meta_fd = buffer->graphic().meta_fd();
-    }
-    else {
-        LOG_ERROR("Meta fd only supported for graphic buffer");
-    }
-
-    return meta_fd;
-}
-
-
-uint32_t CodecCallback::getBufferCapacity (const std::shared_ptr<QC2Buffer> &buffer) {
-
-    uint32_t capacity = 0;
-
-    if (buffer->isGraphic()) {
-        capacity = buffer->graphic().allocSize();
-    }
-    else if (buffer->isLinear()) {
-        capacity = buffer->linear().capacity();
-    }
-
-    return capacity;
-}
-
-uint32_t CodecCallback::getBufferSize (const std::shared_ptr<QC2Buffer> &buffer) {
-
-    uint32_t size = 0;
-
-    if (buffer->isGraphic()) {
-        size = buffer->graphic().allocSize();
-    }
-    else if (buffer->isLinear()) {
-        size = buffer->linear().size();
-    }
-
-    return size;
-}
-
-uint32_t CodecCallback::getBufferOffset (const std::shared_ptr<QC2Buffer> &buffer) {
-
-    uint32_t offset = 0;
-
-    if (buffer->isGraphic()) {
-        offset = buffer->graphic().offset();
-    }
-    else if (buffer->isLinear()) {
-        offset = buffer->linear().offset();
-    }
-
-    return offset;
-}
-
 void CodecCallback::setMapBufferToCpu (bool enable) {
 
     mMapBufferToCpu = enable;
@@ -386,14 +461,35 @@ void CodecCallback::setMapBufferToCpu (bool enable) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void* c2componentStore_create () {
 
-    LOG_MESSAGE("Creating component store");
+    GST_DEBUG_CATEGORY_INIT (gst_qticodec2wrapper_debug,
+      "qticodec2wrapper", 0, "QTI GST codec2.0 wrapper");
 
-    std::shared_ptr<C2ComponentStore> store = qc2::QC2ComponentStore::Get();
-    if (store == NULL) {
-        LOG_ERROR("Failed to create component store");
+    LOG_MESSAGE("Creating component store");
+    void *lib = dlopen("libqcodec2_core.so", RTLD_NOW);
+    if (lib == nullptr) {
+        LOG_ERROR("failed to open %s: %s", "libqcodec2_core.so", dlerror());
+        return nullptr;
     }
 
-    return new C2ComponentStoreAdapter(store);
+    auto factoryGetter =
+        (QC2ComponentStoreFactoryGetter_t)dlsym(lib, kFn_QC2ComponentStoreFactoryGetter);
+
+    if (factoryGetter == nullptr) {
+        LOG_ERROR("failed to load symbol %s: %s", kFn_QC2ComponentStoreFactoryGetter, dlerror());
+        dlclose(lib);
+        return nullptr;
+    }
+
+    auto c2StoreFactory = (*factoryGetter)(1, 0);    // get version 1.0
+    if (c2StoreFactory == nullptr) {
+        LOG_ERROR("failed to get Store factory !");
+        dlclose(lib);
+        return nullptr;
+    }
+
+    std::shared_ptr<C2ComponentStore> store = c2StoreFactory->getInstance();
+
+    return new C2ComponentStoreAdapter(store, c2StoreFactory, lib);
 }
 
 const gchar* c2componentStore_getName (void* const comp_store) {
@@ -473,6 +569,20 @@ gboolean c2componentStore_listComponents (void* const comp_store, GPtrArray* arr
     return ret;
 }
 
+gboolean c2componentStore_isComponentSupported (void* const comp_store, gchar* name) {
+    gboolean ret = FALSE;
+
+    if (comp_store) {
+        C2ComponentStoreAdapter* store_Wrapper = (C2ComponentStoreAdapter*)comp_store;
+
+        bool ret = store_Wrapper->isComponentSupported(name);
+        if (ret == true)
+          return TRUE;
+    }
+
+    return ret;
+}
+
 gboolean c2componentStore_delete(void* comp_store){
 
     LOG_MESSAGE("Deleting component store");
@@ -498,11 +608,11 @@ gboolean c2component_setListener(void* const comp, void* cb_context, listener_cb
 
     gboolean ret = FALSE;
     c2_status_t c2Status = C2_NO_INIT;
- 
+
     if (comp) {
         C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
         std::unique_ptr<EventCallback> callback = std::make_unique<CodecCallback>(cb_context, listener);
- 
+
         c2Status = comp_wrapper->setListenercallback(std::move(callback), toC2BlocingType(mayBlock));
         if (c2Status == C2_OK) {
             ret = TRUE;
@@ -516,31 +626,23 @@ gboolean c2component_setListener(void* const comp, void* cb_context, listener_cb
     return ret;
 }
 
-gboolean c2component_alloc(void* const comp, BufferDescriptor* buffer, BUFFER_POOL_TYPE poolType) {
+gboolean c2component_alloc(void* const comp, BufferDescriptor* buffer) {
 
-    LOG_MESSAGE("Comp %p allocate buffer type: %d", comp, poolType);
+    LOG_MESSAGE("Comp %p allocate buffer type: %d", comp, buffer->pool_type);
 
     gboolean ret = FALSE;
-    C2BlockPool::local_id_t type = toC2BufferPoolType(poolType);
-    std::shared_ptr<QC2Buffer> buf = NULL;
+    std::shared_ptr<C2Buffer> buf = NULL;
 
     if (comp) {
         C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
 
-        /* When callling into alloc(), it's assuming that the allocation
-         * parms(resolution/size, format) are already passed into allocator.
-         * This can be done by calling c2component_set_pool_property() */
-        buf = comp_wrapper->alloc(type);
+        buf = comp_wrapper->alloc(buffer);
 
         if (buf != NULL) {
-            if (poolType == BUFFER_POOL_BASIC_GRAPHIC) {
-                auto& g = buf->graphic();
-                buffer->fd = g.fd();
-                buffer->capacity = g.allocSize();
-
+            if (buffer->pool_type == BUFFER_POOL_BASIC_GRAPHIC) {
                 ret = TRUE;
             } else {
-                LOG_ERROR("Unsupported pool type: %d", poolType);
+                LOG_ERROR("Unsupported pool type: %d", buffer->pool_type);
             }
         } else {
             LOG_ERROR("Failed to alloc buffer");
@@ -562,24 +664,8 @@ gboolean c2component_queue(void* const comp, BufferDescriptor* buffer) {
     if (comp) {
         C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
 
-        /* check if input buffer contains fd/va and decide if we need to
-         * allocate a new C2 buffer or not */
-        if (buffer->fd > 0) {
-          c2Status = comp_wrapper->queue(
-              buffer->fd,
-              toC2Flag(buffer->flag),
-              buffer->index,
-              buffer->timestamp,
-              toC2BufferPoolType(buffer->pool_type));
-        } else {
-          c2Status = comp_wrapper->queue(
-              buffer->data,
-              buffer->size,
-              toC2Flag(buffer->flag),
-              buffer->index,
-              buffer->timestamp,
-              toC2BufferPoolType(buffer->pool_type));
-        }
+        c2Status = comp_wrapper->queue(buffer);
+
         if (c2Status == C2_OK) {
             ret = TRUE;
         } else {
@@ -588,7 +674,7 @@ gboolean c2component_queue(void* const comp, BufferDescriptor* buffer) {
     } else {
         LOG_ERROR("Component is null");
     }
- 
+
     return ret;
 }
 
@@ -758,6 +844,27 @@ gboolean c2component_createBlockpool(void* comp, BUFFER_POOL_TYPE poolType) {
     return ret;
 }
 
+gboolean c2component_configBlockpool (void* comp, BUFFER_POOL_TYPE poolType) {
+
+    LOG_MESSAGE("Configing block pool");
+
+    gboolean ret = FALSE;
+    c2_status_t c2Status = C2_NO_INIT;
+
+    if (comp) {
+        C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
+
+        c2Status = comp_wrapper->configBlockPool(toC2BufferPoolType(poolType));
+        if (c2Status == C2_OK) {
+            ret = TRUE;
+        } else {
+            LOG_ERROR("Failed(%d) to allocate block pool(%d)", c2Status, poolType);
+        }
+    }
+
+    return ret;
+}
+
 gboolean c2component_mapOutBuffer (void* const comp, gboolean map) {
 
     gboolean ret = FALSE;
@@ -810,28 +917,6 @@ gboolean c2component_delete(void* comp) {
     return ret;
 }
 
-gboolean c2component_set_pool_property (void* comp, BUFFER_POOL_TYPE poolType, guint32 width,
-                                        guint32 height, PIXEL_FORMAT_TYPE fmt) {
-    gboolean ret = FALSE;
-    c2_status_t c2Status = C2_NO_INIT;
-
-    if (comp) {
-        C2ComponentAdapter* comp_wrapper = (C2ComponentAdapter*)comp;
-
-        c2Status = comp_wrapper->setPoolProperty(toC2BufferPoolType(poolType), width,
-                                                 height, toC2PixelFormat(fmt));
-        if (c2Status == C2_OK) {
-            ret = TRUE;
-        } else {
-            LOG_ERROR("Failed(%d) to set pool property", c2Status);
-        }
-    } else {
-        LOG_ERROR("Fail to set pool property. comp is NULL");
-    }
-
-    return ret;
-}
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ComponentInterface API handling
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -860,7 +945,18 @@ const gint  c2componentInterface_getId(void* const comp_intf) {
     return ret;
 }
 
-gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config, BLOCK_MODE_TYPE block) {
+void _push_to_settings (gpointer data, gpointer user_data) {
+    std::list<std::unique_ptr<C2Param>> *settings = (std::list<std::unique_ptr<C2Param>> *)user_data;
+    ConfigParams *conf_param = (ConfigParams*) data;
+
+    auto iter = sConfigFunctionMap.find(conf_param->config_name);
+    if (iter != sConfigFunctionMap.end()) {
+      auto param = (*iter->second)(conf_param);
+      settings->push_back(C2Param::Copy(*param));
+    }
+}
+
+gboolean c2componentInterface_config (void* const comp_intf, GPtrArray* config, BLOCK_MODE_TYPE block) {
 
     LOG_MESSAGE("Applying configuration");
 
@@ -871,19 +967,8 @@ gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config,
         std::vector<C2Param*> stackParams;
         std::list<std::unique_ptr<C2Param>> settings;
         c2_status_t c2Status = C2_NO_INIT;
-        GHashTableIter iter;
-        gpointer key;
-        gpointer value;
 
-        g_hash_table_iter_init (&iter, config);
-
-        while (g_hash_table_iter_next (&iter, &key, &value)) {
-            auto iter = sConfigFunctionMap.find((const char*)key);
-            if (iter != sConfigFunctionMap.end()) {
-                auto param = (*iter->second)(value);
-                settings.push_back(C2Param::Copy(*param));
-            }
-        }
+        g_ptr_array_foreach (config, _push_to_settings, &settings);
 
         for (auto &item: settings) {
           stackParams.push_back(item.get());
@@ -898,39 +983,4 @@ gboolean c2componentInterface_config (void* const comp_intf, GHashTable* config,
     }
 
     return ret;
-}
-
-gboolean c2componentInterface_delete(void* comp_intf) {
-
-    LOG_MESSAGE("Deleting component interface");
-
-    gboolean ret = FALSE;
-
-    if (comp_intf) {
-        C2ComponentInterfaceAdapter* intf_wrapper = (C2ComponentInterfaceAdapter*)comp_intf;
-
-        delete intf_wrapper;
-        ret = TRUE;
-    }
-
-    return ret;
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Helper API
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-guint32 get_output_frame_size(guint32 width, guint32 height, PIXEL_FORMAT_TYPE fmt) {
-
-    guint32 size = 0;
-    guint32 pixel_fmt = toC2PixelFormat(fmt);
-
-    if (PixFormat::IsCompressed(pixel_fmt)) {
-        size = Platform::VenusBufferLayout::CompressedFrameSize(pixel_fmt, width, height);
-    } else {
-        //TODO: Support frame size calculation for uncompressed formats
-    }
-
-    LOG_MESSAGE("Frame size: %d for color format: %d, width: %d, height: %d", size, pixel_fmt, width, height);
-
-    return size;
 }

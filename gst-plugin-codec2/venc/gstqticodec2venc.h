@@ -35,6 +35,9 @@
 #include <gst/video/gstvideoencoder.h>
 #include <gst/video/gstvideopool.h>
 #include <gst/allocators/allocators.h>
+#include "gstqticodec2bufferpool.h"
+
+#include "codec2wrapper.h"
 
 G_BEGIN_DECLS
 
@@ -52,7 +55,7 @@ typedef struct _Gstqticodec2vencClass Gstqticodec2vencClass;
 
 struct _Gstqticodec2venc
 {
-  GstVideoDecoder parent;
+  GstVideoEncoder parent;
 
   /* Public properties */
   gboolean silent;
@@ -81,7 +84,21 @@ struct _Gstqticodec2venc
 
   GstVideoInterlaceMode interlace_mode;
   GstVideoFormat outPixelfmt;
-
+  RC_MODE_TYPE rcMode;
+  MIRROR_TYPE mirror;
+  guint32 rotation;
+  guint32 downscale_width;
+  guint32 downscale_height;
+  gboolean color_space_conversion;
+  COLOR_PRIMARIES primaries;
+  TRANSFER_CHAR transfer_char;
+  MATRIX matrix;
+  FULL_RANGE full_range;
+  IR_MODE_TYPE intra_refresh_mode;
+  guint32 intra_refresh_mbs;
+  guint32 target_bitrate;
+  SLICE_MODE slice_mode;
+  guint32 slice_size;
   GMutex pending_lock;
   GCond  pending_cond;
 };

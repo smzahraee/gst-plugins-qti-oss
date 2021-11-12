@@ -1,6 +1,6 @@
 lib_LTLIBRARIES = libgstqticodec2common.la
 
-WRAPPER_CFLAGS  = -I$(CURDIR)/../wrapper
+WRAPPER_CFLAGS  = -I$(CURDIR)/../wrapper/include
 VENC_CFLAGS     = -I$(CURDIR)/../venc
 
 # sources used to compile this plug-in

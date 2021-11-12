@@ -33,21 +33,36 @@
 #include <C2Component.h>
 
 namespace QTI {
-    
+
+  struct QC2ComponentStoreFactory {
+    virtual ~QC2ComponentStoreFactory() = default;
+    virtual std::shared_ptr<C2ComponentStore> getInstance() = 0;
+  };
+
+  // symbol name for getting the factory (library = libqcodec2_core.so)
+  static constexpr const char * kFn_QC2ComponentStoreFactoryGetter = "QC2ComponentStoreFactoryGetter";
+
+  using QC2ComponentStoreFactoryGetter_t
+    = QC2ComponentStoreFactory * (*)(int majorVersion, int minorVersion);
+
 class C2ComponentStoreAdapter {
 
 public:
 
-    C2ComponentStoreAdapter(std::shared_ptr<C2ComponentStore> store);
+    C2ComponentStoreAdapter(std::shared_ptr<C2ComponentStore> store,
+        QC2ComponentStoreFactory* factory, void* dl_handle);
     ~C2ComponentStoreAdapter();
 
     c2_status_t createComponent (C2String name, void **const component);
     c2_status_t createInterface (C2String name, void **const interface);
     C2String getName();
     std::vector<std::shared_ptr<const C2Component::Traits >> listComponents();
+    bool isComponentSupported(char* name);
 
 private:
     std::shared_ptr<C2ComponentStore> mStore;
+    QC2ComponentStoreFactory* mFactory;
+    void* mDlHandle;
 };
 
 } // namespace QTI

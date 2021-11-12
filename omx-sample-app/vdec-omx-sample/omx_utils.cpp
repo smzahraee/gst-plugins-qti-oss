@@ -99,12 +99,6 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define DEFAULT_WIDTH_ALIGNMENT 128
 #define DEFAULT_HEIGHT_ALIGNMENT 32
 
-// log control
-//extern uint32_t debug_level_sets;
-
-// test mode
-//extern int32_t m_TestMode;
-
 // FPS control mode
 extern int32_t m_FpsControl;
 
@@ -130,11 +124,7 @@ static pthread_t m_OutPutProcessThreadId;
 static bool m_OutputThreadRunning = false;
 static pthread_t m_InputProcessThreadId;
 static bool m_InputThreadRunning = false;
-//static uint32_t m_InputFrameNum = 0;
-//static uint32_t m_OutputFrameNum = 0;
 static uint32_t m_FillFramNum = 0;
-//static int32_t m_InputDataSize = 0;
-//static int32_t m_OutputDataSize = 0;
 
 // preference debug
 int64_t m_DecodeTotalTimeActal = 0;
@@ -188,8 +178,8 @@ OMX_CONFIG_RECTTYPE crop_rect = {0, 0, 0, 0};
 static VideoCodecSetting_t *settings;
 
 int64_t m_DecodeDuration = 0; // in usec
-timeval m_DecodeFrameStartTime[OMX_BUFFERS_NUM] = {};  // used to compute encode frame performance
-timeval m_DecodeFrameEndTime[OMX_BUFFERS_NUM] = {};  // used to compute encode frame performance
+timeval m_DecodeFrameStartTime[OMX_BUFFERS_NUM] = {};  // used to compute decode frame performance
+timeval m_DecodeFrameEndTime[OMX_BUFFERS_NUM] = {};  // used to compute decode frame performance
 
 // For Statistical data
 static int32_t m_decodeFrameNum = 0;
@@ -215,7 +205,7 @@ static int OpenVideoFile ()
   }
   else
   {
-    VLOGE("i/p file %s is opened ", m_InputFileName);
+    VLOGD("i/p file %s is opened ", m_InputFileName);
   }
 
   FUNCTION_EXIT();
@@ -1391,7 +1381,7 @@ OMX_ERRORTYPE FillBufferDoneCallback(OMX_OUT OMX_HANDLETYPE hComponent,
       m_DecodeFrameTimeMin = decode_frame_time;
     }
 
-    VLOGP("decode frame speed max: %5d ms, min %5d ms", m_DecodeFrameTimeMax, m_DecodeFrameTimeMin);
+    VLOGP("decode one frame cost time max: %5d ms, min %5d ms", m_DecodeFrameTimeMax, m_DecodeFrameTimeMin);
     m_DecodeTotalTimeActal += decode_frame_time;
   }
 
@@ -1584,7 +1574,7 @@ bool SetInPortParameters(OMX_U32 filetype, OMX_U32 height, OMX_U32 width, OMX_U3
 
   m_InputBufferSize = portdef.nBufferSize;
   m_InputBufferCount = portdef.nBufferCountActual;
-  VLOGE("m_InputBufferSize = %d, m_InputBufferCount = %d", m_InputBufferSize , m_InputBufferCount);
+  VLOGD("m_InputBufferSize = %d, m_InputBufferCount = %d", m_InputBufferSize , m_InputBufferCount);
   if(OMX_DirInput != portdef.eDir)
   {
     VLOGE("Error: Expect input port");
@@ -1756,37 +1746,16 @@ bool RegisterBuffer(int32_t height, int32_t width, int colorformat, int codec, P
       FUNCTION_EXIT();
       return false;
     }
-#if 0 //commented out since we are not using OMX_UseBuffer for o/p port
-  //  unsigned char * buffer = NULL;
-  //  // output buffer
-  //  mIonDataArray = (struct dec_ion *)calloc(sizeof(struct dec_ion), m_InputBufferCount);
-  //  int frame_size = VENUS_BUFFER_SIZE_USED(colorformat, width, height, false);
-#endif
-  for (i = 0; i < m_OutputBufferCount; i++)
-  {
-#if 0 //commented out since we are not using OMX_UseBuffer for o/p port
-    //    OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO* pOutputMem = new OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO;
-    //
-    //    buffer = (OMX_U8*)allocVideoBuffer(pOutputMem,
-    //                                       frame_size,
-    //                                       &mIonDataArray[i],
-    //                                       width, height,
-    //                                       colorformat, false);
-    //
-    //    if (buffer == NULL) {
-    //      VLOGE("alloc input buffer failed");
-    //      FUNCTION_EXIT();
-    //      return false;
-    //    }
-#endif
-    result = OMX_AllocateBuffer(m_Handle,
-        &m_OutputBufferHeaders[i],
-        (OMX_U32) PORT_INDEX_OUT,
-        NULL,
-        m_OutputBufferSize);
-    CHECK_RESULT("Allocate output buffer failed", result);
+    for (i = 0; i < m_OutputBufferCount; i++)
+    {
+      result = OMX_AllocateBuffer(m_Handle,
+          &m_OutputBufferHeaders[i],
+          (OMX_U32) PORT_INDEX_OUT,
+          NULL,
+          m_OutputBufferSize);
+      CHECK_RESULT("Allocate output buffer failed", result);
+    }
   }
-}
   FUNCTION_EXIT();
   return true;
 }
@@ -1987,13 +1956,6 @@ bool ConfigureCodec(VideoCodecSetting_t *codecSettings)
   return true;
 }
 
-bool StoreEncodedDataForPerformanceTest() {
-  FUNCTION_ENTER();
-
-  FUNCTION_EXIT();
-  return true;
-}
-
 bool StoreDecodedDataToFile(unsigned char * pBuffer, int32_t dataLen)
 {
   bool status = false;
@@ -2104,9 +2066,6 @@ bool StoreDecodedData(unsigned char * pBuffer, int32_t dataLen) {
   switch (m_TestMode) {
     case MODE_FILE_DECODE:
       status = StoreDecodedDataToFile(pBuffer, dataLen);
-      break;
-    case MODE_PROFILE:
-      status = StoreEncodedDataForPerformanceTest();
       break;
     default:
       VLOGE("bad test mode: %d", m_TestMode);
@@ -2272,14 +2231,14 @@ static void * OutputBufferProcessThread(void *arg)
     {
       if (bufferMsg.pBuffer == m_OutputBufferHeaders[i])
       {
-        VLOGE("Handling No.%d buffer now", i);
+        VLOGD("Handling No.%d buffer now", i);
         break;
       }
     }
 
     if (i >= m_OutputBufferCount)
     {
-      VLOGE("recv invalid buffer: 0x%p, len: %d",
+      VLOGD("recv invalid buffer: 0x%p, len: %d",
           bufferMsg.pBuffer->pBuffer,
           bufferMsg.pBuffer->nFilledLen);
       continue;
@@ -2292,7 +2251,7 @@ static void * OutputBufferProcessThread(void *arg)
       {
         result = OMX_FillThisBuffer(m_Handle, bufferMsg.pBuffer);
         m_FreedOutputBufferCnt--;
-        VLOGE("skip len == 0 buffer");
+        VLOGD("skip len == 0 buffer");
       }
       else
       {
@@ -2374,14 +2333,6 @@ bool StartDecoder()
 
   ret = SetState(OMX_StateExecuting, OMX_TRUE);
   CHECK_BOOL("set state to executing failed", ret);
-
-//  // create Input thread
-//  if (pthread_create(&m_InputProcessThreadId, NULL,
-//        InputBufferProcessThread, NULL)) {
-//    VLOGE("create input event process thread failed: %s", strerror(errno));
-//    FUNCTION_EXIT();
-//    return false;
-//  }
 
   for (i = 0; i < m_InputBufferCount; i++)
   {
@@ -2748,8 +2699,8 @@ bool ReleaseCodec()
     m_Handle = NULL;
   }
 
-  VLOGE("handle : %p", &m_Handle);
-  VLOGE("Decode input frame: %d, output frame: %d",
+  VLOGD("handle : %p", &m_Handle);
+  VLOGD("Decode input frame: %d, output frame: %d",
       m_InputFrameNum, m_OutputFrameNum);
 
   FUNCTION_EXIT();

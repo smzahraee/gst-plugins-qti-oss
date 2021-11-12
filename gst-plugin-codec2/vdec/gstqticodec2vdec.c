@@ -36,7 +36,6 @@
 #endif
 
 #include <gst/gst.h>
-#include <gst/ionbuf/gstionbuf_meta.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,8 +51,12 @@ GST_DEBUG_CATEGORY_STATIC (gst_qticodec2vdec_debug);
 G_DEFINE_TYPE (Gstqticodec2vdec, gst_qticodec2vdec, GST_TYPE_VIDEO_DECODER);
 
 #define parent_class gst_qticodec2vdec_parent_class
-#define NANO_TO_MILLI(x)  x / 1000
+#define NANO_TO_MILLI(x)  ((x) / 1000)
 #define EOS_WAITING_TIMEOUT 5
+
+#define GST_QTI_CODEC2_DEC_OUTPUT_PICTURE_ORDER_MODE_DEFAULT    (0xffffffff)
+#define GST_QTI_CODEC2_DEC_LOW_LATENCY_MODE_DEFAULT             (FALSE)
+#define GST_QTI_CODEC2_DEC_MAP_OUTBUF_DEFAULT                   (0xffffffff)
 
 /* Function will be named qticodec2vdec_qdata_quark() */
 static G_DEFINE_QUARK(QtiCodec2DecoderQuark, qticodec2vdec_qdata);
@@ -61,7 +64,10 @@ static G_DEFINE_QUARK(QtiCodec2DecoderQuark, qticodec2vdec_qdata);
 enum
 {
   PROP_0,
-  PROP_SILENT
+  PROP_SILENT,
+  PROP_OUTPUT_PICTURE_ORDER,
+  PROP_LOW_LATENCY,
+  PROP_MAP_OUTBUF,
 };
 
 /* GstVideoDecoder base class method */
@@ -84,7 +90,7 @@ static gboolean gst_qticodec2vdec_destroy_component (GstVideoDecoder* decoder);
 static void handle_video_event (const void* handle, EVENT_TYPE type, void* data);
 
 static GstFlowReturn gst_qticodec2vdec_decode (GstVideoDecoder * decoder, GstVideoCodecFrame * frame);
-static GstFlowReturn gst_qticodec2vdec_setup_output (GstVideoDecoder * decoder, GHashTable* config);
+static GstFlowReturn gst_qticodec2vdec_setup_output (GstVideoDecoder * decoder, GPtrArray* config);
 static GstBuffer* gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor* buffer);
 static void gst_video_decoder_buffer_release (GstStructure* structure);
 
@@ -105,6 +111,9 @@ static GstStaticPadTemplate gst_qtivdec_sink_template =
     "video/x-vp8"
     ";"
     "video/x-vp9"
+    ";"
+    "video/mpeg,"
+    "mpegversion = (int)2"
     )
   );
 
@@ -129,6 +138,7 @@ make_resolution_param (guint32 width, guint32 height, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_RESOLUTION;
   param.isInput = isInput;
   param.resolution.width = width;
   param.resolution.height = height;
@@ -142,6 +152,7 @@ make_pixelFormat_param (guint32 fmt, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_PIXELFORMAT;
   param.isInput = isInput;
   param.pixelFormat.fmt = fmt;
 
@@ -154,30 +165,83 @@ make_interlace_param (INTERLACE_MODE_TYPE mode, gboolean isInput) {
 
   memset(&param, 0, sizeof(ConfigParams));
 
+  param.config_name = CONFIG_FUNCTION_KEY_INTERLACE;
   param.isInput = isInput;
   param.interlaceMode.type = mode;
 
   return param;
 }
 
+static ConfigParams
+make_output_picture_order_param (guint output_picture_order_mode) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE;
+  param.output_picture_order_mode = output_picture_order_mode;
+
+  return param;
+}
+
+static ConfigParams
+make_low_latency_param (gboolean low_latency_mode) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY;
+  param.low_latency_mode = low_latency_mode;
+
+  return param;
+}
+
 static gchar*
-gst_to_c2_streamformat (GstStructure* s) {
-  gchar *ret = NULL;
+gst_to_c2_streamformat (GstVideoDecoder* decoder, GstStructure* s, gboolean low_latency) {
+  Gstqticodec2vdec *dec = GST_QTICODEC2VDEC (decoder);
+  gchar *str = NULL;
+  gchar *concat_str = NULL;
+  gchar* str_low_latency = g_strdup(".low_latency");
+  gboolean supported = FALSE;
+  gint mpegversion = 0;
 
   if (gst_structure_has_name (s, "video/x-h264")) {
-    ret = g_strdup("c2.qti.avc.decoder");
+    str = g_strdup("c2.qti.avc.decoder");
   }
   else if (gst_structure_has_name (s, "video/x-h265")) {
-    ret = g_strdup("c2.qti.hevc.decoder");
+    str = g_strdup("c2.qti.hevc.decoder");
   }
   else if (gst_structure_has_name (s, "video/x-vp8")) {
-    ret = g_strdup("c2.qti.vp8.decoder");
+    str = g_strdup("c2.qti.vp8.decoder");
   }
   else if (gst_structure_has_name (s, "video/x-vp9")) {
-    ret = g_strdup("c2.qti.vp9.decoder");
+    str = g_strdup("c2.qti.vp9.decoder");
+  }
+  else if (gst_structure_has_name (s, "video/mpeg")) {
+    if (gst_structure_get_int (s, "mpegversion", &mpegversion)) {
+      if (mpegversion == 2) {
+        str = g_strdup("c2.qti.mpeg2.decoder");
+      }
+    }
   }
 
-  return ret;
+  if (low_latency) {
+    concat_str = g_strconcat (str, str_low_latency, NULL);
+    supported = c2componentStore_isComponentSupported (dec->comp_store, concat_str);
+
+    if (supported) {
+      if (str)
+        g_free (str);
+      str = concat_str;
+    } else {
+      g_free (concat_str);
+    }
+  }
+
+  if (str_low_latency)
+    g_free (str_low_latency);
+
+  return str;
 }
 
 static guint32
@@ -229,11 +293,6 @@ gst_qticodec2vdec_create_component (GstVideoDecoder* decoder) {
     if (ret ==  FALSE) {
        GST_DEBUG_OBJECT (dec, "Failed to create linear pool");
     }
-
-    ret = c2component_createBlockpool(dec->comp, BUFFER_POOL_BASIC_GRAPHIC);
-    if (ret == FALSE) {
-      GST_DEBUG_OBJECT (dec, "Failed to create graphics pool");
-    }
   }
   else {
     GST_DEBUG_OBJECT (dec, "Component store is Null");
@@ -257,7 +316,7 @@ gst_qticodec2vdec_destroy_component (GstVideoDecoder* decoder) {
 }
 
 static GstFlowReturn
-gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GHashTable* config) {
+gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GPtrArray* config) {
   Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
   GstVideoAlignment align;
   GstFlowReturn ret = GST_FLOW_OK;
@@ -267,6 +326,7 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GHashTable* config) {
   GstCaps *templ_caps, *intersection = NULL;
   GstStructure *s;
   const gchar *format_str;
+  gboolean actual_map = FALSE;
 
   /* Set decoder output format to NV12 by default */
   dec->output_state =
@@ -341,7 +401,19 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GHashTable* config) {
   GST_INFO_OBJECT (dec, "DMA output feature is %s",
       (dec->downstream_supports_dma ? "enabled" : "disabled"));
 
-  if (!c2component_mapOutBuffer(dec->comp, !(dec->downstream_supports_dma))){
+  switch (dec->map_outbuf) {
+    case 0:
+      actual_map = FALSE;
+      break;
+    case 1:
+      actual_map = TRUE;
+      break;
+    default:
+      actual_map = (dec->downstream_supports_dma) ? FALSE : TRUE;
+      break;
+  }
+
+  if (!c2component_mapOutBuffer(dec->comp, actual_map)) {
 
     GST_ERROR_OBJECT (dec, "Failed to set map config");
     goto error_setup_output;
@@ -358,28 +430,15 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GHashTable* config) {
     goto error_setup_output;
   }
 
-  if(!c2component_set_pool_property(
-        dec->comp,
-        BUFFER_POOL_BASIC_GRAPHIC,
-        dec->width,
-        dec->height,
-        gst_to_c2_pixelformat(decoder, output_format))) {
-      goto error_setup_output;
-  }
-
   dec->outPixelfmt = output_format;
 
-  dec->output_size = get_output_frame_size(
-        dec->width,
-        dec->height,
-        gst_to_c2_pixelformat(decoder, output_format));
-  GST_LOG_OBJECT (dec, "output width: %d, height: %d, format: %d framesize: %d",
-                  dec->width, dec->height, output_format, dec->output_size);
+  GST_LOG_OBJECT (dec, "output width: %d, height: %d, format: %d",
+                  dec->width, dec->height, output_format);
 
   if (config) {
     pixelformat = make_pixelFormat_param(gst_to_c2_pixelformat(decoder, output_format), FALSE);
     GST_LOG_OBJECT (dec, "set c2 output format: %d", pixelformat.pixelFormat.fmt);
-    g_hash_table_insert(config, CONFIG_FUNCTION_KEY_PIXELFORMAT, &pixelformat);
+    g_ptr_array_add (config, &pixelformat);
   }
   else {
     goto error_setup_output;
@@ -412,16 +471,6 @@ gst_qticodec2vdec_stop (GstVideoDecoder* decoder) {
   Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
 
   GST_DEBUG_OBJECT (dec, "stop");
-
-  if (dec->input_state) {
-    gst_video_codec_state_unref (dec->input_state);
-    dec->input_state = NULL;
-  }
-
-  if (dec->output_state) {
-    gst_video_codec_state_unref (dec->output_state);
-    dec->output_state = NULL;
-  }
 
   return TRUE;
 }
@@ -478,19 +527,22 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
   GstStructure* structure;
   const gchar* mode;
   gint retval = 0;
+  gboolean ret = FALSE;
   gint width = 0;
   gint height = 0;
   GstVideoInterlaceMode interlace_mode = GST_VIDEO_INTERLACE_MODE_PROGRESSIVE;
   INTERLACE_MODE_TYPE c2interlace_mode = INTERLACE_MODE_PROGRESSIVE;
   gchar* streamformat;
-  GHashTable* config = NULL;
+  GPtrArray *config = NULL;
   ConfigParams resolution;
   ConfigParams interlace;
+  ConfigParams output_picture_order_mode;
+  ConfigParams low_latency_mode;
 
   GST_DEBUG_OBJECT (dec, "set_format");
 
   structure = gst_caps_get_structure (state->caps, 0);
-  streamformat = gst_to_c2_streamformat (structure);
+  streamformat = gst_to_c2_streamformat (decoder, structure, dec->low_latency_mode);
   if (!streamformat) {
     goto error_format;
   }
@@ -542,16 +594,27 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
       goto error_set_format;
   }
 
-  config = g_hash_table_new(g_str_hash, g_str_equal);
+  config = g_ptr_array_new ();
 
   resolution = make_resolution_param(width, height, TRUE);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_RESOLUTION, &resolution);
+  g_ptr_array_add (config, &resolution);
 
   interlace = make_interlace_param(c2interlace_mode, FALSE);
-  g_hash_table_insert(config, CONFIG_FUNCTION_KEY_INTERLACE, &interlace);
+  g_ptr_array_add (config, &interlace);
+
+  if (dec->output_picture_order_mode != GST_QTI_CODEC2_DEC_OUTPUT_PICTURE_ORDER_MODE_DEFAULT) {
+    output_picture_order_mode = make_output_picture_order_param(dec->output_picture_order_mode);
+    g_ptr_array_add (config, &output_picture_order_mode);
+  }
+
+  if (dec->low_latency_mode) {
+    low_latency_mode = make_low_latency_param(dec->low_latency_mode);
+    g_ptr_array_add (config, &low_latency_mode);
+  }
 
   /* Negotiate with downstream and setup output */
   if (GST_FLOW_OK != gst_qticodec2vdec_setup_output (decoder, config)) {
+      g_ptr_array_free (config, FALSE);
       goto error_set_format;
   }
 
@@ -562,12 +625,24 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
       GST_WARNING_OBJECT (dec, "Failed to set config");
   }
 
-  g_hash_table_destroy (config);
+  g_ptr_array_free (config, FALSE);
 
   /* Start decoder */
   if(!c2component_start(dec->comp)) {
       GST_ERROR_OBJECT (dec, "Failed to start component");
       goto error_set_format;
+  }
+
+  ret = c2component_createBlockpool (dec->comp, BUFFER_POOL_BASIC_GRAPHIC);
+  if (ret == FALSE) {
+    GST_ERROR_OBJECT (dec, "Failed to create graphic pool");
+    return FALSE;
+  }
+  /* let C2 component use graphic block pool created by client */
+  ret = c2component_configBlockpool (dec->comp, BUFFER_POOL_BASIC_GRAPHIC);
+  if (ret ==  FALSE) {
+    GST_ERROR_OBJECT (dec, "Failed to let component use graphic pool created by client");
+    return FALSE;
   }
 
 done:
@@ -700,7 +775,7 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
   GstVideoInfo* vinfo;
   GstStructure* structure = NULL;
   Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
-  guint output_size = dec->output_size;
+  guint output_size = decode_buf->size;
 
   state = gst_video_decoder_get_output_state (decoder);
   if (state) {
@@ -717,17 +792,23 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
         NULL, NULL);
   }
   else {
-  /* If downstream accepts dma buffer, just create a new gst buffer and attach the ION meta */
+  /* If downstream accepts dma buffer, create a new gst buffer and attach fd/meta_fd into the videometa */
     out_buf = gst_buffer_new();
   }
 
   if (out_buf) {
-    GstIonBufFdMeta *meta;
-    meta = gst_buffer_add_ionbuf_meta(out_buf, decode_buf->fd, 0, output_size, FALSE, decode_buf->meta_fd, 0, 0, 0);
-    if (!meta) {
-      GST_ERROR_OBJECT (dec, "Fail to add ION buffer fd/meta into output buffer");
-      goto fail;
+    GstVideoMeta* QGVMeta = NULL;
+
+    QGVMeta = gst_buffer_get_video_meta(out_buf);
+    if (!QGVMeta) {
+      QGVMeta = gst_buffer_add_video_meta_full (out_buf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (vinfo),
+          GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), GST_VIDEO_INFO_N_PLANES (vinfo),
+          vinfo->offset, vinfo->stride);
     }
+    QGVMeta->offset[2] = GST_MAKE_FOURCC('Q', 'a','U','T');
+    QGVMeta->offset[3] = output_size;
+    QGVMeta->stride[2] = decode_buf->fd;
+    QGVMeta->stride[3] = decode_buf->meta_fd;
   }
   else {
     GST_ERROR_OBJECT (dec, "Fail to allocate output gst buffer");
@@ -770,7 +851,7 @@ gst_video_decoder_buffer_release (GstStructure* structure)
   if (decoder) {
     dec = GST_QTICODEC2VDEC (decoder);
 
-    GST_DEBUG_OBJECT (dec, "release output buffer index: %d", index);
+    GST_DEBUG_OBJECT (dec, "release output buffer index: %ld", index);
     if (!c2component_freeOutBuffer(dec->comp, index)) {
       GST_ERROR_OBJECT (dec, "Failed to release the buffer (%lu)", index);
     }
@@ -811,15 +892,17 @@ push_frame_downstream(GstVideoDecoder* decoder, BufferDescriptor* decode_buf) {
     goto out;
   }
 
-  guint output_size = dec->output_size;
+  guint output_size = decode_buf->size;
   outbuf = gst_qticodec2vdec_wrap_output_buffer(decoder, decode_buf);
   if (outbuf) {
+    gst_buffer_set_flags (outbuf, GST_BUFFER_FLAG_SYNC_AFTER);
     GST_BUFFER_PTS (outbuf) = gst_util_uint64_scale(decode_buf->timestamp, GST_SECOND,
         C2_TICKS_PER_SECOND);
 
-    GST_BUFFER_DURATION (outbuf) = gst_util_uint64_scale(GST_SECOND,
-        vinfo->fps_d, vinfo->fps_n);
-
+    if (state->info.fps_d != 0 && state->info.fps_n != 0) {
+      GST_BUFFER_DURATION (outbuf) = gst_util_uint64_scale(GST_SECOND,
+          vinfo->fps_d, vinfo->fps_n);
+    }
     frame->output_buffer = outbuf;
 
     GST_DEBUG_OBJECT (dec, "out buffer: PTS: %lu, duration: %lu, fps_d: %d, fps_n: %d",
@@ -831,14 +914,16 @@ push_frame_downstream(GstVideoDecoder* decoder, BufferDescriptor* decode_buf) {
    * writable when it's pushed downstream */
   gst_video_codec_frame_unref (frame);
   ret = gst_video_decoder_finish_frame (decoder, frame);
-  if(ret != GST_FLOW_OK){
+  if(ret != GST_FLOW_OK) {
     GST_ERROR_OBJECT (dec, "Failed(%d) to push frame downstream", ret);
     goto out;
   }
 
+  gst_video_codec_state_unref (state);
   return GST_FLOW_OK;
 
 out:
+  gst_video_codec_state_unref (state);
   return GST_FLOW_ERROR;
 }
 
@@ -856,6 +941,12 @@ handle_video_event(const void* handle, EVENT_TYPE type, void* data) {
     case EVENT_OUTPUTS_DONE: {
       BufferDescriptor* outBuffer = (BufferDescriptor*)data;
       if (outBuffer->size) {
+        if (!dec->first_frame_time.tv_sec && !dec->first_frame_time.tv_usec) {
+          gettimeofday(&dec->first_frame_time, NULL);
+          int time_1st_cost_us = (dec->first_frame_time.tv_sec - dec->start_time.tv_sec) * 1000000
+                                + (dec->first_frame_time.tv_usec - dec->start_time.tv_usec);
+          GST_DEBUG_OBJECT (dec, "first frame latency:%d us", time_1st_cost_us);
+        }
         dec->num_output_done ++;
         GST_DEBUG_OBJECT (dec, "outout done, count: %lu", dec->num_output_done);
         ret = push_frame_downstream (decoder, outBuffer);
@@ -894,6 +985,8 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
   GstMapInfo mapinfo = { 0, };
   GstBuffer* buf = NULL;
   BufferDescriptor inBuf;
+  gboolean mem_mapped = FALSE;
+  gboolean ret = FALSE;
 
   GST_DEBUG_OBJECT (dec, "decode");
 
@@ -910,8 +1003,7 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
     inBuf.data = mapinfo.data;
     inBuf.size = mapinfo.size;
     inBuf.pool_type = BUFFER_POOL_BASIC_LINEAR;
-
-    gst_buffer_unmap (buf, &mapinfo);
+    mem_mapped = TRUE;
 
     GST_INFO_OBJECT (dec, "frame->pts (%" G_GUINT64_FORMAT ")", frame->pts);
 
@@ -927,7 +1019,13 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
   inBuf.index = frame->system_frame_number;
 
   /* Queue buffer to Codec2 */
-  if (!c2component_queue (dec->comp, &inBuf)) {
+  ret = c2component_queue (dec->comp, &inBuf);
+  /* unmap the gstbuffer if it's mapped*/
+  if (mem_mapped) {
+    gst_buffer_unmap (buf, &mapinfo);
+  }
+
+  if (!ret) {
     goto error_setup_input;
   }
 
@@ -957,6 +1055,15 @@ gst_qticodec2vdec_set_property (GObject* object, guint prop_id, const GValue* va
     case PROP_SILENT:
       dec->silent = g_value_get_boolean (value);
       break;
+    case PROP_OUTPUT_PICTURE_ORDER:
+      dec->output_picture_order_mode = g_value_get_uint (value);
+      break;
+    case PROP_LOW_LATENCY:
+      dec->low_latency_mode = g_value_get_boolean (value);
+      break;
+    case PROP_MAP_OUTBUF:
+      dec->map_outbuf = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -972,6 +1079,15 @@ gst_qticodec2vdec_get_property (GObject* object, guint prop_id, GValue* value, G
   switch (prop_id) {
     case PROP_SILENT:
       g_value_set_boolean (value, dec->silent);
+      break;
+    case PROP_OUTPUT_PICTURE_ORDER:
+      g_value_set_uint (value, dec->output_picture_order_mode);
+      break;
+    case PROP_LOW_LATENCY:
+      g_value_set_boolean (value, dec->low_latency_mode);
+      break;
+    case PROP_MAP_OUTBUF:
+      g_value_set_uint (value, dec->map_outbuf);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -989,13 +1105,12 @@ gst_qticodec2vdec_finalize (GObject *object) {
   g_mutex_clear (&dec->pending_lock);
   g_cond_clear (&dec->pending_cond);
 
-  g_free (dec->streamformat);
-
   if (dec->streamformat) {
+    g_free (dec->streamformat);
     dec->streamformat = NULL;
   }
 
-  if (!gst_qticodec2vdec_destroy_component(dec)){
+  if (!gst_qticodec2vdec_destroy_component(GST_VIDEO_DECODER (object))){
     GST_ERROR_OBJECT (dec, "Failed to delete component");
   }
 
@@ -1043,6 +1158,27 @@ gst_qticodec2vdec_class_init (Gstqticodec2vdecClass* klass) {
       g_param_spec_boolean ("silent", "Silent", "Produce verbose output ?",
           FALSE, G_PARAM_READWRITE));
 
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_OUTPUT_PICTURE_ORDER,
+      g_param_spec_uint ("output-picture-order-mode", "output picture order mode",
+          "output picture order (0xffffffff=component default, 1: display order, 2: decoder order)",
+          0, G_MAXUINT, GST_QTI_CODEC2_DEC_OUTPUT_PICTURE_ORDER_MODE_DEFAULT,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_LOW_LATENCY,
+      g_param_spec_boolean ("low-latency-mode", "Low latency mode",
+          "If enabled, decoder should be in low latency mode",
+          GST_QTI_CODEC2_DEC_LOW_LATENCY_MODE_DEFAULT,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_MAP_OUTBUF,
+      g_param_spec_uint ("map-outbuf", "Map output buffer",
+          "enable output buffer mapping (0xffffffff=default, 0: always NOT map output buffer, 1: always map output buffer",
+          0, G_MAXUINT, GST_QTI_CODEC2_DEC_MAP_OUTBUF_DEFAULT,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
   video_decoder_class->start = GST_DEBUG_FUNCPTR (gst_qticodec2vdec_start);
   video_decoder_class->stop = GST_DEBUG_FUNCPTR (gst_qticodec2vdec_stop);
   video_decoder_class->set_format = GST_DEBUG_FUNCPTR (gst_qticodec2vdec_set_format);
@@ -1074,8 +1210,14 @@ gst_qticodec2vdec_init (Gstqticodec2vdec* dec) {
   dec->comp_store = NULL;
   dec->comp = NULL;
   dec->comp_intf = NULL;
+  dec->output_picture_order_mode = GST_QTI_CODEC2_DEC_OUTPUT_PICTURE_ORDER_MODE_DEFAULT;
+  dec->low_latency_mode = GST_QTI_CODEC2_DEC_LOW_LATENCY_MODE_DEFAULT;
+  dec->map_outbuf = GST_QTI_CODEC2_DEC_MAP_OUTBUF_DEFAULT;
 
   memset(dec->queued_frame, 0, MAX_QUEUED_FRAME);
+  memset(&dec->start_time, 0, sizeof(struct timeval));
+  memset(&dec->first_frame_time, 0, sizeof(struct timeval));
+  gettimeofday(&dec->start_time, NULL);
 
   g_cond_init (&dec->pending_cond);
   g_mutex_init(&dec->pending_lock);

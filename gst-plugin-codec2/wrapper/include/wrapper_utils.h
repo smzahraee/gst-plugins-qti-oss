@@ -27,45 +27,42 @@
 * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <stdio.h>
-#include <C2Component.h>
-#include <glib.h>
-#include <C2Buffer.h>
-#include <gst/gst.h>
+#ifndef __WRAPPER_UTILS_H__
+#define __WRAPPER_UTILS_H__
 
-#ifndef __TYPES_H__
-#define __TYPES_H__
+#include "types.h"
+#include "gbm_priv.h"
+#include "codec2wrapper.h"
+#include <gst/video/video.h>
+#include <C2Config.h>
 
 namespace QTI {
 
+uint32_t toC2InterlaceType(INTERLACE_MODE_TYPE interlace_type);
 
-#define LOG_MESSAGE GST_LOG
-#define LOG_INFO GST_INFO
-#define LOG_WARNING GST_WARNING
-#define LOG_DEBUG GST_DBEUG
-#define LOG_ERROR GST_ERROR
+C2BlockPool::local_id_t toC2BufferPoolType(BUFFER_POOL_TYPE pool_type);
 
-#define UNUSED(x) (void)(x)
+c2_blocking_t toC2BlocingType(BLOCK_MODE_TYPE block_type);
 
-typedef std::unique_ptr<C2Param> (*configFunction)(gpointer data);
+C2Component::drain_mode_t toC2DrainMode(DRAIN_MODE_TYPE mode);
 
-class EventCallback {
-public:
-    // Notify that an output buffer is available with given index.
-    virtual void onOutputBufferAvailable(
-        const std::shared_ptr<C2Buffer> &buffer,
-        uint64_t index,
-        uint64_t timestamp,
-        C2FrameData::flags_t flag) = 0;
+C2Component::flush_mode_t toC2FlushMode (FLUSH_MODE_TYPE mode);
 
-    virtual void onTripped(uint32_t errorCode) = 0;
-    virtual void onError(uint32_t errorCode) = 0;
+uint32_t toC2RateControlMode (RC_MODE_TYPE mode);
 
-    // Map buffer
-    virtual void setMapBufferToCpu (bool enable) = 0;
-    virtual ~EventCallback () {}
-};
+FLAG_TYPE toWrapperFlag(C2FrameData::flags_t flag);
 
-} // namespace QTI
+C2FrameData::flags_t toC2Flag(FLAG_TYPE flag);
 
-#endif /* __TYPES_H__ */
+uint32_t toC2PixelFormat(PIXEL_FORMAT_TYPE pixel);
+guint32 gst_to_c2_gbmformat (GstVideoFormat format);
+guint32 to_c2_gbm_ubwc_flag (GstVideoFormat format);
+C2Color::primaries_t toC2Primaries (COLOR_PRIMARIES pixel);
+C2Color::transfer_t toC2TransferChar (TRANSFER_CHAR transfer_char);
+C2Color::matrix_t toC2Matrix (MATRIX matrix);
+C2Color::range_t toC2FullRange (FULL_RANGE full_range);
+
+// namespace QTI
+}
+
+#endif /* __WRAPPER_UTILS_H__ */

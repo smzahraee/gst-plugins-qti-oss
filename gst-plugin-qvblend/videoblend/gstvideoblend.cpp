@@ -31,7 +31,7 @@
 #include "gstvideoblendpad.h"
 #include <sys/mman.h>
 
-GST_DEBUG_CATEGORY_STATIC (gst_videoblend_debug);
+GST_DEBUG_CATEGORY (gst_videoblend_debug);
 #define GST_CAT_DEFAULT gst_videoblend_debug
 
 #define GST_VIDEO_BLEND_GET_LOCK(blend)          (&GST_VIDEO_BLEND(blend)->lock)
@@ -40,17 +40,21 @@ GST_DEBUG_CATEGORY_STATIC (gst_videoblend_debug);
 #define GST_VIDEO_BLEND_GET_SETCAPS_LOCK(blend)  (&GST_VIDEO_BLEND(blend)->setcaps_lock)
 #define GST_VIDEO_BLEND_SETCAPS_LOCK(blend)      (g_mutex_lock(GST_VIDEO_BLEND_GET_SETCAPS_LOCK (blend)))
 #define GST_VIDEO_BLEND_SETCAPS_UNLOCK(blend)    (g_mutex_unlock(GST_VIDEO_BLEND_GET_SETCAPS_LOCK (blend)))
+#define SIG_OF_QVMETA(vmeta)    (unsigned int)((vmeta)->offset[2])
+#define DATASZ_OF_QVMETA(vmeta) (unsigned int)((vmeta)->offset[3])
+#define FD_OF_QVMETA(vmeta)     (int)((vmeta)->stride[2])
+#define METAFD_OF_QVMETA(vmeta) (int)((vmeta)->stride[3])
 
 static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
                                                                    GST_PAD_SRC,
                                                                    GST_PAD_ALWAYS,
-                                                                   GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE ( " { ARGB, RGBA } " ))
+                                                                   GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE ( " { RGBA } " ))
                                                                   );
 
 static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink_%u",
                                                                     GST_PAD_SINK,
                                                                     GST_PAD_REQUEST,
-                                                                    GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE ( " { ARGB, RGBA } " ))
+                                                                    GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE ( " { RGBA } " ))
                                                                    );
 
 static void gst_videoblend_child_proxy_init (gpointer g_iface, gpointer iface_data);
@@ -126,15 +130,9 @@ gst_videoblend_init_gbm_buffers (GstVideoBlend * blend)
                 GST_DEBUG_OBJECT (blend, "%p NV12 input", bpad);
                 break;
             }
-        case GST_VIDEO_FORMAT_ARGB:
-            {
-                bpad->c2d_buffer.gbm_format = GBM_FORMAT_ARGB8888;
-                GST_DEBUG_OBJECT (blend, "%p ARGB input", bpad);
-                break;
-            }
         case GST_VIDEO_FORMAT_RGBA:
             {
-                bpad->c2d_buffer.gbm_format = GBM_FORMAT_RGBA8888;
+                bpad->c2d_buffer.gbm_format = GBM_FORMAT_ABGR8888;
                 GST_DEBUG_OBJECT (blend, "%p RGBA input", bpad);
                 break;
             }
@@ -718,7 +716,6 @@ gst_videoblend_do_buffer_copy (GstVideoBlend * blend, GstVideoBlendPad * pad)
             }
             break;
         }
-    case GST_VIDEO_FORMAT_ARGB:
     case GST_VIDEO_FORMAT_RGBA:
         {
             stride = ALIGN(4 * width, ALIGN128);
@@ -747,7 +744,7 @@ gst_videoblend_blend_buffers (GstVideoBlend * blend, GstClockTime output_start_t
     gint target_width, target_height, source_width, source_height;
     ColorConvertFormat target_format, source_format;
     c2d_blend *c2d = blend->c2d;
-    GstIonBufFdMeta *meta;
+    GstVideoMeta *meta = NULL;
     gint ion_fd = 0;
     guint ion_offset = 0, ion_size = 0;
     void *ion_ptr = NULL;
@@ -768,17 +765,16 @@ gst_videoblend_blend_buffers (GstVideoBlend * blend, GstClockTime output_start_t
             GstSegment *seg;
 
             GST_DEBUG_OBJECT(blend, "video_frame %p, pos (%d, %d), size (%dx%d), type %d", blendcol->buffer, pad->xpos, pad->ypos, GST_VIDEO_INFO_WIDTH(&pad->info), GST_VIDEO_INFO_HEIGHT(&pad->info), pad->type);
-            meta = gst_buffer_get_ionfd_meta (blendcol->buffer);
+            meta = gst_buffer_get_video_meta (blendcol->buffer);
 
             if (pad->type == 0)
             {
                 gst_buffer_replace(outbuf, blendcol->buffer);
-                if (meta)
+                if (meta && meta->n_planes <= 2 && SIG_OF_QVMETA(meta) == GST_MAKE_FOURCC('Q','a','U','T'))
                 {
-                    blend->meta.fd = meta->fd;
-                    blend->meta.offset = meta->offset;
-                    blend->meta.size = meta->size;
-                    blend->meta.meta_fd = meta->meta_fd;
+                    blend->fd = FD_OF_QVMETA(meta);
+                    blend->data_size = DATASZ_OF_QVMETA(meta);
+                    blend->meta_fd = METAFD_OF_QVMETA(meta);
                     blend->info = pad->info;
                 }
                 else
@@ -787,25 +783,24 @@ gst_videoblend_blend_buffers (GstVideoBlend * blend, GstClockTime output_start_t
                 }
 
                 if (blend->c2d_loaded)
-		{
+                {
                     if (pad->c2d_buffer.fd)
                     {
-                        c2d->FreeBuffer(&pad->c2d_buffer);
+                      c2d->FreeBuffer(&pad->c2d_buffer);
                     }
-		}
-		else
+                }
+                else
                     goto beach;
             }
             else
             {
-                if (blend->meta.fd <= 0)
+                if (blend->fd <= 0)
                     goto beach;
 
                 target_width =  GST_VIDEO_INFO_WIDTH (&blend->info);
                 target_height = GST_VIDEO_INFO_HEIGHT (&blend->info);
                 source_width =  GST_VIDEO_INFO_WIDTH (&pad->info);
                 source_height = GST_VIDEO_INFO_HEIGHT (&pad->info);
-
                 pad_format = GST_VIDEO_INFO_FORMAT (&blend->info);
                 switch (pad_format)
                 {
@@ -813,12 +808,6 @@ gst_videoblend_blend_buffers (GstVideoBlend * blend, GstClockTime output_start_t
                     {
                         target_format = NV12_128m;
                         GST_DEBUG_OBJECT (blend, "NV12 target");
-                        break;
-                    }
-                case GST_VIDEO_FORMAT_ARGB:
-                    {
-                        target_format = ARGB8888;
-                        GST_DEBUG_OBJECT (blend, "ARGB target");
                         break;
                     }
                 case GST_VIDEO_FORMAT_RGBA:
@@ -843,21 +832,9 @@ gst_videoblend_blend_buffers (GstVideoBlend * blend, GstClockTime output_start_t
                         GST_DEBUG_OBJECT (blend, "NV12 source");
                         break;
                     }
-                case GST_VIDEO_FORMAT_ARGB:
-                    {
-                        if (target_format == NV12_128m)
-                            source_format = ARGB8888_NO_PREMULTIPLIED;
-                        else
-                            source_format = ARGB8888;
-                        GST_DEBUG_OBJECT (blend, "ARGB source");
-                        break;
-                    }
                 case GST_VIDEO_FORMAT_RGBA:
                     {
-                        if (target_format == NV12_128m)
-                            source_format = RGBA8888_NO_PREMULTIPLIED;
-                        else
-                            source_format = RGBA8888;
+                        source_format = RGBA8888;
                         GST_DEBUG_OBJECT (blend, "RGBA source");
                         break;
                     }
@@ -877,20 +854,19 @@ gst_videoblend_blend_buffers (GstVideoBlend * blend, GstClockTime output_start_t
                     blend->update_blend = FALSE;
                 }
 
-                blend->meta_ptr = mmap(NULL, blend->meta.size, PROT_READ|PROT_WRITE, MAP_SHARED, blend->meta.fd, blend->meta.offset);
-                if (meta)
+                blend->meta_ptr = mmap(NULL, blend->data_size, PROT_READ|PROT_WRITE, MAP_SHARED, blend->fd, 0);
+                if (meta && meta->n_planes <= 2 && SIG_OF_QVMETA(meta) == GST_MAKE_FOURCC('Q','a','U','T'))
                 {
                     if (pad->c2d_buffer.fd)
                     {
                         c2d->FreeBuffer(&pad->c2d_buffer);
                     }
-
-                    ion_fd = meta->fd;
-                    ion_size = meta->size;
-                    ion_offset = meta->offset;
+                    ion_fd = FD_OF_QVMETA(meta);
+                    ion_size = DATASZ_OF_QVMETA(meta);
+                    ion_offset = 0;
                     ion_ptr = mmap(NULL, ion_size, PROT_READ|PROT_WRITE, MAP_SHARED, ion_fd, ion_offset);
                     GST_DEBUG_OBJECT(blend, "fd %d, size %d, offset %d, ptr %p", ion_fd, ion_size, ion_offset, ion_ptr);
-                    if (!c2d->Convert (ion_fd, ion_ptr, ion_ptr, blend->meta.fd, blend->meta_ptr, blend->meta_ptr))
+                    if (!c2d->Convert (ion_fd, ion_ptr, ion_ptr, blend->fd, blend->meta_ptr, blend->meta_ptr))
                     {
                         GST_ERROR_OBJECT (blend, "conversion failed");
                         goto exit1;
@@ -900,7 +876,7 @@ gst_videoblend_blend_buffers (GstVideoBlend * blend, GstClockTime output_start_t
                 {
                     GST_DEBUG_OBJECT(blend, "NO GBM buffer, do copy");
                     gst_videoblend_do_buffer_copy (blend, pad);
-                    if (!c2d->Convert (pad->c2d_buffer.fd, pad->c2d_buffer.ptr, pad->c2d_buffer.ptr, blend->meta.fd, blend->meta_ptr, blend->meta_ptr))
+                    if (!c2d->Convert (pad->c2d_buffer.fd, pad->c2d_buffer.ptr, pad->c2d_buffer.ptr, blend->fd, blend->meta_ptr, blend->meta_ptr))
                     {
                         GST_ERROR_OBJECT (blend, "conversion failed");
                         goto exit2;
@@ -926,7 +902,7 @@ exit1:
 
 exit2:
     if (blend->meta_ptr)
-        munmap(blend->meta_ptr, blend->meta.size);
+        munmap(blend->meta_ptr, blend->data_size);
 
 beach:
     return GST_FLOW_OK;
@@ -1035,7 +1011,6 @@ gst_videoblend_collected (GstCollectPads * pads, GstVideoBlend * blend)
 
     blend->segment.position = output_end_time;
     blend->nframes++;
-
     GST_VIDEO_BLEND_UNLOCK (blend);
     if (outbuf)
     {
@@ -1216,11 +1191,13 @@ gst_videoblend_request_new_pad (GstElement * element, GstPadTemplate * templ, co
         blendcol = (GstVideoBlendCollect *) gst_collect_pads_add_pad (blend->collect, GST_PAD (blendpad), sizeof (GstVideoBlendCollect), (GstCollectDataDestroyNotify) gst_videoblend_collect_free, TRUE);
 
         /* Keep track of each other */
-        blendcol->blendpad = blendpad;
+        if (blendcol) {
+            blendcol->blendpad = blendpad;
+            blendcol->start_time = -1;
+            blendcol->end_time = -1;
+        }
         blendpad->blendcol = blendcol;
 
-        blendcol->start_time = -1;
-        blendcol->end_time = -1;
 
         /* Keep an internal list of blendpads for type */
         blend->sinkpads = g_slist_insert (blend->sinkpads, blendpad, blendpad->type);
@@ -1391,7 +1368,11 @@ gst_videoblend_init (GstVideoBlend * blend)
     GstElementClass *klass = GST_ELEMENT_GET_CLASS (blend);
     c2d_blend *c2d;
 
-    blend->srcpad = gst_pad_new_from_template (gst_element_class_get_pad_template (klass, "src"), "src");
+    GstPadTemplate* templ = gst_element_class_get_pad_template(klass, "src");
+    if (templ == NULL) {
+        return;
+    }
+    blend->srcpad = gst_pad_new_from_template (templ, "src");
     gst_pad_set_query_function (GST_PAD (blend->srcpad),
       GST_DEBUG_FUNCPTR (gst_videoblend_src_query));
     gst_element_add_pad (GST_ELEMENT (blend), blend->srcpad);
@@ -1430,7 +1411,7 @@ gst_videoblend_init (GstVideoBlend * blend)
     }
 
     /* open c2d with default params */
-    c2d->Open(300, 100, 800, 480, ARGB8888, NV12_128m, 0, 0);
+    c2d->Open(300, 100, 800, 480, RGBA8888, NV12_128m, 0, 0);
 
     blend->c2d = c2d;
     blend->c2d_loaded = TRUE;

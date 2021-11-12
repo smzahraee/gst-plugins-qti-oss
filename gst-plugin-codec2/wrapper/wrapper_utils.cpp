@@ -30,34 +30,35 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
-#include <QC2Config.h>
-#include <QC2Constants.h>
+#include "wrapper_utils.h"
+#include <types.h>
+#include <C2Config.h>
+#include <codec2wrapper.h>
 
 namespace QTI {
 
-qc2::InterlaceType toC2InterlaceType(INTERLACE_MODE_TYPE interlace_type) {
-
-    qc2::InterlaceType type =  qc2::INTERLACE_NONE;
+uint32_t toC2InterlaceType(INTERLACE_MODE_TYPE interlace_type) {
+    uint32_t type = 0;
 
     switch(interlace_type){
         case INTERLACE_MODE_PROGRESSIVE : {
-            type = qc2::INTERLACE_NONE;
+            type = C2_INTERLACE_MODE_PROGRESSIVE;
             break;
         }
         case INTERLACE_MODE_INTERLEAVED_TOP_FIRST : {
-            type = qc2::INTERLACE_INTERLEAVED_TOP_FIRST;
+            type = C2_INTERLACE_MODE_INTERLEAVED_TOP_FIRST;
             break;
         }
         case INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST : {
-            type = qc2::INTERLACE_INTERLEAVED_BOTTOM_FIRST;
+            type = C2_INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST;
             break;
         }
         case INTERLACE_MODE_FIELD_TOP_FIRST : {
-            type = qc2::INTERLACE_FIELD_TOP_FIRST;
+            type = C2_INTERLACE_MODE_FIELD_TOP_FIRST;
             break;
         }
         case INTERLACE_MODE_FIELD_BOTTOM_FIRST : {
-            type = qc2::INTERLACE_FIELD_BOTTOM_FIRST;
+            type = C2_INTERLACE_MODE_FIELD_BOTTOM_FIRST;
             break;
         }
         default:{
@@ -160,6 +161,42 @@ C2Component::flush_mode_t toC2FlushMode (FLUSH_MODE_TYPE mode){
     return flushMode;
 }
 
+uint32_t toC2RateControlMode (RC_MODE_TYPE mode){
+    uint32_t rcMode = 0x7F000000; //RC_MODE_EXT_DISABLE
+
+    switch (mode) {
+        case RC_OFF: {
+            rcMode = 0x7F000000; //RC_MODE_EXT_DISABLE
+            break;
+        }
+        case RC_CONST : {
+            rcMode = C2Config::BITRATE_CONST;
+            break;
+        }
+        case RC_CBR_VFR : {
+            rcMode = C2Config::BITRATE_CONST_SKIP_ALLOWED;
+            break;
+        }
+        case RC_VBR_CFR : {
+            rcMode = C2Config::BITRATE_VARIABLE;
+            break;
+        }
+        case RC_VBR_VFR : {
+            rcMode = C2Config::BITRATE_VARIABLE_SKIP_ALLOWED;
+            break;
+        }
+        case RC_CQ : {
+            rcMode = C2Config::BITRATE_IGNORE;
+            break;
+        }
+        default : {
+            LOG_ERROR("Invalid RC Mode: %d", mode);
+        }
+    }
+
+    return rcMode;
+}
+
 FLAG_TYPE toWrapperFlag(C2FrameData::flags_t flag) {
     uint32_t result = 0;
 
@@ -203,25 +240,185 @@ uint32_t toC2PixelFormat(PIXEL_FORMAT_TYPE pixel) {
 
     switch(pixel) {
         case PIXEL_FORMAT_NV12_LINEAR:{
-            result = PixFormat::VENUS_NV12;
+            result = C2_PIXEL_FORMAT_VENUS_NV12;
             break;
         }
         case PIXEL_FORMAT_NV12_UBWC:{
-            result = PixFormat::VENUS_NV12_UBWC;
+            result = C2_PIXEL_FORMAT_VENUS_NV12_UBWC;
             break;
         }
         case PIXEL_FORMAT_RGBA_8888:{
-            result = PixFormat::RGBA8888;
+            result = C2_PIXEL_FORMAT_RGBA8888;
             break;
         }
         case PIXEL_FORMAT_YV12 : {
-            result = PixFormat::YV12;
+            result = C2_PIXEL_FORMAT_YV12;
+            break;
+        }
+        default: {
+            LOG_ERROR("unsupported pixel format!");
             break;
         }
     }
 
     return result;
 }
+
+guint32
+gst_to_c2_gbmformat (GstVideoFormat format) {
+  guint32 result = 0;
+
+  switch(format) {
+    case GST_VIDEO_FORMAT_NV12 :
+    case GST_VIDEO_FORMAT_NV12_UBWC :
+      result = GBM_FORMAT_NV12;
+      break;
+    default:
+      LOG_WARNING("unsupported video format:%s", gst_video_format_to_string(format));
+      break;
+  }
+
+  return result;
+}
+
+guint32 to_c2_gbm_ubwc_flag (GstVideoFormat format) {
+  guint32 result = 0;
+
+  switch(format) {
+    case GST_VIDEO_FORMAT_NV12_UBWC :
+      result = GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+      break;
+    default:
+      break;
+  }
+
+  return result;
+}
+
+C2Color::primaries_t toC2Primaries (COLOR_PRIMARIES pixel) {
+  C2Color::primaries_t ret = C2Color::PRIMARIES_UNSPECIFIED;
+  switch (pixel) {
+    case COLOR_PRIMARIES_BT709:
+      ret = C2Color::PRIMARIES_BT709;
+      break;
+    case COLOR_PRIMARIES_BT470_M:
+      ret = C2Color::PRIMARIES_BT470_M;
+      break;
+    case COLOR_PRIMARIES_BT601_625:
+      ret = C2Color::PRIMARIES_BT601_625;
+      break;
+    case COLOR_PRIMARIES_BT601_525:
+      ret = C2Color::PRIMARIES_BT601_525;
+      break;
+    case COLOR_PRIMARIES_GENERIC_FILM:
+      ret = C2Color::PRIMARIES_GENERIC_FILM;
+      break;
+    case COLOR_PRIMARIES_BT2020:
+      ret = C2Color::PRIMARIES_BT2020;
+      break;
+    case COLOR_PRIMARIES_RP431:
+      ret = C2Color::PRIMARIES_RP431;
+      break;
+    case COLOR_PRIMARIES_EG432:
+      ret = C2Color::PRIMARIES_EG432;
+      break;
+    case COLOR_PRIMARIES_EBU3213:
+      ret = C2Color::PRIMARIES_EBU3213;
+      break;
+    default:
+      ret = C2Color::PRIMARIES_UNSPECIFIED;
+      break;
+  }
+
+	return ret;
+}
+
+C2Color::transfer_t toC2TransferChar (TRANSFER_CHAR transfer_char) {
+  C2Color::transfer_t ret = C2Color::TRANSFER_UNSPECIFIED;
+  switch (transfer_char) {
+    case COLOR_TRANSFER_LINEAR:
+      ret = C2Color::TRANSFER_LINEAR;
+      break;
+    case COLOR_TRANSFER_SRGB:
+      ret = C2Color::TRANSFER_SRGB;
+      break;
+    case COLOR_TRANSFER_170M:
+      ret = C2Color::TRANSFER_170M;
+      break;
+    case COLOR_TRANSFER_GAMMA22:
+      ret = C2Color::TRANSFER_GAMMA22;
+      break;
+    case COLOR_TRANSFER_GAMMA28:
+      ret = C2Color::TRANSFER_GAMMA28;
+      break;
+    case COLOR_TRANSFER_ST2084:
+      ret = C2Color::TRANSFER_ST2084;
+      break;
+    case COLOR_TRANSFER_HLG:
+      ret = C2Color::TRANSFER_HLG;
+      break;
+    case COLOR_TRANSFER_240M:
+      ret = C2Color::TRANSFER_240M;
+      break;
+    case COLOR_TRANSFER_XVYCC:
+      ret = C2Color::TRANSFER_XVYCC;
+      break;
+    case COLOR_TRANSFER_BT1361:
+      ret = C2Color::TRANSFER_BT1361;
+      break;
+    case COLOR_TRANSFER_ST428:
+      ret = C2Color::TRANSFER_ST428;
+      break;
+    default:
+      ret = C2Color::TRANSFER_UNSPECIFIED;
+      break;
+  }
+
+  return ret;
+}
+C2Color::matrix_t toC2Matrix (MATRIX matrix) {
+  C2Color::matrix_t ret = C2Color::MATRIX_UNSPECIFIED;
+  switch (matrix) {
+    case COLOR_MATRIX_BT709:
+      ret = C2Color::MATRIX_BT709;
+      break;
+    case COLOR_MATRIX_FCC47_73_682:
+      ret = C2Color::MATRIX_FCC47_73_682;
+      break;
+    case COLOR_MATRIX_BT601:
+      ret = C2Color::MATRIX_BT601;
+      break;
+    case COLOR_MATRIX_240M:
+      ret = C2Color::MATRIX_240M;
+      break;
+    case COLOR_MATRIX_BT2020:
+      ret = C2Color::MATRIX_BT2020;
+      break;
+    case COLOR_MATRIX_BT2020_CONSTANT:
+      ret = C2Color::MATRIX_BT2020_CONSTANT;
+      break;
+    default:
+      ret = C2Color::MATRIX_UNSPECIFIED;
+      break;
+  }
+  return ret;
+}
+C2Color::range_t toC2FullRange (FULL_RANGE full_range) {
+  C2Color::range_t ret = C2Color::RANGE_UNSPECIFIED;
+  switch (full_range) {
+    case COLOR_RANGE_FULL:
+      ret = C2Color::RANGE_FULL;
+      break;
+    case COLOR_RANGE_LIMITED:
+      ret = C2Color::RANGE_LIMITED;
+      break;
+    default:
+      ret = C2Color::RANGE_UNSPECIFIED;
+      break;
+  }
+  return ret;
+}
+
 
 } // namespace QTI
 

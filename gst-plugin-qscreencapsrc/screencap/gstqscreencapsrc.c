@@ -72,13 +72,10 @@ typedef struct
 
 }TGA_HEADER;
 #pragma pack()
-#define GST_QSCREENCAP_SRC_TEMPLATE_CAP \
-    GST_VIDEO_CAPS_MAKE("RGBA")";"\
-    GST_VIDEO_CAPS_MAKE("RGBA_UBWC")
 
 static GstStaticPadTemplate src_factory =
 GST_STATIC_PAD_TEMPLATE ("src", GST_PAD_SRC, GST_PAD_ALWAYS,
-    GST_STATIC_CAPS (GST_QSCREENCAP_SRC_TEMPLATE_CAP));
+    GST_STATIC_CAPS (GST_VIDEO_CAPS_MAKE ("RGBA")));
 
 enum
 {
@@ -579,22 +576,13 @@ gst_qscreencap_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
 
   GST_DEBUG ("width = %d, height=%d", width, height);
 
-  return gst_caps_new_full (
-      gst_structure_new ("video/x-raw",
-      "format",G_TYPE_STRING,"RGBA_UBWC",
+  return gst_caps_new_simple ("video/x-raw",
+      "format", G_TYPE_STRING, "RGBA",
       "width", G_TYPE_INT, width,
       "height", G_TYPE_INT, height,
       "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
       "pixel-aspect-ratio", GST_TYPE_FRACTION, 1,
-      1, NULL),
-      gst_structure_new ("video/x-raw",
-      "format",G_TYPE_STRING,"RGBA",
-      "width", G_TYPE_INT, width,
-      "height", G_TYPE_INT, height,
-      "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
-      "pixel-aspect-ratio", GST_TYPE_FRACTION, 1,
-      1, NULL),
-      NULL);
+      1, NULL);
 }
 
 static gboolean
@@ -603,7 +591,6 @@ gst_qscreencap_src_set_caps (GstBaseSrc * bs, GstCaps * caps)
   GstQScreenCapSrc *s = GST_QSCREENCAP_SRC (bs);
   GstStructure *structure;
   const GValue *new_fps;
-  char* format = NULL;
 
   /* If not yet opened, disallow setcaps until later */
   if (!s->qctx)
@@ -620,17 +607,7 @@ gst_qscreencap_src_set_caps (GstBaseSrc * bs, GstCaps * caps)
   s->fps_d = gst_value_get_fraction_denominator (new_fps);
 
   GST_DEBUG_OBJECT (s, "peer wants %d/%d fps", s->fps_n, s->fps_d);
-  format = gst_structure_get_string(structure, "format");
-  if (!format)
-    return FALSE;
-  if(strstr(format, "RGBA_UBWC")){
-    s->qctx->format = GST_VIDEO_FORMAT_RGBA_UBWC;
-  }
-  else if(strstr(format, "RGBA")) {
-    s->qctx->format = GST_VIDEO_FORMAT_RGBA;
-  }
-  else
-    return FALSE;
+
   return TRUE;
 }
 

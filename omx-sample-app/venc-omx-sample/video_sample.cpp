@@ -121,6 +121,7 @@ int32_t m_TestMode = 0;
 
 int32_t m_MetadataMode = 0;
 
+unsigned long long m_CpuOccupyStartTime = 0;
 int m_Pid = 0;
 
 int mDynamicConfigNum = 0;
@@ -1144,13 +1145,13 @@ void PrintStatisticalData() {
 void PrintCPUData() {
   FUNCTION_ENTER();
 
-  VLOGP("\n\n=======================CPU Data before init=====================");
+  VLOGP("\n\n=======================CPU Data=====================");
   VLOGP("Occupied physical memory: %d", GetPhysicalMem(m_Pid));
   VLOGP("Total system memory: %d", GetTotalMem());
-  VLOGP("CPU time of a process: %d", GetCpuProcessOccupy(m_Pid));
-  VLOGP("Total CPU time: %d", GetCpuTotalOccupy());
-  VLOGP("Process CPU usage: %f", GetProcessCpu(m_Pid));
-  VLOGP("Process memory usage: %f", GetProcessMem(m_Pid));
+  VLOGP("CPU time of a process: %llu", GetCpuProcessOccupy(m_Pid));
+  VLOGP("Total CPU time: %llu", GetCpuTotalOccupy() - m_CpuOccupyStartTime);
+  VLOGP("Process CPU usage: %f%", GetProcessCpu(m_Pid, m_CpuOccupyStartTime));
+  VLOGP("Process memory usage: %f%", GetProcessMem(m_Pid));
   VLOGP("\n===========================================================\n\n");
 
   FUNCTION_EXIT();
@@ -1160,13 +1161,23 @@ int main(int argc, char **argv) {
   int status = 0;
   bool ret = false;
 
+  if (argc < 2) {
+    printf("===================================\n");
+    printf("To use it: ./venc-omx-sample --help\n");
+    printf("===================================\n");
+    exit(0);
+  } else if (argc == 2 && !strcmp(argv[1], "--help")) {
+    Help();
+    exit(0);
+  }
+
+  FUNCTION_ENTER();
+  printf("\nVideo encode sample app start...\n");
+
   pthread_mutex_init(&m_PrintTimeMutex, NULL);
   gettimeofday(&m_StartTime, NULL);
 
-  VLOGE("Video encode sample app start...");
-
-  FUNCTION_ENTER();
-
+  m_CpuOccupyStartTime = GetCpuTotalOccupy();
   m_Pid = getpid();
   PrintCPUData();
 
@@ -1228,7 +1239,7 @@ int main(int argc, char **argv) {
   PrintStatisticalData();
   PrintDynamicalData();
 
-  VLOGE("Video encode sample app finished...");
+  printf("\nVideo encode sample app finished...\n");
 
   FUNCTION_EXIT();
   return 0;

@@ -36,38 +36,15 @@
 #endif
 #include <stdint.h>
 
+#include "gbm.h"
+#include "gbm_priv.h"
+#include "C2DColorConverter.h"
 #define ALIGN4K 4096
 #define ALIGN128 128
 #define ALIGN64 64
 #define ALIGN32 32
 #define ALIGN16 16
 #define ALIGN( num, to ) (((num) + (to-1)) & (~(to-1)))
-
-#define GBM_ERROR_NONE                              0x0
-#define GBM_PERFORM_GET_BO_SIZE                     0x8 /*Query BO buffer size*/
-#define GBM_PERFORM_GET_METADATA_ION_FD             0x24 /* Get Metadata ion fd from BO*/
-#define __gbm_fourcc_code(a,b,c,d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | \
-                              ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
-
-#define GBM_FORMAT_ARGB8888 __gbm_fourcc_code('A', 'R', '2', '4') /* [31:0] A:R:G:B 8:8:8:8 little endian */
-#define GBM_FORMAT_RGBA8888 __gbm_fourcc_code('R', 'A', '2', '4') /* [31:0] R:G:B:A 8:8:8:8 little endian */
-#define GBM_FORMAT_NV12     __gbm_fourcc_code('N', 'V', '1', '2') /* 2x2 subsampled Cr:Cb plane */
-
-enum ColorConvertFormat {
-    RGB565 = 1,
-    YCbCr420Tile,
-    YCbCr420SP,
-    YCbCr420P,
-    YCrCb420P,
-    RGBA8888,
-    RGBA8888_NO_PREMULTIPLIED,
-    ARGB8888,
-    ARGB8888_NO_PREMULTIPLIED,
-    NV12_2K,
-    NV12_128m,
-    NV12_UBWC,
-    CbYCrY,
-};
 
 typedef struct C2DBuffer{
     int fd;
@@ -82,52 +59,6 @@ typedef struct C2DBuffer{
     void *ptr;
 }C2DBuffer;
 
-typedef struct {
-    int32_t numerator;
-    int32_t denominator;
-} C2DBytesPerPixel;
-
-typedef struct {
-  int32_t width;
-  int32_t height;
-  int32_t stride;
-  int32_t sliceHeight;
-  int32_t lumaAlign;
-  int32_t sizeAlign;
-  int32_t size;
-  C2DBytesPerPixel bpp;
-} C2DBuffReq;
-
-typedef enum {
-  C2D_INPUT = 0,
-  C2D_OUTPUT,
-} C2D_PORT;
-
-enum gbm_bo_flags {
-   /**
-    * Buffer is going to be presented to the screen using an API such as KMS
-    */
-   GBM_BO_USE_SCANOUT      = (1 << 0),
-   /**
-    * Buffer is going to be used as cursor
-    */
-   GBM_BO_USE_CURSOR       = (1 << 1),
-   /**
-    * Deprecated
-    */
-   GBM_BO_USE_CURSOR_64X64 = GBM_BO_USE_CURSOR,
-   /**
-    * Buffer is to be used for rendering - for example it is going to be used
-    * as the storage for a color buffer
-    */
-   GBM_BO_USE_RENDERING    = (1 << 2),
-   /**
-    * Buffer can be used for gbm_bo_write.  This is guaranteed to work
-    * with GBM_BO_USE_CURSOR. but may not work for other combinations.
-    */
-   GBM_BO_USE_WRITE    = (1 << 3),
-};
-
 class C2DColorConverterBase {
 
 public:
@@ -135,7 +66,6 @@ public:
     virtual int convertC2D(int srcFd, void *srcBase, void * srcData, int dstFd, void *dstBase, void * dstData) = 0;
     virtual int32_t getBuffReq(int32_t port, C2DBuffReq *req) = 0;
     virtual int32_t dumpOutput(char * filename, char mode) = 0;
-    virtual int32_t dumpInput(char * filename, char mode) = 0;
     virtual int SourceCrop(int x, int y, size_t srcWidth, size_t srcHeight) = 0;
     virtual int SetSourceConfigFlags(int flags) = 0;
     virtual int SetBlend(int x, int y, size_t srcWidth, size_t srcHeight, size_t dstWidth, size_t dstHeight, ColorConvertFormat srcFormat, ColorConvertFormat dstFormat) = 0;
@@ -169,13 +99,10 @@ public:
                ColorConvertFormat src, ColorConvertFormat dest);
 
 private:
-    C2DColorConverterBase *m_c2d_conv;
+    C2DColorConverter *m_c2d_conv;
     pthread_mutex_t m_lock;
-    void *m_handle;
     void *m_gbmhandle;
     ColorConvertFormat m_src_format;
-    createC2DColorConverter_t *mOpen;
-    destroyC2DColorConverter_t *mClose;
     int m_gbm_client_fd;
     int (*gbm_bo_get_fd)(struct gbm_bo *bo);
     int (*gbm_perform )(int operation,...);
