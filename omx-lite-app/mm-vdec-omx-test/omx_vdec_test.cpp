@@ -635,24 +635,16 @@ void* fbd_thread(void* pArg)
   while(currentStatus != ERROR_STATE && !bOutputEosReached)
   {
     pthread_mutex_unlock(&eos_lock);
-    DEBUG_PRINT("Inside %s", __FUNCTION__);
+    DEBUG_PRINT("Inside %s loop", __FUNCTION__);
+
     sem_wait(&fbd_sem);
+
     pthread_mutex_lock(&enable_lock);
+    DEBUG_PRINT("sent_disabled=%d", sent_disabled);
     if (sent_disabled)
     {
       pthread_mutex_unlock(&enable_lock);
       pthread_mutex_lock(&fbd_lock);
-      if (pBuffer != NULL ) {
-        if(push(fbd_queue, (void *)pBuffer))
-          DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
-        else
-          sem_post(&fbd_sem);
-        /* The pBuffer has pushed to fbd queuue, shouldn't be
-         * used in the following context. Because the buffer maybe
-         * old buffer before port reconfigures.
-         */
-        pBuffer = NULL;
-      }
       if (free_op_buf_cnt == portFmt.nBufferCountActual)
         free_output_buffers();
       pthread_mutex_unlock(&fbd_lock);
@@ -660,6 +652,7 @@ void* fbd_thread(void* pArg)
       continue;
     }
     pthread_mutex_unlock(&enable_lock);
+
     pthread_mutex_lock(&fbd_lock);
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
     pthread_mutex_unlock(&fbd_lock);
@@ -728,42 +721,32 @@ void* fbd_thread(void* pArg)
     }
 
     pthread_mutex_lock(&enable_lock);
+    DEBUG_PRINT("sent_disabled=%d", sent_disabled);
     if (sent_disabled)
     {
       pBuffer->nFilledLen = 0;
       pBuffer->nFlags &= ~OMX_BUFFERFLAG_EXTRADATA;
       pthread_mutex_lock(&fbd_lock);
-      if ( pBuffer != NULL ) {
-        if(push(fbd_queue, (void *)pBuffer))
-          DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
-        else
-          sem_post(&fbd_sem);
-      }
-      if(push(fbd_queue, (void *)pBuffer) < 0)
-      {
+      if (push(fbd_queue, (void *)pBuffer))
         DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
-      }
       else
         sem_post(&fbd_sem);
       pthread_mutex_unlock(&fbd_lock);
-    }
-    else
-    {
-      if (pBuffer)
+    } else {
+      pthread_mutex_lock(&fbd_lock);
+      pthread_mutex_lock(&eos_lock);
+      if (!bOutputEosReached)
       {
-        pthread_mutex_lock(&fbd_lock);
-        pthread_mutex_lock(&eos_lock);
-        if (!bOutputEosReached)
-        {
-          if ( OMX_FillThisBuffer(dec_handle, pBuffer) == OMX_ErrorNone ) {
-            free_op_buf_cnt--;
-          }
+        if ( OMX_FillThisBuffer(dec_handle, pBuffer) == OMX_ErrorNone ) {
+          free_op_buf_cnt--;
+          DEBUG_PRINT("pBuffer=%p, free_op_buf_cnt=%u", pBuffer, free_op_buf_cnt);
         }
-        pthread_mutex_unlock(&eos_lock);
-        pthread_mutex_unlock(&fbd_lock);
       }
+      pthread_mutex_unlock(&eos_lock);
+      pthread_mutex_unlock(&fbd_lock);
     }
     pthread_mutex_unlock(&enable_lock);
+
     pthread_mutex_lock(&eos_lock);
   }
 
@@ -927,7 +910,7 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
                              OMX_OUT OMX_PTR pAppData,
                              OMX_OUT OMX_BUFFERHEADERTYPE* pBuffer)
 {
-  DEBUG_PRINT("Inside %s callback_count[%d] ", __FUNCTION__, fbd_cnt);
+  DEBUG_PRINT("Inside %s fbd_cnt=%d, waitForPortSettingsChanged=%d", __FUNCTION__, fbd_cnt, waitForPortSettingsChanged);
 
   /* Test app will assume there is a dynamic port setting
    * In case that there is no dynamic port setting, OMX will not call event cb,
@@ -941,6 +924,7 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
 
   pthread_mutex_lock(&fbd_lock);
   free_op_buf_cnt++;
+  DEBUG_PRINT("pBuffer=%p, free_op_buf_cnt=%u", pBuffer, free_op_buf_cnt);
   if(push(fbd_queue, (void *)pBuffer) < 0)
   {
     pthread_mutex_unlock(&fbd_lock);
@@ -2271,7 +2255,8 @@ void free_output_buffers()
   DEBUG_PRINT(" pOutYUVBufHdrs %p", pOutYUVBufHdrs);
   OMX_BUFFERHEADERTYPE *pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   while (pBuffer) {
-    DEBUG_PRINT(" Free output buffer %p", pBuffer);
+    free_op_buf_cnt--;
+    DEBUG_PRINT(" Free output buffer %p, free_op_buf_cnt=%u", pBuffer, free_op_buf_cnt);
     OMX_FreeBuffer(dec_handle, 1, pBuffer);
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   }
