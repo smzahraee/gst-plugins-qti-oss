@@ -31,6 +31,8 @@ IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <dlfcn.h>
 
 #define SymOEMCryptoLib "libcontentcopy.so"
+#define SymOEMCryptoAppName "smpcpyap64"
+#define SymOEMCryptoSetAppName "Content_Protection_Set_AppName"
 #define SymOEMCryptoInit "Content_Protection_Copy_Init"
 #define SymOEMCryptoTerminate "Content_Protection_Copy_Terminate"
 #define SymOEMCryptoCopy "Content_Protection_Copy"
@@ -40,6 +42,7 @@ OMX_ERRORTYPE crypto_init(Crypto *crypto) {
     crypto->m_lib_handle = NULL;
     crypto->m_secure_handle = NULL;
     crypto->m_crypto_init = NULL;
+    crypto->m_crypto_set_appname = NULL;
     crypto->m_crypto_deinit = NULL;
     crypto->m_crypto_copy = NULL;
     GST_ERROR ("Crypto init");
@@ -47,6 +50,12 @@ OMX_ERRORTYPE crypto_init(Crypto *crypto) {
     if (result == OMX_ErrorNone) {
         if (crypto->m_crypto_init) {
             result = (OMX_ERRORTYPE)crypto->m_crypto_init(&crypto->m_secure_handle);
+            if (crypto->m_crypto_set_appname) {
+                result = (OMX_ERRORTYPE)crypto->m_crypto_set_appname(SymOEMCryptoAppName);
+            } else {
+                GST_ERROR("Invalid method handle to OEMCryptoSetAppName");
+                result = OMX_ErrorBadParameter;
+            }
         } else {
             GST_ERROR("Invalid method handle to OEMCryptoInit");
             result = OMX_ErrorBadParameter;
@@ -106,6 +115,12 @@ OMX_ERRORTYPE load_crypto_lib(Crypto *crypto) {
         return OMX_ErrorUndefined;
     }
 
+    crypto->m_crypto_set_appname = (Crypto_Init)dlsym(crypto->m_lib_handle, SymOEMCryptoSetAppName);
+    if (crypto->m_crypto_set_appname == NULL) {
+        GST_ERROR("Failed to find symbol for OEMCryptoInit: %s", dlerror());
+        result = OMX_ErrorUndefined;
+    }
+
     crypto->m_crypto_init = (Crypto_Init)dlsym(crypto->m_lib_handle, SymOEMCryptoInit);
     if (crypto->m_crypto_init == NULL) {
         GST_ERROR("Failed to find symbol for OEMCryptoInit: %s", dlerror());
@@ -139,6 +154,7 @@ void unload_crypto_lib(Crypto *crypto) {
         crypto->m_secure_handle = NULL;
     }
     crypto->m_crypto_init = NULL;
+    crypto->m_crypto_set_appname = NULL;
     crypto->m_crypto_deinit = NULL;
     crypto->m_crypto_copy = NULL;
 }
