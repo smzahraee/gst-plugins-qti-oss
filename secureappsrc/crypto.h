@@ -67,6 +67,7 @@ typedef enum SecureCopyDir {
 } SecureCopyDir;
 
 
+typedef SecureCopyResult(*Crypto_Set_AppName)(const char *name);
 typedef SecureCopyResult(*Crypto_Init)(struct secure_handle **);
 typedef SecureCopyResult(*Crypto_Deinit)(struct secure_handle **);
 typedef SecureCopyResult(*Crypto_Copy)(struct secure_handle *,
@@ -78,6 +79,7 @@ typedef struct Crypto {
     void *m_lib_handle;
     secure_handle *m_secure_handle;
     Crypto_Init m_crypto_init;
+    Crypto_Set_AppName m_crypto_set_appname;
     Crypto_Deinit m_crypto_deinit;
     Crypto_Copy m_crypto_copy;
 } Crypto;
