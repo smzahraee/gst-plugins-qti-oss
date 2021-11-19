@@ -71,6 +71,7 @@ std::unique_ptr<C2Param> setDownscale (gpointer param);
 std::unique_ptr<C2Param> setEncColorSpaceConv (gpointer param);
 std::unique_ptr<C2Param> setColorAspectsInfo (gpointer param);
 std::unique_ptr<C2Param> setIntraRefresh (gpointer param);
+std::unique_ptr<C2Param> setSliceMode (gpointer param);
 
 // Function map for parameter configuration
 static configFunctionMap sConfigFunctionMap = {
@@ -86,6 +87,7 @@ static configFunctionMap sConfigFunctionMap = {
     {CONFIG_FUNCTION_KEY_ENC_CSC, setEncColorSpaceConv},
     {CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO, setColorAspectsInfo},
     {CONFIG_FUNCTION_KEY_INTRAREFRESH, setIntraRefresh},
+    {CONFIG_FUNCTION_KEY_SLICE_MODE, setSliceMode},
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -216,6 +218,24 @@ std::unique_ptr<C2Param> setOutputPictureOrderMode (gpointer param) {
     if (config->output_picture_order_mode == DECODER_ORDER)
         outputPictureOrderMode.enable = C2_TRUE;
     return C2Param::Copy(outputPictureOrderMode);
+}
+
+std::unique_ptr<C2Param> setSliceMode (gpointer param) {
+    if (param == NULL)
+        return nullptr;
+
+    ConfigParams* config = (ConfigParams*)param;
+    if (config->SliceMode.type == SLICE_MODE_BYTES) {
+        qc2::C2VideoSliceSizeBytes::output SliceModeBytes;
+        SliceModeBytes.value = config->val.u32;
+        return C2Param::Copy(SliceModeBytes);
+    } else if (config->SliceMode.type == SLICE_MODE_MB) {
+        qc2::C2VideoSliceSizeMBCount::output SliceModeMb;
+        SliceModeMb.value = config->val.u32;
+        return C2Param::Copy(SliceModeMb);
+    } else {
+        return nullptr;
+    }
 }
 
 std::unique_ptr<C2Param> setDecLowLatency (gpointer param) {
@@ -353,8 +373,9 @@ void CodecCallback::onOutputBufferAvailable (
             guint64 usage = 0;
             guint32 size = 0;
             guint32 format = 0;
+            guint64 bo = 0;
 
-            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &outBuf.width, &outBuf.height, &format, &usage, &stride, &size);
+            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &outBuf.width, &outBuf.height, &format, &usage, &stride, &size, &bo);
 
             outBuf.size = size;
             if (mMapBufferToCpu) {

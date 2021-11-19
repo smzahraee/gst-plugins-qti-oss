@@ -58,6 +58,7 @@ G_DEFINE_TYPE (Gstqticodec2venc, gst_qticodec2venc, GST_TYPE_VIDEO_ENCODER);
 #define GST_TYPE_CODEC2_ENC_TRANSFER_CHAR (gst_qticodec2venc_transfer_characteristics_get_type())
 #define GST_TYPE_CODEC2_ENC_FULL_RANGE (gst_qticodec2venc_full_range_get_type())
 #define GST_TYPE_CODEC2_ENC_INTRA_REFRESH_MODE (gst_qticodec2venc_intra_refresh_mode_get_type ())
+#define GST_TYPE_CODEC2_ENC_SLICE_MODE (gst_qticodec2venc_slice_mode_get_type ())
 #define parent_class gst_qticodec2venc_parent_class
 #define NANO_TO_MILLI(x)  ((x) / 1000)
 #define EOS_WAITING_TIMEOUT 5
@@ -83,6 +84,8 @@ enum
   PROP_INTRA_REFRESH_MODE,
   PROP_INTRA_REFRESH_MBS,
   PROP_TARGET_BITRATE,
+  PROP_SLICE_MODE,
+  PROP_SLICE_SIZE,
 };
 
 /* GstVideoEncoder base class method */
@@ -265,6 +268,19 @@ make_downscale_param (guint32 width, guint32 height) {
 }
 
 static ConfigParams
+make_slicemode_param (guint32 size, SLICE_MODE mode) {
+  ConfigParams param;
+
+  memset(&param, 0, sizeof(ConfigParams));
+
+  param.config_name = CONFIG_FUNCTION_KEY_SLICE_MODE;
+  param.val.u32 = size;
+  param.SliceMode.type = mode;
+
+  return param;
+}
+
+static ConfigParams
 make_colorSpaceConv_param (gboolean csc) {
   ConfigParams param;
 
@@ -355,6 +371,24 @@ gst_qticodec2venc_mirror_get_type (void)
     };
 
     qtype = g_enum_register_static ("GstCodec2VencMirror", values);
+  }
+  return qtype;
+}
+
+static GType
+gst_qticodec2venc_slice_mode_get_type (void)
+{
+  static GType qtype = 0;
+
+  if (qtype == 0) {
+    static const GEnumValue values[] = {
+      {SLICE_MODE_DISABLE,       "Slice Mode Disable", "disable"},
+      {SLICE_MODE_MB,   "Slice Mode MB", "MB"},
+      {SLICE_MODE_BYTES, "Slice Mode Bytes", "bytes"},
+      {0,                 NULL, NULL}
+    };
+
+    qtype = g_enum_register_static ("GstCodec2VencSliceMode", values);
   }
   return qtype;
 }
@@ -717,6 +751,7 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   ConfigParams color_aspects;
   ConfigParams intra_refresh;
   ConfigParams bitrate;
+  ConfigParams slice_mode;
 
   GST_DEBUG_OBJECT (enc, "set_format");
 
@@ -812,6 +847,11 @@ gst_qticodec2venc_set_format (GstVideoEncoder* encoder, GstVideoCodecState* stat
   if (enc->downscale_width > 0 && enc->downscale_height > 0) {
     downscale = make_downscale_param (enc->downscale_width, enc->downscale_height);
     g_ptr_array_add (config, &downscale);
+  }
+
+  if (enc->slice_mode != SLICE_MODE_DISABLE) {
+    slice_mode = make_slicemode_param(enc->slice_size, enc->slice_mode);
+    g_ptr_array_add (config, &slice_mode);
   }
 
   if (enc->color_space_conversion) {
@@ -1328,6 +1368,12 @@ gst_qticodec2venc_set_property (GObject* object, guint prop_id,
     case PROP_TARGET_BITRATE:
       enc->target_bitrate = g_value_get_uint (value);
       break;
+    case PROP_SLICE_SIZE:
+      enc->slice_size = g_value_get_uint (value);
+      break;
+    case PROP_SLICE_MODE:
+      enc->slice_mode = g_value_get_enum (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1384,6 +1430,12 @@ gst_qticodec2venc_get_property (GObject* object, guint prop_id,
       break;
     case PROP_TARGET_BITRATE:
       g_value_set_uint (value, enc->target_bitrate);
+      break;
+    case PROP_SLICE_SIZE:
+      g_value_set_uint (value, enc->slice_size);
+      break;
+    case PROP_SLICE_MODE:
+      g_value_set_enum (value, enc->slice_mode);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1538,6 +1590,21 @@ gst_qticodec2venc_class_init (Gstqticodec2vencClass* klass) {
   g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_TARGET_BITRATE,
       g_param_spec_uint ("target-bitrate", "Target bitrate",
           "Target bitrate in bits per second (0 means not explicitly set bitrate)",
+          0, G_MAXUINT, 0,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (gobject_class, PROP_SLICE_MODE,
+      g_param_spec_enum ("slice-mode", "slice mode",
+          "Slice mode, support MB and BYTES mode",
+          GST_TYPE_CODEC2_ENC_SLICE_MODE,
+          SLICE_MODE_DISABLE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (G_OBJECT_CLASS(klass), PROP_SLICE_SIZE,
+      g_param_spec_uint ("slice-size", "Slice size",
+          "Slice size, just set when slice mode setting to MB or Bytes",
           0, G_MAXUINT, 0,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));

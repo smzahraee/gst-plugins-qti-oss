@@ -272,7 +272,7 @@ std::shared_ptr<C2Buffer> C2ComponentAdapter::alloc(BufferDescriptor* buffer) {
                 guint64 usage = 0;
                 guint32 size = 0;
 
-                _UnwrapNativeCodec2GBMMetadata (graphic_block->handle(), &width, &height, &format, &usage, &stride, &size);
+                _UnwrapNativeCodec2GBMMetadata (graphic_block->handle(), &width, &height, &format, &usage, &stride, &size, NULL);
                 buffer->capacity = size;
                 LOG_MESSAGE("allocated C2Buffer, fd: %d capacity: %d", fd, buffer->capacity);
             }
