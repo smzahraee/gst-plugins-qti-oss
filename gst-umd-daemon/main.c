@@ -1444,7 +1444,7 @@ static bool
 disable_camera_stream (void * userdata)
 {
   GstServiceContext *srvctx = GST_SERVICE_CONTEXT_CAST (userdata);
-  GstState state = GST_STATE_READY;
+  GstState state = GST_STATE_NULL;
 
   if (!update_pipeline_state (srvctx->vpipeline, srvctx->pipemsgs, state)) {
     g_printerr ("\nFailed to update video pipeline state!\n");
@@ -1487,7 +1487,7 @@ set_contrast_property (GstElement * element, guint16 contrast)
   GValue value = G_VALUE_INIT;
 
   g_value_init (&value, G_TYPE_INT);
-  g_value_set_int (&value, ((contrast * 2) - 100));
+  g_value_set_int (&value, contrast);
 
   g_object_set_property (G_OBJECT (element), "contrast", &value);
 }
@@ -1500,7 +1500,7 @@ get_contrast_property (GstElement * element, guint16 * contrast)
   g_value_init (&value, G_TYPE_INT);
   g_object_get_property (G_OBJECT (element), "contrast", &value);
 
-  *contrast = (g_value_get_int (&value) + 100) / 2;
+  *contrast = g_value_get_int (&value);
 }
 
 static void
@@ -1895,11 +1895,15 @@ set_zoom_property (GstElement * element, guint16 magnification,
   zoom.w = (sensor.w - sensor.x) / (magnification / 100.0);
   zoom.h = (sensor.h - sensor.y) / (magnification / 100.0);
 
+  // Normalize to degrees and shift range from 0-49 (25 is 0) to (-25)-24.
+  pan = (pan / 3600) - 25;
+  tilt = (tilt / 3600) - 25;
+
   zoom.x = ((sensor.w - sensor.x) - zoom.w) / 2;
-  zoom.x += zoom.x * pan / (100.0 * 3600);
+  zoom.x += zoom.x * ((pan > 0) ? (pan / 24.0) : (pan / 25.0));
 
   zoom.y = ((sensor.h - sensor.y) - zoom.h) / 2;
-  zoom.y += zoom.y * tilt / (100.0 * 3600);
+  zoom.y += zoom.y * ((tilt > 0) ? (tilt / 24.0) : (tilt / 25.0));
 
   g_value_unset (&value);
   g_value_init (&value, GST_TYPE_ARRAY);

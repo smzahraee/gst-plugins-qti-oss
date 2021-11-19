@@ -78,6 +78,7 @@ GST_DEBUG_CATEGORY_STATIC (qmmfsrc_debug);
 #define DEFAULT_PROP_CAMERA_LOCAL_TONE_MAPPING        NULL
 #define DEFAULT_PROP_CAMERA_NOISE_REDUCTION_TUNING    NULL
 #define DEFAULT_PROP_CAMERA_IR_MODE                   IR_MODE_OFF
+#define DEFAULT_PROP_CAMERA_SENSOR_MODE               -1
 
 static void gst_qmmfsrc_child_proxy_init (gpointer g_iface, gpointer data);
 
@@ -131,6 +132,7 @@ enum
   PROP_CAMERA_LOCAL_TONE_MAPPING,
   PROP_CAMERA_IR_MODE,
   PROP_CAMERA_ACTIVE_SENSOR_SIZE,
+  PROP_CAMERA_SENSOR_MODE,
 };
 
 static GstStaticPadTemplate qmmfsrc_video_src_template =
@@ -861,6 +863,10 @@ qmmfsrc_set_property (GObject * object, guint property_id,
       gst_qmmf_context_set_camera_param (qmmfsrc->context,
           PARAM_CAMERA_IR_MODE, value);
       break;
+    case PROP_CAMERA_SENSOR_MODE:
+      gst_qmmf_context_set_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_SENSOR_MODE, value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -1003,6 +1009,10 @@ qmmfsrc_get_property (GObject * object, guint property_id, GValue * value,
       gst_qmmf_context_get_camera_param (qmmfsrc->context,
           PARAM_CAMERA_ACTIVE_SENSOR_SIZE, value);
       break;
+    case PROP_CAMERA_SENSOR_MODE:
+      gst_qmmf_context_get_camera_param (qmmfsrc->context,
+          PARAM_CAMERA_SENSOR_MODE, value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -1116,7 +1126,7 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
           GST_PARAM_MUTABLE_PLAYING));
   g_object_class_install_property (gobject, PROP_CAMERA_CONTRAST,
       g_param_spec_int ("contrast", "Contrast",
-          "Image Contrast Strength", -100, 100, DEFAULT_PROP_CAMERA_CONTRAST,
+          "Image Contrast Strength", 1, 10, DEFAULT_PROP_CAMERA_CONTRAST,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
   g_object_class_install_property (gobject, PROP_CAMERA_SATURATION,
@@ -1249,6 +1259,11 @@ qmmfsrc_class_init (GstQmmfSrcClass * klass)
               G_PARAM_READABLE | G_PARAM_STATIC_STRINGS),
           G_PARAM_READABLE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
+  g_object_class_install_property (gobject, PROP_CAMERA_SENSOR_MODE,
+      g_param_spec_int ("sensor-mode", "Sensor Mode",
+          "Force set Sensor Mode index (0-15). -1 for Auto selection",
+          -1, 15, DEFAULT_PROP_CAMERA_SENSOR_MODE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
 
   signals[SIGNAL_CAPTURE_IMAGE] =
