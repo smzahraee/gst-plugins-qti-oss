@@ -35,10 +35,9 @@
 #include <gst/video/gstvideodecoder.h>
 #include <gst/video/gstvideopool.h>
 #include <gst/allocators/allocators.h>
+#include <gst/allocators/gstdmabuf.h>
 
 G_BEGIN_DECLS
-
-#define GST_CAPS_FEATURE_MEMORY_DMA "memory:DMABuf"
 
 #define QTICODEC2VDEC_SINK_WH_CAPS    \
   "width  = (int) [ 32, 8192 ], "     \
@@ -67,6 +66,40 @@ G_BEGIN_DECLS
 
 typedef struct _Gstqticodec2vdec      Gstqticodec2vdec;
 typedef struct _Gstqticodec2vdecClass Gstqticodec2vdecClass;
+
+typedef struct _Gstqticodec2vdecBufferPool Gstqticodec2vdecBufferPool;
+typedef struct _Gstqticodec2vdecBufferPoolClass Gstqticodec2vdecBufferPoolClass;
+
+/* buffer pool functions */
+#define GST_TYPE_QTICODEC2VDEC_BUFFER_POOL      (gst_qticodec2vdec_buffer_pool_get_type())
+#define GST_IS_QTICODEC2VDEC_BUFFER_POOL(obj)   (G_TYPE_CHECK_INSTANCE_TYPE ((obj), GST_TYPE_QTICODEC2VDEC_BUFFER_POOL))
+#define GST_QTICODEC2VDEC_BUFFER_POOL(obj)      (G_TYPE_CHECK_INSTANCE_CAST ((obj), GST_TYPE_QTICODEC2VDEC_BUFFER_POOL, Gstqticodec2vdecBufferPool))
+#define GST_QTICODEC2VDEC_BUFFER_POOL_CAST(obj) ((Gstqticodec2vdecBufferPool*)(obj))
+
+struct _Gstqticodec2vdecBufferPool
+{
+  GstBufferPool bufferpool;
+  Gstqticodec2vdec *qticodec2vdec;
+  GstAllocator *allocator;
+  GHashTable *buffer_table;
+};
+
+struct _Gstqticodec2vdecBufferPoolClass
+{
+  GstBufferPoolClass parent_class;
+};
+
+typedef struct GstBufferPoolAcquireParamsExt {
+  GstBufferPoolAcquireParams params;
+  gint32 fd;
+  gint32 meta_fd;
+  guint64 index;
+  guint32 size;
+} GstBufferPoolAcquireParamsExt;
+
+GType gst_qticodec2vdec_buffer_pool_get_type (void);
+GstBufferPool *gst_qticodec2vdec_buffer_pool_new (Gstqticodec2vdec * qticodec2vdec, GstAllocator * allocator,
+                                                            GHashTable *buffer_table);
 
 /* Maximum number of input frame queued */
 #define MAX_QUEUED_FRAME  64
@@ -109,6 +142,7 @@ struct _Gstqticodec2vdec
   GCond  pending_cond;
   struct timeval start_time;
   struct timeval first_frame_time;
+  GstBufferPool *out_port_pool;
 };
 
 /*

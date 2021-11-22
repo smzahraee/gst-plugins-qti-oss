@@ -42,17 +42,20 @@
 
 #include "gstqticodec2vdec.h"
 #include "codec2wrapper.h"
-
+#include <media/msm_media_info.h>
 
 GST_DEBUG_CATEGORY_STATIC (gst_qticodec2vdec_debug);
 #define GST_CAT_DEFAULT gst_qticodec2vdec_debug
 
 /* class initialization */
 G_DEFINE_TYPE (Gstqticodec2vdec, gst_qticodec2vdec, GST_TYPE_VIDEO_DECODER);
+G_DEFINE_TYPE (Gstqticodec2vdecBufferPool, gst_qticodec2vdec_buffer_pool,
+    GST_TYPE_BUFFER_POOL);
 
 #define parent_class gst_qticodec2vdec_parent_class
 #define NANO_TO_MILLI(x)  ((x) / 1000)
 #define EOS_WAITING_TIMEOUT 5
+#define QCODEC2_MIN_OUTBUFFERS 6
 
 #define GST_QTI_CODEC2_DEC_OUTPUT_PICTURE_ORDER_MODE_DEFAULT    (0xffffffff)
 #define GST_QTI_CODEC2_DEC_LOW_LATENCY_MODE_DEFAULT             (FALSE)
@@ -80,6 +83,7 @@ static gboolean gst_qticodec2vdec_open (GstVideoDecoder* decoder);
 static gboolean gst_qticodec2vdec_close (GstVideoDecoder* decoder);
 static gboolean gst_qticodec2vdec_src_query (GstVideoDecoder* decoder, GstQuery* query);
 static gboolean gst_qticodec2vdec_sink_query (GstVideoDecoder* decoder, GstQuery* query);
+static gboolean gst_qticodec2vdec_decide_allocation (GstVideoDecoder *decoder, GstQuery * query);
 
 static void gst_qticodec2vdec_set_property (GObject* object, guint prop_id, const GValue* value, GParamSpec* pspec);
 static void gst_qticodec2vdec_get_property (GObject* object, guint prop_id, GValue* value, GParamSpec* pspec);
@@ -93,6 +97,7 @@ static GstFlowReturn gst_qticodec2vdec_decode (GstVideoDecoder * decoder, GstVid
 static GstFlowReturn gst_qticodec2vdec_setup_output (GstVideoDecoder * decoder, GPtrArray* config);
 static GstBuffer* gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor* buffer);
 static void gst_video_decoder_buffer_release (GstStructure* structure);
+static gboolean gst_qticodec2vdec_caps_has_feature (const GstCaps * caps, const gchar * partten);
 
 /* pad templates */
 static GstStaticPadTemplate gst_qtivdec_sink_template =
@@ -122,9 +127,9 @@ static GstStaticPadTemplate gst_qtivdec_src_template =
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS (
-    QTICODEC2VDEC_RAW_CAPS_WITH_FEATURES(GST_CAPS_FEATURE_MEMORY_DMA,"{ NV12_UBWC }")
+    QTICODEC2VDEC_RAW_CAPS_WITH_FEATURES(GST_CAPS_FEATURE_MEMORY_DMABUF,"{ NV12_UBWC }")
      ";"
-    QTICODEC2VDEC_RAW_CAPS_WITH_FEATURES(GST_CAPS_FEATURE_MEMORY_DMA,"{ NV12 }")
+    QTICODEC2VDEC_RAW_CAPS_WITH_FEATURES(GST_CAPS_FEATURE_MEMORY_DMABUF,"{ NV12 }")
      ";"
     QTICODEC2VDEC_RAW_CAPS("{ NV12 }")
      ";"
@@ -384,18 +389,9 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GPtrArray* config) {
   gst_caps_set_value (intersection, "height", &g_height);
 
   /* Check if fixed caps supports DMA buffer */
-  if (intersection) {
-    GstCapsFeatures *feature = gst_caps_get_features(intersection, 0);
-
-    if (feature) {
-      GST_DEBUG_OBJECT (dec, "peer caps feature: %s",
-          gst_caps_features_to_string(feature));
-
-      if (gst_caps_features_contains(feature, GST_CAPS_FEATURE_MEMORY_DMA)) {
-        dec->downstream_supports_dma = TRUE;
-        GST_DEBUG_OBJECT (dec, "Downstream supports DMA buffer");
-      }
-    }
+  if (gst_qticodec2vdec_caps_has_feature (intersection, GST_CAPS_FEATURE_MEMORY_DMABUF)) {
+    dec->downstream_supports_dma = TRUE;
+    GST_DEBUG_OBJECT (dec, "Downstream supports DMA buffer");
   }
 
   GST_INFO_OBJECT (dec, "DMA output feature is %s",
@@ -423,13 +419,6 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GPtrArray* config) {
   GST_INFO_OBJECT (dec, "output caps: %" GST_PTR_FORMAT,
       dec->output_state->caps);
 
-  /* Negotiate caps downstream */
-  if (!gst_video_decoder_negotiate (decoder)) {
-    gst_video_codec_state_unref (dec->output_state);
-    GST_ERROR_OBJECT (dec, "Failed to negotiate");
-    goto error_setup_output;
-  }
-
   dec->outPixelfmt = output_format;
 
   GST_LOG_OBJECT (dec, "output width: %d, height: %d, format: %d",
@@ -445,8 +434,6 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GPtrArray* config) {
   }
 
   GST_DEBUG_OBJECT (dec, "Complete setup output");
-
-  dec->output_setup = TRUE;
 
 done:
   return ret;
@@ -554,13 +541,8 @@ gst_qticodec2vdec_set_format (GstVideoDecoder* decoder, GstVideoCodecState* stat
   }
 
   if (dec->input_setup) {
-    /* Already setup, check to see if something has changed on input caps... */
-    if (g_str_equal(dec->streamformat, streamformat) &&
-        (dec->width == width) && (dec->height == height)) {
-      goto done;                /* Nothing has changed */
-    } else {
-      gst_qticodec2vdec_stop (decoder);
-    }
+      /* Don't handle input format change here */
+      goto done;
   }
 
   if ((mode = gst_structure_get_string (structure, "interlace-mode"))) {
@@ -768,6 +750,153 @@ gst_qticodec2vdec_sink_query (GstVideoDecoder* decoder, GstQuery* query) {
   return ret;
 }
 
+static gboolean
+gst_qticodec2vdec_caps_has_feature (const GstCaps * caps, const gchar * partten)
+{
+  guint count = gst_caps_get_size (caps);
+  gboolean ret = FALSE;
+
+  if (count > 0) {
+    for (gint i = 0; i < count; i++) {
+      GstCapsFeatures *features = gst_caps_get_features (caps, i);
+      if (gst_caps_features_is_any (features))
+        continue;
+      if (gst_caps_features_contains (features, partten)) {
+        ret = TRUE;
+        break;
+      }
+    }
+  }
+
+  return ret;
+}
+
+static void
+destroy_gst_buffer(gpointer data)
+{
+  GstBuffer *gst_buf = (GstBuffer *)data;
+  if (gst_buf) {
+    GST_DEBUG ("destory gst buffer:%p ref_cnt:%d", gst_buf, GST_OBJECT_REFCOUNT(gst_buf));
+    gst_buffer_unref (gst_buf);
+  }
+}
+
+static gboolean gst_qticodec2vdec_decide_allocation (GstVideoDecoder *decoder, GstQuery * query) {
+  GstCaps *outcaps;
+  GstStructure *config;
+  guint size, min, max;
+  gboolean update = FALSE;
+  gboolean use_peer_pool = FALSE;
+  guint method, flag;
+  GstVideoFormat input_format, output_format;
+  gint input_width, input_height, output_width, output_height;
+  GHashTable *buffer_table = NULL;
+  GstBufferPool *out_port_pool = NULL;
+
+  Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
+
+  GST_DEBUG_OBJECT (dec, "decide allocation");
+
+  out_port_pool = dec->out_port_pool;
+
+  GstAllocationParams params = { (GstMemoryFlags) 0 };
+  GstBufferPool *pool = NULL;
+  GstAllocator *allocator = NULL;
+  min = max = size = 0;
+
+  gst_query_parse_allocation (query, &outcaps, NULL);
+
+  GST_DEBUG_OBJECT (dec, "allocation caps: %" GST_PTR_FORMAT, outcaps);
+  GST_DEBUG_OBJECT (dec, "allocation params: %" GST_PTR_FORMAT, query);
+
+  if (gst_query_get_n_allocation_params (query) > 0)
+    gst_query_parse_nth_allocation_param (query, 0, NULL, &params);
+
+  /* Since decoder's output buffer can't be allocated out of C2 framework.
+   * Therefore, can't use buffer pool from downstream. */
+  if (gst_query_get_n_allocation_pools (query) > 0) {
+    update = TRUE;
+    gst_query_parse_nth_allocation_pool (query, 0, &pool, NULL, &min, &max);
+    if (pool) {
+      GST_DEBUG_OBJECT (dec, "discard buffer pool from downstream");
+      gst_object_unref (pool);
+      pool = NULL;
+    }
+  }
+
+  if (gst_qticodec2vdec_caps_has_feature (outcaps, GST_CAPS_FEATURE_MEMORY_DMABUF)) {
+    GST_INFO_OBJECT (dec, "downstream support dma buffer");
+  } else {
+    GST_INFO_OBJECT (dec, "downstream don't support dma buffer, return directly");
+    return FALSE;
+  }
+
+  if (!use_peer_pool) {
+    if (out_port_pool) {
+      gst_object_unref (out_port_pool);
+    }
+
+    allocator = gst_dmabuf_allocator_new ();
+    buffer_table = g_hash_table_new_full (g_int64_hash, g_int64_equal, g_free, destroy_gst_buffer);
+    pool = gst_qticodec2vdec_buffer_pool_new (dec, allocator, buffer_table);
+
+    if (max)
+      max = MAX (MAX (min, max), QCODEC2_MIN_OUTBUFFERS);
+
+    min = MAX (min, QCODEC2_MIN_OUTBUFFERS);
+    /* disable gst buffer pool's allocator, since actual buffer(underlying dma/ion buffer)
+     * is allocated inside of C2 allocator */
+    size = 0;
+
+    config = gst_buffer_pool_get_config (pool);
+
+    GST_DEBUG_OBJECT (dec, "allocation: size:%u min:%u max:%u pool:%"
+        GST_PTR_FORMAT, size, min, max, pool);
+
+    gst_buffer_pool_config_set_params (config, outcaps, size, min, max);
+
+    GST_DEBUG_OBJECT (dec, "setting own pool config to %"
+        GST_PTR_FORMAT, config);
+
+    /* configure own pool */
+    if (!gst_buffer_pool_set_config (pool, config)) {
+      GST_ERROR_OBJECT (dec, "configure our own buffer pool failed");
+      goto cleanup;
+    }
+
+    /* For simplicity, simply read back the active configuration, so our base
+     * class get the right information */
+    config = gst_buffer_pool_get_config (pool);
+    gst_buffer_pool_config_get_params (config, NULL, &size, &min, &max);
+    gst_structure_free (config);
+  }
+
+  GST_DEBUG_OBJECT (dec, "setting pool with size: %d, min: %d, max: %d",
+      size, min, max);
+
+  /* update pool info in the query */
+  if (update) {
+    GST_DEBUG_OBJECT (dec, "update buffer pool");
+    gst_query_set_nth_allocation_pool (query, 0, pool, size, min, max);
+  } else {
+    GST_DEBUG_OBJECT (dec, "new buffer pool");
+    gst_query_add_allocation_pool (query, pool, size, min, max);
+  }
+
+  dec->out_port_pool = pool;
+
+  return TRUE;
+
+cleanup:
+  {
+    if (pool) {
+      gst_object_unref (pool);
+    }
+    return FALSE;
+  }
+
+}
+
 static GstBuffer *
 gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor* decode_buf) {
   GstBuffer* out_buf;
@@ -776,6 +905,9 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
   GstStructure* structure = NULL;
   Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
   guint output_size = decode_buf->size;
+  GstBufferPoolAcquireParamsExt param_ext;
+
+  memset (&param_ext, 0, sizeof(GstBufferPoolAcquireParamsExt));
 
   state = gst_video_decoder_get_output_state (decoder);
   if (state) {
@@ -786,46 +918,55 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
       return NULL;
   }
 
-  if (decode_buf->data) {
-    GST_DEBUG_OBJECT (dec, "wrap buffer: %p, size: %d", decode_buf->data, output_size);
-    out_buf = gst_buffer_new_wrapped_full (0, (gpointer) decode_buf->data, output_size, 0, output_size,
-        NULL, NULL);
-  }
-  else {
-  /* If downstream accepts dma buffer, create a new gst buffer and attach fd/meta_fd into the videometa */
-    out_buf = gst_buffer_new();
+  if (!dec->downstream_supports_dma) {
+    if (decode_buf->data) {
+      GST_DEBUG_OBJECT (dec, "wrap buffer: %p, size: %d", decode_buf->data, output_size);
+      out_buf = gst_buffer_new_wrapped_full (0, (gpointer) decode_buf->data, output_size, 0, output_size,
+          NULL, NULL);
+    }
+  } else {
+    param_ext.fd = decode_buf->fd;
+    param_ext.meta_fd = decode_buf->meta_fd;
+    param_ext.index = decode_buf->index;
+    param_ext.size = decode_buf->size;
+    gst_buffer_pool_acquire_buffer (dec->out_port_pool, &out_buf, (GstBufferPoolAcquireParams*)&param_ext);
   }
 
   if (out_buf) {
-    GstVideoMeta* QGVMeta = NULL;
+     if (!dec->downstream_supports_dma) {
+       GstVideoMeta* QGVMeta = NULL;
 
-    QGVMeta = gst_buffer_get_video_meta(out_buf);
-    if (!QGVMeta) {
-      QGVMeta = gst_buffer_add_video_meta_full (out_buf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (vinfo),
-          GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), GST_VIDEO_INFO_N_PLANES (vinfo),
-          vinfo->offset, vinfo->stride);
-    }
-    QGVMeta->offset[2] = GST_MAKE_FOURCC('Q', 'a','U','T');
-    QGVMeta->offset[3] = output_size;
-    QGVMeta->stride[2] = decode_buf->fd;
-    QGVMeta->stride[3] = decode_buf->meta_fd;
-  }
-  else {
+       QGVMeta = gst_buffer_get_video_meta(out_buf);
+       if (!QGVMeta) {
+         QGVMeta = gst_buffer_add_video_meta_full (out_buf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (vinfo),
+             GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), GST_VIDEO_INFO_N_PLANES (vinfo),
+             vinfo->offset, vinfo->stride);
+       }
+       GST_ERROR_OBJECT (dec, "offset:%ld %ld stride:%d %d", vinfo->offset[0], vinfo->offset[1], vinfo->stride[0], vinfo->stride[1]);
+
+       QGVMeta->offset[2] = GST_MAKE_FOURCC('Q', 'a','U','T');
+       QGVMeta->offset[3] = output_size;
+       QGVMeta->stride[2] = decode_buf->fd;
+       QGVMeta->stride[3] = decode_buf->meta_fd;
+     }
+  } else {
     GST_ERROR_OBJECT (dec, "Fail to allocate output gst buffer");
     goto fail;
   }
 
-  /* Creates a new, empty GstStructure with the given name */
-  structure = gst_structure_new_empty("BUFFER");
-  gst_structure_set (structure,
-      "decoder", G_TYPE_POINTER, decoder,
-      "index", G_TYPE_UINT64, decode_buf->index,
-      NULL
-      );
+  if (!dec->downstream_supports_dma) {
+    /* Creates a new, empty GstStructure with the given name */
+    structure = gst_structure_new_empty("BUFFER");
+    gst_structure_set (structure,
+        "decoder", G_TYPE_POINTER, decoder,
+        "index", G_TYPE_UINT64, decode_buf->index,
+        NULL
+        );
 
-  /* Set a notification function to signal when the buffer is no longer used. */
-  gst_mini_object_set_qdata (GST_MINI_OBJECT (out_buf), qticodec2vdec_qdata_quark (),
-      structure, (GDestroyNotify)gst_video_decoder_buffer_release);
+    /* Set a notification function to signal when the buffer is no longer used. */
+    gst_mini_object_set_qdata (GST_MINI_OBJECT (out_buf), qticodec2vdec_qdata_quark (),
+        structure, (GDestroyNotify)gst_video_decoder_buffer_release);
+  }
 done:
   gst_video_codec_state_unref (state);
   return out_buf;
@@ -855,8 +996,8 @@ gst_video_decoder_buffer_release (GstStructure* structure)
     if (!c2component_freeOutBuffer(dec->comp, index)) {
       GST_ERROR_OBJECT (dec, "Failed to release the buffer (%lu)", index);
     }
-  } else{
-    GST_ERROR_OBJECT (dec, "Null hanlde");
+  } else {
+    GST_ERROR_OBJECT (dec, "Null Gstqticodec2vdec hanlde");
   }
 
   gst_structure_free (structure);
@@ -940,6 +1081,40 @@ handle_video_event(const void* handle, EVENT_TYPE type, void* data) {
   switch (type) {
     case EVENT_OUTPUTS_DONE: {
       BufferDescriptor* outBuffer = (BufferDescriptor*)data;
+      if (!(outBuffer->flag & FLAG_TYPE_END_OF_STREAM)) {
+        if (!dec->output_setup || dec->width != outBuffer->width || dec->height != outBuffer->height) {
+          if (dec->output_setup) {
+            GST_DEBUG_OBJECT (dec, "resolution change, width height:%d %d -> %u %u",
+                dec->width, dec->height, outBuffer->width, outBuffer->height);
+          }
+
+          dec->width = outBuffer->width;
+          dec->height = outBuffer->height;
+          GstCaps* new_caps = gst_caps_copy (dec->output_state->caps);
+          dec->output_state =
+            gst_video_decoder_set_output_state (decoder, dec->outPixelfmt, dec->width, dec->height, dec->input_state);
+
+          GValue new_width = { 0, }, new_height = { 0, };
+          g_value_init (&new_width, G_TYPE_INT);
+          g_value_set_int (&new_width, dec->width);
+
+          g_value_init (&new_height, G_TYPE_INT);
+          g_value_set_int (&new_height, dec->height);
+
+          gst_caps_set_value (new_caps, "width", &new_width);
+          gst_caps_set_value (new_caps, "height", &new_height);
+          dec->output_state->caps = new_caps;
+
+          if (!gst_video_decoder_negotiate (decoder)) {
+            gst_video_codec_state_unref (dec->output_state);
+            GST_ERROR_OBJECT (dec, "Failed to negotiate");
+            break;
+          }
+          gst_pad_check_reconfigure (decoder->srcpad);
+
+          dec->output_setup = TRUE;
+        }
+      }
       if (outBuffer->size) {
         if (!dec->first_frame_time.tv_sec && !dec->first_frame_time.tv_usec) {
           gettimeofday(&dec->first_frame_time, NULL);
@@ -948,13 +1123,12 @@ handle_video_event(const void* handle, EVENT_TYPE type, void* data) {
           GST_DEBUG_OBJECT (dec, "first frame latency:%d us", time_1st_cost_us);
         }
         dec->num_output_done ++;
-        GST_DEBUG_OBJECT (dec, "outout done, count: %lu", dec->num_output_done);
+        GST_DEBUG_OBJECT (dec, "output done, count: %lu", dec->num_output_done);
         ret = push_frame_downstream (decoder, outBuffer);
         if (ret != GST_FLOW_OK) {
           GST_ERROR_OBJECT (dec, "Failed to push frame downstream");
         }
-      }
-      else if (outBuffer->flag & FLAG_TYPE_END_OF_STREAM) {
+      } else if (outBuffer->flag & FLAG_TYPE_END_OF_STREAM) {
         GST_INFO_OBJECT (dec, "Decoder reached EOS");
         g_mutex_lock (&dec->pending_lock);
         dec->eos_reached = TRUE;
@@ -1095,6 +1269,12 @@ gst_qticodec2vdec_get_property (GObject* object, guint prop_id, GValue* value, G
   }
 }
 
+static void
+print_gst_buf (gpointer key, gpointer value, gpointer data)
+{
+  GST_DEBUG ("key:0x%lx value:%p", *(gint64*)key, value);
+}
+
 /* Called during object destruction process */
 static void
 gst_qticodec2vdec_finalize (GObject *object) {
@@ -1110,7 +1290,12 @@ gst_qticodec2vdec_finalize (GObject *object) {
     dec->streamformat = NULL;
   }
 
-  if (!gst_qticodec2vdec_destroy_component(GST_VIDEO_DECODER (object))){
+  if (dec->out_port_pool) {
+    GST_DEBUG_OBJECT (dec, "pool ref cnt:%d", GST_OBJECT_REFCOUNT (dec->out_port_pool));
+    gst_object_unref (dec->out_port_pool);
+  }
+
+  if (!gst_qticodec2vdec_destroy_component(GST_VIDEO_DECODER (object))) {
     GST_ERROR_OBJECT (dec, "Failed to delete component");
   }
 
@@ -1188,7 +1373,7 @@ gst_qticodec2vdec_class_init (Gstqticodec2vdecClass* klass) {
   video_decoder_class->close = GST_DEBUG_FUNCPTR (gst_qticodec2vdec_close);
   video_decoder_class->src_query = GST_DEBUG_FUNCPTR (gst_qticodec2vdec_src_query);
   video_decoder_class->sink_query = GST_DEBUG_FUNCPTR (gst_qticodec2vdec_sink_query);
-
+  video_decoder_class->decide_allocation = GST_DEBUG_FUNCPTR (gst_qticodec2vdec_decide_allocation);
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
    "Codec2 video decoder", "Decoder/Video", "Video Decoder based on Codec2.0", "QTI");
 }
@@ -1213,6 +1398,7 @@ gst_qticodec2vdec_init (Gstqticodec2vdec* dec) {
   dec->output_picture_order_mode = GST_QTI_CODEC2_DEC_OUTPUT_PICTURE_ORDER_MODE_DEFAULT;
   dec->low_latency_mode = GST_QTI_CODEC2_DEC_LOW_LATENCY_MODE_DEFAULT;
   dec->map_outbuf = GST_QTI_CODEC2_DEC_MAP_OUTBUF_DEFAULT;
+  dec->out_port_pool = NULL;
 
   memset(dec->queued_frame, 0, MAX_QUEUED_FRAME);
   memset(&dec->start_time, 0, sizeof(struct timeval));
@@ -1223,6 +1409,206 @@ gst_qticodec2vdec_init (Gstqticodec2vdec* dec) {
   g_mutex_init(&dec->pending_lock);
 
   dec->silent = FALSE;
+}
+
+static void
+gst_qticodec2vdec_buffer_pool_init (Gstqticodec2vdecBufferPool * pool)
+{
+  pool->buffer_table = NULL;
+  pool->allocator = NULL;
+}
+
+static void
+gst_qticodec2vdec_buffer_pool_finalize (GObject * obj)
+{
+  Gstqticodec2vdecBufferPool *pool = GST_QTICODEC2VDEC_BUFFER_POOL_CAST (obj);
+
+  GST_DEBUG_OBJECT (pool, "finalize buffer pool:%p", pool);
+
+  if (pool->buffer_table) {
+    g_hash_table_foreach (pool->buffer_table, print_gst_buf, NULL);
+    g_hash_table_destroy (pool->buffer_table);
+  }
+
+  if (pool->allocator) {
+    GST_DEBUG_OBJECT(pool, "finalize allocator:%p ref cnt:%d", pool->allocator, GST_OBJECT_REFCOUNT (pool->allocator));
+    gst_object_unref (pool->allocator);
+  }
+
+  G_OBJECT_CLASS (gst_qticodec2vdec_buffer_pool_parent_class)->finalize (obj);
+}
+
+static gboolean
+mark_meta_data_pooled (GstBuffer * buffer, GstMeta ** meta, gpointer user_data)
+{
+  GST_META_FLAG_SET (*meta, GST_META_FLAG_POOLED);
+  GST_META_FLAG_SET (*meta, GST_META_FLAG_LOCKED);
+
+  return TRUE;
+}
+
+static GstFlowReturn
+gst_qticodec2vdec_buffer_pool_acquire_buffer (GstBufferPool * pool, GstBuffer ** buffer, GstBufferPoolAcquireParams * params)
+{
+  GstFlowReturn result;
+  GstMemory *mem;
+  GstBuffer *out_buf;
+  GstStructure* structure;
+  GstBufferPoolAcquireParamsExt *param_ext = (GstBufferPoolAcquireParamsExt *) params;
+  Gstqticodec2vdecBufferPool *out_port_pool = GST_QTICODEC2VDEC_BUFFER_POOL_CAST (pool);
+  Gstqticodec2vdec* dec = out_port_pool->qticodec2vdec;
+  GstVideoInfo* vinfo;
+  gint64 key = ((gint64)param_ext->fd << 32) | param_ext->meta_fd;
+  gint64 *buf_key = NULL;
+  GValue new_index = { 0, };
+  g_value_init (&new_index, G_TYPE_UINT64);
+
+  out_buf = (GstBuffer *) g_hash_table_lookup(out_port_pool->buffer_table, &key);
+  if (out_buf) {
+    GST_DEBUG_OBJECT (dec, "found a gst buf:%p fd:%d meta_fd:%d idx:%lu ref_cnt:%d", out_buf,
+        param_ext->fd, param_ext->meta_fd, param_ext->index, GST_OBJECT_REFCOUNT(out_buf));
+    /*replace buffer index with current one*/
+    structure = gst_mini_object_get_qdata (GST_MINI_OBJECT (out_buf), qticodec2vdec_qdata_quark ());
+    if (structure) {
+      g_value_set_uint64 (&new_index, param_ext->index);
+      gst_structure_set_value (structure, "index", &new_index);
+      GST_DEBUG_OBJECT (dec, "set index:%lu into structure", param_ext->index);
+    }
+  } else {
+    /* If can't find related gst buffer in hash table by fd/meta_fd,
+     * new a gst buffer, and attach dma info to it. Add a flag
+     * GST_FD_MEMORY_FLAG_DONT_CLOSE to avoid double free issue since
+     * underlying ion buffer is allocated in C2 allocator rather than
+     * dmabuf allocator of GST.
+     */
+    out_buf = gst_buffer_new ();
+    mem = gst_dmabuf_allocator_alloc_with_flags (out_port_pool->allocator,
+            param_ext->fd, param_ext->size, GST_FD_MEMORY_FLAG_DONT_CLOSE);
+    if (G_UNLIKELY (!mem)) {
+      GST_ERROR_OBJECT (dec, "failed to allocate GstDmaMemory");
+      return GST_FLOW_ERROR;
+    }
+    gst_buffer_append_memory (out_buf, mem);
+
+    vinfo = &dec->output_state->info;
+    gsize offset[GST_VIDEO_MAX_PLANES] = { 0, };
+    gint stride[GST_VIDEO_MAX_PLANES] = { 0, };
+
+    switch (GST_VIDEO_INFO_FORMAT (vinfo)) {
+      case GST_VIDEO_FORMAT_NV12:
+        stride[0] = stride[1] =
+          VENUS_Y_STRIDE(COLOR_FMT_NV12, GST_VIDEO_INFO_WIDTH (vinfo));
+        offset[0] = 0;
+        offset[1] = stride[0] * VENUS_Y_SCANLINES(COLOR_FMT_NV12,
+            GST_VIDEO_INFO_HEIGHT (vinfo));
+        break;
+      case GST_VIDEO_FORMAT_NV12_UBWC:
+        stride[0] = stride[1] =
+          VENUS_Y_STRIDE(COLOR_FMT_NV12_UBWC, GST_VIDEO_INFO_WIDTH (vinfo));
+        offset[0] = 0;
+        offset[1] = stride[0] * VENUS_Y_SCANLINES(COLOR_FMT_NV12_UBWC,
+            GST_VIDEO_INFO_HEIGHT (vinfo));
+        break;
+      default:
+        g_assert_not_reached ();
+        break;
+    }
+
+    /* Add video meta data, which is needed for downstream element. */
+    GST_DEBUG_OBJECT (dec, "attach video meta: width:%d height:%d offset:%lu %lu stride:%d %d planes:%d size:%lu gst size:%lu",
+        GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), offset[0], offset[1], stride[0], stride[1],
+        GST_VIDEO_INFO_N_PLANES (vinfo), GST_VIDEO_INFO_SIZE (vinfo), gst_buffer_get_size(out_buf));
+    gst_buffer_add_video_meta_full (out_buf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (vinfo),
+        GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), GST_VIDEO_INFO_N_PLANES (vinfo),
+        offset, stride);
+
+    /* lock all metadata and mark as pooled, we want this to remain on the buffer*/
+    gst_buffer_foreach_meta (out_buf, mark_meta_data_pooled, NULL);
+
+    buf_key = g_malloc(sizeof(gint64));
+    *buf_key = key;
+    g_hash_table_insert (out_port_pool->buffer_table, buf_key, out_buf);
+    GST_DEBUG_OBJECT (dec, "add a gst buf:%p fd:%d meta_fd:%d idx:%lu ref_cnt:%d", out_buf,
+        param_ext->fd, param_ext->meta_fd, param_ext->index, GST_OBJECT_REFCOUNT(out_buf));
+    structure = gst_structure_new_empty("BUFFER");
+    g_value_set_uint64 (&new_index, param_ext->index);
+    gst_structure_set_value (structure, "index", &new_index);
+    gst_mini_object_set_qdata (GST_MINI_OBJECT (out_buf), qticodec2vdec_qdata_quark (),
+      structure, (GDestroyNotify)gst_structure_free);
+  }
+
+  *buffer = out_buf;
+  result = GST_FLOW_OK;
+
+  return result;
+}
+
+static void
+gst_qticodec2vdec_buffer_pool_release_buffer (GstBufferPool * pool, GstBuffer * buffer)
+{
+  GstBufferPoolClass *bp_class  = GST_BUFFER_POOL_CLASS (gst_qticodec2vdec_buffer_pool_parent_class);
+  Gstqticodec2vdecBufferPool *out_port_pool = GST_QTICODEC2VDEC_BUFFER_POOL_CAST (pool);
+
+  Gstqticodec2vdec* dec = out_port_pool->qticodec2vdec;
+  guint64 index = 0;
+  GstStructure* structure = (GstStructure*) gst_mini_object_get_qdata
+                              (GST_MINI_OBJECT (buffer), qticodec2vdec_qdata_quark ());
+
+  if (structure) {
+    /* If buffer comes from sink, free it.
+     * In fact, underlying C2Allocator don't free it rather than return it
+     * to internal buffer pool for recycling.
+     */
+    gst_structure_get_uint64 (structure, "index", &index);
+
+    if (dec) {
+      GST_DEBUG_OBJECT (dec, "release output buffer index: %ld", index);
+      if (!c2component_freeOutBuffer(dec->comp, index)) {
+        GST_ERROR_OBJECT (dec, "Failed to release buffer (%lu)", index);
+      }
+    } else {
+      GST_ERROR_OBJECT (dec, "Null Gstqticodec2vdec hanlde");
+    }
+  } else {
+    /* If buffer don't have this quark, means it's allocated in pre-allocation stage
+     * of buffer pool. But it's not used since only gst buffer allocated in
+     * gst_qticodec2vdec_buffer_pool_acquire_buffer is used. Here is used for releasing preallocated
+     * gst buffer to internal queue of buffer pool. As a result, it can be freed once pool destroyed.
+     */
+    bp_class->release_buffer(pool, buffer);
+  }
+
+  return;
+}
+
+static void
+gst_qticodec2vdec_buffer_pool_class_init (Gstqticodec2vdecBufferPoolClass * klass)
+{
+  GObjectClass *gobj_class = (GObjectClass *) klass;
+  GstBufferPoolClass *bp_class = (GstBufferPoolClass *) klass;
+
+  gobj_class->finalize = gst_qticodec2vdec_buffer_pool_finalize;
+
+  bp_class->acquire_buffer = gst_qticodec2vdec_buffer_pool_acquire_buffer;
+  bp_class->release_buffer = gst_qticodec2vdec_buffer_pool_release_buffer;
+}
+
+GstBufferPool *
+gst_qticodec2vdec_buffer_pool_new (Gstqticodec2vdec * qticodec2vdec, GstAllocator * allocator,
+                                            GHashTable *buffer_table)
+{
+  Gstqticodec2vdecBufferPool *pool;
+
+  g_return_val_if_fail (GST_IS_QTICODEC2VDEC (qticodec2vdec), NULL);
+  pool = (Gstqticodec2vdecBufferPool *)
+          g_object_new (GST_TYPE_QTICODEC2VDEC_BUFFER_POOL, NULL);
+  pool->qticodec2vdec = qticodec2vdec;
+  pool->allocator = allocator;
+  pool->buffer_table = buffer_table;
+
+  GST_INFO_OBJECT (pool, "new output buffer pool:%p allocator:%p table:%p", pool, allocator, buffer_table);
+
+  return GST_BUFFER_POOL (pool);
 }
 
 GST_PLUGIN_DEFINE (
