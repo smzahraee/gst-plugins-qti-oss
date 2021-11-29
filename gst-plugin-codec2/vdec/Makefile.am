@@ -10,8 +10,7 @@ libgstqticodec2vdec_la_CPPFLAGS = $(AM_CPPFLAGS)
 # compiler flags used to compile this plugin, set in configure.ac
 libgstqticodec2vdec_la_CFLAGS = $(GST_CFLAGS) \
                 $(GST_PLUGINS_BASE_CFLAGS) \
-                $(GST_BASE_CFLAGS) \
-                $(GST_IONBUF_CFLAGS)
+                $(GST_BASE_CFLAGS)
 
 # linker flags used to compile this plugin, set in configure.ac
 libgstqticodec2vdec_la_LIBADD = $(GST_LIBS) \
