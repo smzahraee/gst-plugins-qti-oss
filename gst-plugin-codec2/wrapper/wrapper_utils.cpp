@@ -255,6 +255,14 @@ uint32_t toC2PixelFormat(PIXEL_FORMAT_TYPE pixel) {
             result = C2_PIXEL_FORMAT_YV12;
             break;
         }
+        case PIXEL_FORMAT_P010: {
+            result = C2_PIXEL_FORMAT_VENUS_P010;
+            break;
+        }
+        case PIXEL_FORMAT_TP10_UBWC: {
+            result = C2_PIXEL_FORMAT_VENUS_TP10;
+            break;
+        }
         default: {
             LOG_ERROR("unsupported pixel format!");
             break;
@@ -272,6 +280,12 @@ gst_to_c2_gbmformat (GstVideoFormat format) {
     case GST_VIDEO_FORMAT_NV12 :
     case GST_VIDEO_FORMAT_NV12_UBWC :
       result = GBM_FORMAT_NV12;
+      break;
+    case GST_VIDEO_FORMAT_P010_10LE :
+      result = GBM_FORMAT_YCbCr_420_P010_VENUS;
+      break;
+    case GST_VIDEO_FORMAT_NV12_10LE32_UBWC:
+      result = GBM_FORMAT_YCbCr_420_TP10_UBWC;
       break;
     default:
       LOG_WARNING("unsupported video format:%s", gst_video_format_to_string(format));
