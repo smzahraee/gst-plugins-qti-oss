@@ -3,7 +3,8 @@ plugin_LTLIBRARIES = libgstqticodec2vdec.la
 AM_CPPFLAGS = -I$(CURDIR)/../wrapper/include
 
 # sources used to compile this plug-in
-libgstqticodec2vdec_la_SOURCES = gstqticodec2vdec.c
+libgstqticodec2vdec_la_SOURCES = gstqticodec2vdec.c \
+                                 gstqticodec2vdecbufferpool.c
 
 libgstqticodec2vdec_la_CPPFLAGS = $(AM_CPPFLAGS)
 
