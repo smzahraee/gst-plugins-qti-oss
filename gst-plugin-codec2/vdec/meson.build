@@ -1,5 +1,6 @@
 gstqticodec2vdec_sources = [
-  'gstqticodec2vdec.c'
+  'gstqticodec2vdec.c',
+  'gstqticodec2vdecbufferpool.c'
 ]
 
 gstqticodec2vdec = library('gstqticodec2vdec',
