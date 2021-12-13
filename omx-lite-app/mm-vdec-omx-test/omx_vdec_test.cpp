@@ -1846,8 +1846,11 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
   long bufCnt=0;
 
   DEBUG_PRINT("pBufHdrs=%x, bufCntMin=%d, size=%ld", pBufHdrs, bufCntMin, bufSize);
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-      malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
+  *pBufHdrs = (OMX_BUFFERHEADERTYPE **)malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
+  if (NULL == *pBufHdrs) {
+    DEBUG_PRINT_ERROR("Out of memory!");
+    return OMX_ErrorInsufficientResources;
+  }
 
   for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
     DEBUG_PRINT("OMX_AllocateBuffer No %d ", bufCnt);
