@@ -278,29 +278,30 @@ gst_qticodec2vdec_create_component (GstVideoDecoder* decoder) {
   gboolean ret = FALSE;
   Gstqticodec2vdec *dec = GST_QTICODEC2VDEC (decoder);
 
-  GST_DEBUG_OBJECT (dec, "create_component");
+  GST_DEBUG_OBJECT (dec, "create component");
 
   if (dec->comp_store) {
-
     ret = c2componentStore_createComponent(dec->comp_store, dec->streamformat, &dec->comp);
-    if (ret ==  FALSE) {
-       GST_DEBUG_OBJECT (dec, "Failed to create component");
+    if (ret == TRUE) {
+      dec->comp_intf = c2component_intf(dec->comp);
+      if (dec->comp_intf) {
+        ret = c2component_setListener(dec->comp, decoder, handle_video_event, BLOCK_MODE_MAY_BLOCK);
+        if (ret == TRUE) {
+          ret = c2component_createBlockpool(dec->comp, BUFFER_POOL_BASIC_LINEAR);
+          if (ret == FALSE) {
+            GST_ERROR_OBJECT (dec, "Failed to create linear pool");
+          }
+        } else {
+          GST_ERROR_OBJECT (dec, "Failed to set event handler");
+        }
+      } else {
+        GST_ERROR_OBJECT (dec, "Failed to create interface");
+      }
+    } else {
+      GST_ERROR_OBJECT (dec, "Failed to create component");
     }
-
-    dec->comp_intf = c2component_intf(dec->comp);
-
-    ret = c2component_setListener(dec->comp, decoder, handle_video_event, BLOCK_MODE_MAY_BLOCK);
-    if (ret ==  FALSE) {
-       GST_DEBUG_OBJECT (dec, "Failed to set event handler");
-    }
-
-    ret = c2component_createBlockpool(dec->comp, BUFFER_POOL_BASIC_LINEAR);
-    if (ret ==  FALSE) {
-       GST_DEBUG_OBJECT (dec, "Failed to create linear pool");
-    }
-  }
-  else {
-    GST_DEBUG_OBJECT (dec, "Component store is Null");
+  } else {
+    GST_ERROR_OBJECT (dec, "Component store is Null");
   }
 
   return ret;

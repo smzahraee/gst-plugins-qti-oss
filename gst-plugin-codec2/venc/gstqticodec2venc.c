@@ -1348,10 +1348,10 @@ gst_qticodec2venc_set_property (GObject* object, guint prop_id,
       enc->primaries = g_value_get_enum (value);
       break;
     case PROP_COLOR_SPACE_MATRIX_COEFFS:
-      enc->transfer_char = g_value_get_enum (value);
+      enc->matrix = g_value_get_enum (value);
       break;
     case PROP_COLOR_SPACE_TRANSFER_CHAR:
-      enc->matrix = g_value_get_enum (value);
+      enc->transfer_char = g_value_get_enum (value);
       break;
     case PROP_COLOR_SPACE_FULL_RANGE:
       enc->full_range = g_value_get_enum (value);
@@ -1411,10 +1411,10 @@ gst_qticodec2venc_get_property (GObject* object, guint prop_id,
       g_value_set_enum (value, enc->primaries);
       break;
     case PROP_COLOR_SPACE_MATRIX_COEFFS:
-      g_value_set_enum (value, enc->transfer_char);
+      g_value_set_enum (value, enc->matrix);
       break;
     case PROP_COLOR_SPACE_TRANSFER_CHAR:
-      g_value_set_enum (value, enc->matrix);
+      g_value_set_enum (value, enc->transfer_char);
       break;
     case PROP_COLOR_SPACE_FULL_RANGE:
       g_value_set_enum (value, enc->full_range);
