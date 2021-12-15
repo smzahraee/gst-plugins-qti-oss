@@ -8,12 +8,13 @@ codec2wrapper_sources = [
 
 codec2wrapper_inc = include_directories('include')
 codec2_vndk_dep = cxx.find_library('codec2_vndk')
+thread_dep = dependency('threads')
 
 codec2wrapper = library('codec2wrapper',
   codec2wrapper_sources,
   cpp_args : [ '-D_AGL_LINUX_' , '-DG_LOG_DOMAIN="codec2wrapper"' , '-std=c++14' ],
   include_directories: [codec2wrapper_inc],
-  dependencies : [glib_dep, gstvideo_dep, gst_dep, codec2_vndk_dep, dl_dep],
+  dependencies : [glib_dep, gstvideo_dep, gst_dep, codec2_vndk_dep, dl_dep, thread_dep],
   install : true,
 )
 
