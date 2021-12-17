@@ -201,7 +201,6 @@ extern "C" {
 #define GBM_PMEM_DEVICE "/dev/dri/renderD128"
 
 struct vdec_gbm {
-  struct gbm_device *gbm;
   struct gbm_bo *bo;
   int bo_fd;
   int meta_fd;
@@ -211,15 +210,18 @@ struct vdec_gbm {
   uint8_t *vaddr; /* mmap address of bo_fd */
   android::VideoDecoderOutputMetaData metadata;
   private_handle_t *handle;
+  uint64_t modifier;
 };
 
 struct gbm_buffers {
-  int gbm_device_fd;
   int buf_cnt;
   struct vdec_gbm *buffers;
 };
 
-struct gbm_buffers external_output_buffers = { -1, 0, NULL };
+static int gbm_device_fd = -1;
+static struct gbm_device *gbm_dev = NULL;
+
+static struct gbm_buffers external_output_buffers = { 0, NULL };
 
 static inline size_t get_external_output_buffer_size(void)
 {
@@ -227,8 +229,7 @@ static inline size_t get_external_output_buffer_size(void)
   return buf ? buf[0].size : 0;
 }
 
-static bool alloc_gbm_memory(int width, int height, int dev_fd,
-                             struct vdec_gbm *buffer, int flag);
+static bool alloc_gbm_memory(int width, int height, struct vdec_gbm *buffer, int flag);
 static void free_gbm_memory(struct vdec_gbm *buf_gbm_info);
 static bool allocate_gbm_buffers(struct gbm_buffers *info, int n, size_t size);
 static void free_gbm_buffers(struct gbm_buffers *info);
@@ -635,24 +636,16 @@ void* fbd_thread(void* pArg)
   while(currentStatus != ERROR_STATE && !bOutputEosReached)
   {
     pthread_mutex_unlock(&eos_lock);
-    DEBUG_PRINT("Inside %s", __FUNCTION__);
+    DEBUG_PRINT("Inside %s loop", __FUNCTION__);
+
     sem_wait(&fbd_sem);
+
     pthread_mutex_lock(&enable_lock);
+    DEBUG_PRINT("sent_disabled=%d", sent_disabled);
     if (sent_disabled)
     {
       pthread_mutex_unlock(&enable_lock);
       pthread_mutex_lock(&fbd_lock);
-      if (pBuffer != NULL ) {
-        if(push(fbd_queue, (void *)pBuffer))
-          DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
-        else
-          sem_post(&fbd_sem);
-        /* The pBuffer has pushed to fbd queuue, shouldn't be
-         * used in the following context. Because the buffer maybe
-         * old buffer before port reconfigures.
-         */
-        pBuffer = NULL;
-      }
       if (free_op_buf_cnt == portFmt.nBufferCountActual)
         free_output_buffers();
       pthread_mutex_unlock(&fbd_lock);
@@ -660,6 +653,7 @@ void* fbd_thread(void* pArg)
       continue;
     }
     pthread_mutex_unlock(&enable_lock);
+
     pthread_mutex_lock(&fbd_lock);
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
     pthread_mutex_unlock(&fbd_lock);
@@ -728,42 +722,32 @@ void* fbd_thread(void* pArg)
     }
 
     pthread_mutex_lock(&enable_lock);
+    DEBUG_PRINT("sent_disabled=%d", sent_disabled);
     if (sent_disabled)
     {
       pBuffer->nFilledLen = 0;
       pBuffer->nFlags &= ~OMX_BUFFERFLAG_EXTRADATA;
       pthread_mutex_lock(&fbd_lock);
-      if ( pBuffer != NULL ) {
-        if(push(fbd_queue, (void *)pBuffer))
-          DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
-        else
-          sem_post(&fbd_sem);
-      }
-      if(push(fbd_queue, (void *)pBuffer) < 0)
-      {
+      if (push(fbd_queue, (void *)pBuffer))
         DEBUG_PRINT_ERROR("Error in enqueueing fbd_data");
-      }
       else
         sem_post(&fbd_sem);
       pthread_mutex_unlock(&fbd_lock);
-    }
-    else
-    {
-      if (pBuffer)
+    } else {
+      pthread_mutex_lock(&fbd_lock);
+      pthread_mutex_lock(&eos_lock);
+      if (!bOutputEosReached)
       {
-        pthread_mutex_lock(&fbd_lock);
-        pthread_mutex_lock(&eos_lock);
-        if (!bOutputEosReached)
-        {
-          if ( OMX_FillThisBuffer(dec_handle, pBuffer) == OMX_ErrorNone ) {
-            free_op_buf_cnt--;
-          }
+        if ( OMX_FillThisBuffer(dec_handle, pBuffer) == OMX_ErrorNone ) {
+          free_op_buf_cnt--;
+          DEBUG_PRINT("pBuffer=%p, free_op_buf_cnt=%u", pBuffer, free_op_buf_cnt);
         }
-        pthread_mutex_unlock(&eos_lock);
-        pthread_mutex_unlock(&fbd_lock);
       }
+      pthread_mutex_unlock(&eos_lock);
+      pthread_mutex_unlock(&fbd_lock);
     }
     pthread_mutex_unlock(&enable_lock);
+
     pthread_mutex_lock(&eos_lock);
   }
 
@@ -927,7 +911,7 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
                              OMX_OUT OMX_PTR pAppData,
                              OMX_OUT OMX_BUFFERHEADERTYPE* pBuffer)
 {
-  DEBUG_PRINT("Inside %s callback_count[%d] ", __FUNCTION__, fbd_cnt);
+  DEBUG_PRINT("Inside %s fbd_cnt=%d, waitForPortSettingsChanged=%d", __FUNCTION__, fbd_cnt, waitForPortSettingsChanged);
 
   /* Test app will assume there is a dynamic port setting
    * In case that there is no dynamic port setting, OMX will not call event cb,
@@ -941,6 +925,7 @@ OMX_ERRORTYPE FillBufferDone(OMX_OUT OMX_HANDLETYPE hComponent,
 
   pthread_mutex_lock(&fbd_lock);
   free_op_buf_cnt++;
+  DEBUG_PRINT("pBuffer=%p, free_op_buf_cnt=%u", pBuffer, free_op_buf_cnt);
   if(push(fbd_queue, (void *)pBuffer) < 0)
   {
     pthread_mutex_unlock(&fbd_lock);
@@ -1075,6 +1060,42 @@ static void print_usage(char **argv)
   printf("Example: %s %s/data/xxx.h264 1 4 0 1 0 0\n\n", argv[0], SECURE_INDICATOR_STR);
 }
 
+static bool open_gbm_device()
+{
+  bool ret = false;
+
+  gbm_device_fd = open(GBM_PMEM_DEVICE, O_RDWR | O_CLOEXEC);
+  if (gbm_device_fd < 0) {
+    DEBUG_PRINT_ERROR("open " GBM_PMEM_DEVICE " error: %s", strerror(errno));
+    return ret;
+  }
+
+  gbm_dev = gbm_create_device(gbm_device_fd);
+  if (NULL == gbm_dev) {
+    DEBUG_PRINT_ERROR("create gbm device failed");
+    close(gbm_device_fd);
+    gbm_device_fd = -1;
+  } else {
+    DEBUG_PRINT( "Successfully created gbm device");
+    ret = true;
+  }
+
+  return ret;
+}
+
+static void close_gbm_device()
+{
+  if (NULL != gbm_dev) {
+    gbm_device_destroy(gbm_dev);
+    gbm_dev = NULL;
+  }
+
+  if (gbm_device_fd >= 0) {
+    close(gbm_device_fd);
+    gbm_device_fd = -1;
+  }
+}
+
 int main(int argc, char **argv)
 {
   int test_option = 0;
@@ -1191,7 +1212,10 @@ int main(int argc, char **argv)
   }
   pthread_setname_np(fbd_thread_id, "fbd_thread");
 
-  run_tests(secure_mode);
+  if (open_gbm_device())
+    run_tests(secure_mode);
+
+  close_gbm_device();
 
   pthread_cond_destroy(&cond);
   pthread_mutex_destroy(&lock);
@@ -1740,6 +1764,78 @@ int Play_Decoder(bool secure)
   return 0;
 }
 
+static void check_gbm_modifier_status(uint64_t modifier, bool secure, bool ubwc)
+{
+  /* The whole modifier value shall be transmitted to display for rendering the
+   * frame buffer correctly. This is just an example for getting GBM modifier. */
+  DEBUG_PRINT("GBM buffer modifier=0x%llx", modifier);
+
+  /* Undefine below check code for it depends on libgbm change of adding
+   * GBM_FORMAT_MOD_QTI_SECURE to avoid compilation error. */
+#if 0
+  if (!secure) {
+    DEBUG_PRINT("User not need secure buffer, so no secure modifier");
+  } else {
+    if ((modifier & GBM_FORMAT_MOD_QTI_SECURE) == GBM_FORMAT_MOD_QTI_SECURE)
+      DEBUG_PRINT("GBM buffer has secure modifier");
+    else
+      DEBUG_PRINT_ERROR("GBM buffer should have secure modifier!");
+  }
+
+  if (!ubwc) {
+    DEBUG_PRINT("User not need UBWC buffer, so no UBWC modifier");
+  } else {
+    if ((modifier & GBM_FORMAT_MOD_QTI_COMPRESSED) == GBM_FORMAT_MOD_QTI_COMPRESSED)
+      DEBUG_PRINT("GBM buffer has compressed UBWC modifier");
+    else
+      DEBUG_PRINT_ERROR("GBM buffer should have compressed UBWC modifier!");
+  }
+#endif
+}
+
+/* This is just an example for getting GBM modifier from the GBM output buffer
+ * allocated by OMX. */
+static uint64_t gbm_output_buffer_get_modifier(OMX_BUFFERHEADERTYPE *omx_buf)
+{
+  uint64_t modifier = DRM_FORMAT_MOD_INVALID;
+  OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *pPMEMInfo;
+
+  pPMEMInfo = (OMX_QCOM_PLATFORM_PRIVATE_PMEM_INFO *)
+    ((OMX_QCOM_PLATFORM_PRIVATE_LIST *)omx_buf->pPlatformPrivate)->entryList->entry;
+  if (!pPMEMInfo) {
+    DEBUG_PRINT_ERROR("Has no pmem info in omx_buf=%p", omx_buf);
+    return modifier;
+  }
+
+  struct gbm_buf_info buf_info;
+
+  buf_info.fd = pPMEMInfo->pmem_fd;
+  buf_info.metadata_fd= pPMEMInfo->pmeta_fd;
+  buf_info.height = portFmt.format.video.nFrameHeight;
+  buf_info.width = portFmt.format.video.nFrameWidth;
+  /* In this demo app, the format can be only GBM_FORMAT_NV12.
+   * In real usage, it might be other format. */
+  buf_info.format = GBM_FORMAT_NV12;
+
+  struct gbm_bo *bo = gbm_bo_import(gbm_dev, GBM_BO_IMPORT_GBM_BUF_TYPE, &buf_info, GBM_BO_USE_RENDERING);
+  if (NULL == bo) {
+    DEBUG_PRINT_ERROR("Failed to import gbm bo for format %x", GBM_FORMAT_NV12);
+    return modifier;
+  }
+
+  modifier = gbm_bo_get_modifier(bo);
+  if (DRM_FORMAT_MOD_INVALID == modifier) {
+    DEBUG_PRINT_ERROR("Failed to get modifier");
+  } else {
+    bool is_ubwc = (COLOR_FMT_NV12_UBWC == venus_color_fmt);
+    check_gbm_modifier_status(modifier, secure_mode, is_ubwc);
+  }
+
+  gbm_bo_destroy(bo);
+
+  return modifier;
+}
+
 static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
                                        OMX_BUFFERHEADERTYPE  ***pBufHdrs,
                                        OMX_U32 nPortIndex,
@@ -1750,13 +1846,21 @@ static OMX_ERRORTYPE Allocate_Buffer ( OMX_COMPONENTTYPE *dec_handle,
   long bufCnt=0;
 
   DEBUG_PRINT("pBufHdrs=%x, bufCntMin=%d, size=%ld", pBufHdrs, bufCntMin, bufSize);
-  *pBufHdrs= (OMX_BUFFERHEADERTYPE **)
-      malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
+  *pBufHdrs = (OMX_BUFFERHEADERTYPE **)malloc(sizeof(OMX_BUFFERHEADERTYPE *) * bufCntMin);
+  if (NULL == *pBufHdrs) {
+    DEBUG_PRINT_ERROR("Out of memory!");
+    return OMX_ErrorInsufficientResources;
+  }
 
   for(bufCnt=0; bufCnt < bufCntMin; ++bufCnt) {
     DEBUG_PRINT("OMX_AllocateBuffer No %d ", bufCnt);
     error = OMX_AllocateBuffer(dec_handle, &((*pBufHdrs)[bufCnt]),
           nPortIndex, NULL, bufSize);
+
+    /* Get GBM buffer modifier only for output port */
+    if (1 == nPortIndex && OMX_ErrorNone == error && (*pBufHdrs)[bufCnt]) {
+      uint64_t modifier = gbm_output_buffer_get_modifier((*pBufHdrs)[bufCnt]);
+    }
   }
 
   return error;
@@ -2271,32 +2375,23 @@ void free_output_buffers()
   DEBUG_PRINT(" pOutYUVBufHdrs %p", pOutYUVBufHdrs);
   OMX_BUFFERHEADERTYPE *pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   while (pBuffer) {
-    DEBUG_PRINT(" Free output buffer %p", pBuffer);
+    free_op_buf_cnt--;
+    DEBUG_PRINT(" Free output buffer %p, free_op_buf_cnt=%u", pBuffer, free_op_buf_cnt);
     OMX_FreeBuffer(dec_handle, 1, pBuffer);
     pBuffer = (OMX_BUFFERHEADERTYPE *)pop(fbd_queue);
   }
 }
 
 #ifdef USE_GBM
-static bool alloc_gbm_memory(int width, int height, int dev_fd,
-                             struct vdec_gbm *buffer, int flag)
+static bool alloc_gbm_memory(int width, int height, struct vdec_gbm *buffer, int flag)
 {
   uint32_t flags = GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING;
-  struct gbm_device *gbm = NULL;
   struct gbm_bo *bo = NULL;
   int bo_fd = -1, meta_fd = -1;
 
-  if (!buffer || dev_fd < 0 ) {
+  if (!buffer) {
     DEBUG_PRINT_ERROR("Invalid arguments");
     return false;
-  }
-
-  gbm = gbm_create_device(dev_fd);
-  if (gbm == NULL) {
-    DEBUG_PRINT_ERROR("create gbm device failed");
-    return false;
-  } else {
-    DEBUG_PRINT( "Successfully created gbm device");
   }
 
   flags |= flag & GBM_BO_USAGE_PROTECTED_QTI;
@@ -2305,10 +2400,9 @@ static bool alloc_gbm_memory(int width, int height, int dev_fd,
   DEBUG_PRINT("create NV12 gbm_bo with width=%d, height=%d flags 0x%x",
               width, height, flags);
 
-  bo = gbm_bo_create(gbm, width, height, GBM_FORMAT_NV12, flags);
+  bo = gbm_bo_create(gbm_dev, width, height, GBM_FORMAT_NV12, flags);
   if (bo == NULL) {
-    DEBUG_PRINT_ERROR("no supported gbm bo for format %x", GBM_FORMAT_NV12);
-    gbm_device_destroy(gbm);
+    DEBUG_PRINT_ERROR("Failed to create gbm bo for format %x", GBM_FORMAT_NV12);
     return false;
   }
 
@@ -2316,7 +2410,6 @@ static bool alloc_gbm_memory(int width, int height, int dev_fd,
   if (bo_fd < 0) {
     DEBUG_PRINT_ERROR("Get bo fd failed");
     gbm_bo_destroy(bo);
-    gbm_device_destroy(gbm);
     return false;
   }
 
@@ -2324,20 +2417,27 @@ static bool alloc_gbm_memory(int width, int height, int dev_fd,
   if (meta_fd < 0) {
     DEBUG_PRINT_ERROR("Get bo meta fd failed");
     gbm_bo_destroy(bo);
-    gbm_device_destroy(gbm);
     return false;
+  }
+
+  uint64_t modifier = gbm_bo_get_modifier(bo);
+  if (DRM_FORMAT_MOD_INVALID == modifier) {
+    DEBUG_PRINT_ERROR("Failed to get modifier");
+  } else {
+    bool is_ubwc = (COLOR_FMT_NV12_UBWC == venus_color_fmt);
+    check_gbm_modifier_status(modifier, secure_mode, is_ubwc);
   }
 
   gbm_perform(GBM_PERFORM_GET_BO_ALIGNED_WIDTH, bo, &buffer->aligned_width);
   gbm_perform(GBM_PERFORM_GET_BO_ALIGNED_HEIGHT, bo, &buffer->aligned_height);
   gbm_perform(GBM_PERFORM_GET_BO_SIZE, bo, &buffer->size);
 
-  buffer->gbm = gbm;
   buffer->bo = bo;
   buffer->bo_fd = bo_fd;
   buffer->meta_fd = meta_fd;
+  buffer->modifier = modifier;
 
-  DEBUG_PRINT("allocated gbm bo_fd=%d meta_fd=%d", bo_fd, meta_fd);
+  DEBUG_PRINT("allocated gbm bo_fd=%d meta_fd=%d modifier=%llu", bo_fd, meta_fd, modifier);
   DEBUG_PRINT("aligned_width=%d aligned_height=%d size=%lu",
               buffer->aligned_width, buffer->aligned_height, buffer->size);
   return true;
@@ -2361,31 +2461,18 @@ static void free_gbm_memory(struct vdec_gbm *buf_gbm_info)
     buf_gbm_info->bo = NULL;
   }
 
-  if (buf_gbm_info->gbm) {
-    gbm_device_destroy(buf_gbm_info->gbm);
-    buf_gbm_info->gbm = NULL;
-  }
-
   buf_gbm_info->bo_fd = -1;
   buf_gbm_info->meta_fd = -1;
 }
 
 static bool allocate_gbm_buffers(struct gbm_buffers *info, int n, size_t size)
 {
-  int fd = open(GBM_PMEM_DEVICE, O_RDWR | O_CLOEXEC);
-  if (fd < 0) {
-    DEBUG_PRINT_ERROR("open " GBM_PMEM_DEVICE " error: %s", strerror(errno));
-    return false;
-  }
-
   struct vdec_gbm *buffers = (struct vdec_gbm *)calloc(n, sizeof(*buffers));
   if (NULL == buffers) {
     DEBUG_PRINT_ERROR("Out of memory!");
-    close(fd);
     return false;
   }
 
-  info->gbm_device_fd = fd;
   info->buffers = buffers;
 
   int flag = 0;
@@ -2401,7 +2488,7 @@ static bool allocate_gbm_buffers(struct gbm_buffers *info, int n, size_t size)
 
   for (int i = 0; i < n; i++) {
     struct vdec_gbm *buf = &buffers[i];
-    if (!alloc_gbm_memory(width, height, fd, buf, flag))
+    if (!alloc_gbm_memory(width, height, buf, flag))
       return false;
 
     int buf_type = android::kMetadataBufferTypeGrallocSource;
@@ -2443,11 +2530,6 @@ static void free_gbm_buffers(struct gbm_buffers *info)
   if (info->buffers) {
     free(info->buffers);
     info->buffers = NULL;
-  }
-
-  if (info->gbm_device_fd >= 0) {
-    close(info->gbm_device_fd);
-    info->gbm_device_fd = -1;
   }
 }
 #endif /* USE_GBM */

@@ -373,26 +373,33 @@ void CodecCallback::onOutputBufferAvailable (
             guint64 usage = 0;
             guint32 size = 0;
             guint32 format = 0;
+            guint64 bo = 0;
+            guint32 width = 0;
+            guint32 height = 0;
+            C2Rect crop;
+            const C2GraphicView view = graphic_block.map().get();
 
-            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &outBuf.width, &outBuf.height, &format, &usage, &stride, &size);
+            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &width, &height, &format, &usage, &stride, &size, &bo);
 
             outBuf.size = size;
+            crop = view.crop();
+            LOG_INFO("get crop info (%d,%d) [%dx%d]", crop.left, crop.top, crop.width, crop.height);
+            outBuf.width = crop.width;
+            outBuf.height = crop.height;
             if (mMapBufferToCpu) {
                 /* get valid size for NV12_UBWC format */
                 if (format == GBM_FORMAT_NV12 && (usage & GBM_BO_USAGE_UBWC_ALIGNED_QTI)) {
-                    outBuf.size = VENUS_BUFFER_SIZE_USED (COLOR_FMT_NV12_UBWC, outBuf.width, outBuf.height, 0);
+                    outBuf.size = VENUS_BUFFER_SIZE_USED (COLOR_FMT_NV12_UBWC, width, height, 0);
                 }
-                C2GraphicView view(graphic_block.map().get());
                 outBuf.data = (guint8 *)view.data()[0];
-                /* graphic_block unmapped once out of scope. */
-                mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             } else {
                 outBuf.data = NULL;
-                mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             }
 
+            /* graphic_block unmapped once out of scope. */
+            mCallback(mHandle, EVENT_OUTPUTS_DONE, &outBuf);
             LOG_INFO("out buffer size:%d width:%d height:%d stride:%d data:%p\n",
-                size, outBuf.width, outBuf.height, stride, outBuf.data);
+                size, width, height, stride, outBuf.data);
         } else if (buf_type == C2BufferData::LINEAR) {
             const C2ConstLinearBlock linear_block = buffer->data().linearBlocks().front();
             C2ReadView view(linear_block.map().get());

@@ -31,8 +31,8 @@
 #ifndef __GST_QTICODEC2_BUFFER_POOL__
 #define __GST_QTICODEC2_BUFFER_POOL__
 
-#include "gstqticodec2venc.h"
 #include "codec2wrapper.h"
+#include <gst/allocators/allocators.h>
 
 G_BEGIN_DECLS
 
