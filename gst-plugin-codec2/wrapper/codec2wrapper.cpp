@@ -367,8 +367,13 @@ void CodecCallback::onOutputBufferAvailable (
 
         if (buf_type == C2BufferData::GRAPHIC) {
             const C2ConstGraphicBlock graphic_block = buffer->data().graphicBlocks().front();
-            outBuf.fd = graphic_block.handle()->data[0];
-            outBuf.meta_fd = graphic_block.handle()->data[1];
+            const C2Handle *handle = graphic_block.handle();
+            if (nullptr == handle) {
+                LOG_ERROR("C2ConstGraphicBlock handle is null");
+                return;
+            }
+            outBuf.fd = handle->data[0];
+            outBuf.meta_fd = handle->data[1];
             guint32 stride = 0;
             guint64 usage = 0;
             guint32 size = 0;
@@ -379,7 +384,7 @@ void CodecCallback::onOutputBufferAvailable (
             C2Rect crop;
             const C2GraphicView view = graphic_block.map().get();
 
-            _UnwrapNativeCodec2GBMMetadata (graphic_block.handle(), &width, &height, &format, &usage, &stride, &size, &bo);
+            _UnwrapNativeCodec2GBMMetadata (handle, &width, &height, &format, &usage, &stride, &size, &bo);
 
             outBuf.size = size;
             crop = view.crop();
@@ -402,9 +407,14 @@ void CodecCallback::onOutputBufferAvailable (
                 size, width, height, stride, outBuf.data);
         } else if (buf_type == C2BufferData::LINEAR) {
             const C2ConstLinearBlock linear_block = buffer->data().linearBlocks().front();
+            const C2Handle *handle = linear_block.handle();
+            if (nullptr == handle) {
+                LOG_ERROR("C2ConstLinearBlock handle is null");
+                return;
+            }
             C2ReadView view(linear_block.map().get());
             outBuf.size = linear_block.size();
-            outBuf.fd = linear_block.handle()->data[0];
+            outBuf.fd = handle->data[0];
             outBuf.data = (guint8 *)view.data();
             LOG_INFO("outBuf linear data:%p fd:%d size:%d\n", outBuf.data, outBuf.fd, outBuf.size);
             /* Check for codec data */

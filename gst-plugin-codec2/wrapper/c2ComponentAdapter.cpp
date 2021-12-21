@@ -259,10 +259,16 @@ std::shared_ptr<C2Buffer> C2ComponentAdapter::alloc(BufferDescriptor* buffer) {
                   LOG_ERROR("Graphic pool failed to allocate input buffer");
                   return NULL;
               } else {
+                const C2Handle *handle = graphic_block->handle();
+                if (nullptr == handle) {
+                    LOG_ERROR("C2GraphicBlock handle is null");
+                    return NULL;
+                }
+
                 /* ref the buffer and store it. When the fd is queued,
                  * we can find the C2buffer with the input fd
                  * */
-                uint32_t fd = graphic_block->handle()->data[0];
+                gint32 fd = handle->data[0];
                 mInPendingBuffer[fd] = buf;
                 buffer->fd = fd;
                 guint32 width = 0;
@@ -272,7 +278,7 @@ std::shared_ptr<C2Buffer> C2ComponentAdapter::alloc(BufferDescriptor* buffer) {
                 guint64 usage = 0;
                 guint32 size = 0;
 
-                _UnwrapNativeCodec2GBMMetadata (graphic_block->handle(), &width, &height, &format, &usage, &stride, &size, NULL);
+                _UnwrapNativeCodec2GBMMetadata (handle, &width, &height, &format, &usage, &stride, &size, NULL);
                 buffer->capacity = size;
                 LOG_MESSAGE("allocated C2Buffer, fd: %d capacity: %d", fd, buffer->capacity);
             }
