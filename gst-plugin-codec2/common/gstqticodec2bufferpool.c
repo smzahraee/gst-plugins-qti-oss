@@ -148,11 +148,14 @@ gst_qticodec2_buffer_pool_set_config (GstBufferPool * pool,
   GstQticodec2Allocator *c2_allocator = GST_QTICODEC2_ALLOCATOR_CAST(self_pool->c2_allocator);
   GstVideoInfo *info = c2_allocator->info;
 
-  if (config) {
-    if (!gst_buffer_pool_config_get_params (config, &caps, &size, &min, &max)) {
-      GST_WARNING_OBJECT (pool, "invalid config");
-      return FALSE;
-    }
+  if (NULL == config) {
+    GST_WARNING_OBJECT (pool, "null config");
+    return FALSE;
+  }
+
+  if (!gst_buffer_pool_config_get_params (config, &caps, &size, &min, &max)) {
+    GST_WARNING_OBJECT (pool, "invalid config");
+    return FALSE;
   }
 
   if (NULL == caps) {
