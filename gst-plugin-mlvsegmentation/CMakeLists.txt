@@ -25,6 +25,10 @@ pkg_check_modules(GST_VIDEO
 configure_file(config.h.in config.h @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
+# Check whether DMA header is present.
+include(CheckIncludeFile)
+check_include_file("linux/dma-buf.h" HAVE_LINUX_DMA_BUF_H)
+
 # Precompiler definitions.
 add_definitions(-DHAVE_CONFIG_H)
 
@@ -45,6 +49,11 @@ target_include_directories(${GST_QTI_ML_VIDEO_SEGMENTATION} PUBLIC
 
 set_target_properties(${GST_QTI_ML_VIDEO_SEGMENTATION} PROPERTIES PUBLIC_HEADER
   "modules/ml-video-segmentation-module.h"
+)
+
+# Add target specific precompiler defintions.
+target_compile_definitions(${GST_QTI_ML_VIDEO_SEGMENTATION} PRIVATE
+  GST_ML_MODULES_DIR="${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/gstreamer-1.0/ml/modules"
 )
 
 target_link_libraries(${GST_QTI_ML_VIDEO_SEGMENTATION} PRIVATE

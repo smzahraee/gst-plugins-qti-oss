@@ -33,6 +33,7 @@
 #include <gst/gst.h>
 #include <gst/allocators/allocators.h>
 #include <gst/ml/ml-info.h>
+#include <gst/ml/ml-frame.h>
 
 G_BEGIN_DECLS
 
@@ -52,7 +53,7 @@ G_BEGIN_DECLS
  * @GST_ML_SNPE_DELEGATE_GPU: Graphics Processing Unit
  * @GST_ML_SNPE_DELEGATE_AIP: Snapdragon AIX + HVX
  *
- * Different delegates for transfering part of all of the work
+ * Different delegates for transferring part of all of the work
  */
 typedef enum {
   GST_ML_SNPE_DELEGATE_NONE,
@@ -76,7 +77,7 @@ GST_API GType gst_ml_snpe_delegate_get_type (void);
 /**
  * GST_ML_SNPE_ENGINE_OPT_LAYERS:
  *
- * #GST_TYPE_ARRAY, set the delegate
+ * #GST_TYPE_ARRAY, list of layers
  * Default: NULL.
  */
 #define GST_ML_SNPE_ENGINE_OPT_LAYERS \
@@ -98,8 +99,8 @@ gst_ml_snpe_engine_get_output_info  (GstMLSnpeEngine * engine);
 
 GST_API gboolean
 gst_ml_snpe_engine_execute          (GstMLSnpeEngine * engine,
-                                     GstBuffer * inbuffer,
-                                     GstBuffer * outbuffer);
+                                     GstMLFrame * inframe,
+                                     GstMLFrame * outframe);
 
 G_END_DECLS
 
