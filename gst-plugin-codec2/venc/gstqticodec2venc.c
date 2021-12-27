@@ -150,6 +150,18 @@ GST_STATIC_PAD_TEMPLATE (GST_VIDEO_ENCODER_SINK_NAME,
         "height = (int) [ 32, 4096 ],"
         "framerate = " GST_VIDEO_FPS_RANGE ""
         ";"
+        "video/x-raw(memory:DMABuf), "
+        "format = (string) P010_10LE, "
+        "width  = (int) [ 128, 8192 ], "
+        "height = (int) [ 128, 8192 ],"
+        "framerate = " GST_VIDEO_FPS_RANGE ""
+        ";"
+        "video/x-raw(memory:DMABuf), "
+        "format = (string) NV12_10LE32_UBWC, "
+        "width  = (int) [ 128, 8192 ], "
+        "height = (int) [ 128, 8192 ],"
+        "framerate = " GST_VIDEO_FPS_RANGE ""
+        ";"
         "video/x-raw, "
         "format = (string) NV12, "
         "width  = (int) [ 32, 4096 ], "
@@ -160,6 +172,18 @@ GST_STATIC_PAD_TEMPLATE (GST_VIDEO_ENCODER_SINK_NAME,
         "format = (string) NV12_UBWC, "
         "width  = (int) [ 32, 4096 ], "
         "height = (int) [ 32, 4096 ],"
+        "framerate = " GST_VIDEO_FPS_RANGE ""
+        ";"
+        "video/x-raw, "
+        "format = (string) P010_10LE, "
+        "width  = (int) [ 128, 8192 ], "
+        "height = (int) [ 128, 8192 ],"
+        "framerate = " GST_VIDEO_FPS_RANGE ""
+        ";"
+        "video/x-raw, "
+        "format = (string) NV12_10LE32_UBWC, "
+        "width  = (int) [ 128, 8192 ], "
+        "height = (int) [ 128, 8192 ],"
         "framerate = " GST_VIDEO_FPS_RANGE ""
       )
     );
@@ -349,6 +373,12 @@ gst_to_c2_pixelformat (GstVideoFormat format) {
       break;
     case GST_VIDEO_FORMAT_NV12_UBWC :
       result = PIXEL_FORMAT_NV12_UBWC;
+      break;
+    case GST_VIDEO_FORMAT_P010_10LE:
+      result = PIXEL_FORMAT_P010;
+      break;
+    case GST_VIDEO_FORMAT_NV12_10LE32_UBWC:
+      result = PIXEL_FORMAT_TP10_UBWC;
       break;
     default:
       break;
