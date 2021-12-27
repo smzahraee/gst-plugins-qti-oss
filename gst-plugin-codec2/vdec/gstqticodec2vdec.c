@@ -942,6 +942,10 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
          QGVMeta = gst_buffer_add_video_meta_full (out_buf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (vinfo),
              GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), GST_VIDEO_INFO_N_PLANES (vinfo),
              vinfo->offset, vinfo->stride);
+         if (!QGVMeta) {
+           GST_ERROR_OBJECT (dec, "Failed to attach video info into meta");
+           goto fail;
+         }
        }
        GST_DEBUG_OBJECT (dec, "offset:%ld %ld stride:%d %d", vinfo->offset[0], vinfo->offset[1], vinfo->stride[0], vinfo->stride[1]);
 
