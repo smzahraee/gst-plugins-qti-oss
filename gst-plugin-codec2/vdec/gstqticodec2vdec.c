@@ -43,6 +43,8 @@
 #include "gstqticodec2vdec.h"
 #include "gstqticodec2vdecbufferpool.h"
 #include "codec2wrapper.h"
+#include <dlfcn.h>
+#include <libdrm/drm_fourcc.h>
 
 GST_DEBUG_CATEGORY_STATIC (gst_qticodec2vdec_debug);
 #define GST_CAT_DEFAULT gst_qticodec2vdec_debug
@@ -62,6 +64,8 @@ G_DEFINE_TYPE (Gstqticodec2vdec, gst_qticodec2vdec, GST_TYPE_VIDEO_DECODER);
 /* Function will be named qticodec2vdec_qdata_quark() */
 static G_DEFINE_QUARK(QtiCodec2DecoderQuark, qticodec2vdec_qdata);
 static G_DEFINE_QUARK(QtiCodec2C2BufQuark, qticodec2_c2buf_qdata);
+static G_DEFINE_QUARK(FBufModifierQuark, gst_fbuf_modifier_qdata);
+
 
 enum
 {
@@ -135,6 +139,18 @@ static GstStaticPadTemplate gst_qtivdec_src_template =
     QTICODEC2VDEC_RAW_CAPS("{ NV12_UBWC }")
     )
   );
+
+static void modifier_free(gpointer p_modifier)
+{
+  if (p_modifier) {
+    g_slice_free(guint64, p_modifier);
+    GST_DEBUG ("modifier_free(%p) val 0x%lx called", p_modifier, *(guint64*)p_modifier);
+  } else {
+    GST_ERROR ("invalid modifier");
+  }
+
+  return;
+}
 
 static ConfigParams
 make_resolution_param (guint32 width, guint32 height, gboolean isInput) {
@@ -907,6 +923,7 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
   Gstqticodec2vdec* dec = GST_QTICODEC2VDEC (decoder);
   guint output_size = decode_buf->size;
   GstBufferPoolAcquireParamsExt param_ext;
+  guint64* p_modifier = NULL;
 
   memset (&param_ext, 0, sizeof(GstBufferPoolAcquireParamsExt));
 
@@ -960,6 +977,24 @@ gst_qticodec2vdec_wrap_output_buffer (GstVideoDecoder* decoder, BufferDescriptor
   } else {
     GST_ERROR_OBJECT (dec, "Fail to allocate output gst buffer");
     goto fail;
+  }
+
+  if (decode_buf->gbm_bo) {
+    /* That gstreamer buf is probably already attached modifier, check it at first.
+     * As modifier only store some usage info. like ubwc and security, common event
+     * like resolution change won't change modifier. Therefore, if already attached
+     * modifier, needn't update or re-attach it. */
+    if (!gst_mini_object_get_qdata (GST_MINI_OBJECT_CAST (out_buf), gst_fbuf_modifier_qdata_quark())) {
+      p_modifier = g_slice_new (guint64);
+      if (!dec->gbm_api_bo_get_modifier) {
+        *p_modifier = DRM_FORMAT_MOD_INVALID;
+      } else {
+        *p_modifier = dec->gbm_api_bo_get_modifier(decode_buf->gbm_bo);
+      }
+      gst_mini_object_set_qdata (GST_MINI_OBJECT (out_buf), gst_fbuf_modifier_qdata_quark (),
+          p_modifier, (GDestroyNotify)modifier_free);
+      GST_DEBUG_OBJECT (dec, "Attach modifier quark %p, value:0x%lx on gstbuf %p", p_modifier, *p_modifier, out_buf);
+    }
   }
 
   if (!dec->downstream_supports_dma) {
@@ -1307,6 +1342,11 @@ gst_qticodec2vdec_finalize (GObject *object) {
     c2componentStore_delete(dec->comp_store);
   }
 
+  if (dec->gbm_lib) {
+    GST_INFO_OBJECT (dec, "dlclose gbm lib:%p", dec->gbm_lib);
+    dlclose(dec->gbm_lib);
+  }
+
   /* Lastly chain up to the parent class */
   G_OBJECT_CLASS(parent_class)->finalize(object);
 }
@@ -1413,6 +1453,21 @@ gst_qticodec2vdec_init (Gstqticodec2vdec* dec) {
   g_mutex_init(&dec->pending_lock);
 
   dec->silent = FALSE;
+  dec->gbm_lib = dlopen("libgbm.so",  RTLD_NOW);
+  GST_INFO_OBJECT (dec, "open gbm lib:%p", dec->gbm_lib);
+  if (dec->gbm_lib == NULL) {
+    GST_ERROR("dlopen libgbm.so failed");
+    return;
+  }
+
+  dec->gbm_api_bo_get_modifier = dlsym(dec->gbm_lib, "gbm_bo_get_modifier");
+  if (!dec->gbm_api_bo_get_modifier) {
+    GST_ERROR_OBJECT (dec, "Failed as a gbm API is null");
+    dlclose(dec->gbm_lib);
+    dec->gbm_lib = NULL;
+    return;
+  }
+
 }
 
 GST_PLUGIN_DEFINE (

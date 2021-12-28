@@ -388,8 +388,11 @@ void CodecCallback::onOutputBufferAvailable (
             _UnwrapNativeCodec2GBMMetadata (handle, &width, &height, &format, &usage, &stride, &size, &bo);
 
             outBuf.size = size;
+            /* The actual value of bo here is a pointer to struct gbm_bo.
+             * To avoid including GBM header, use void* instead. */
+            outBuf.gbm_bo = reinterpret_cast<void*>(bo);
             crop = view.crop();
-            LOG_INFO("get crop info (%d,%d) [%dx%d]", crop.left, crop.top, crop.width, crop.height);
+            LOG_INFO("get crop info (%d,%d) [%dx%d] bo:%p", crop.left, crop.top, crop.width, crop.height, outBuf.gbm_bo);
             outBuf.width = crop.width;
             outBuf.height = crop.height;
             if (mMapBufferToCpu) {
