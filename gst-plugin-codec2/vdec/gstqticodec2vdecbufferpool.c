@@ -37,6 +37,10 @@
 #include "gstqticodec2vdec.h"
 #include "gstqticodec2vdecbufferpool.h"
 #include <media/msm_media_info.h>
+#include "codec2wrapper.h"
+
+GST_DEBUG_CATEGORY_STATIC (qtivdecbufferpool_debug);
+#define GST_CAT_DEFAULT qtivdecbufferpool_debug
 
 G_DEFINE_TYPE (Gstqticodec2vdecBufferPool, gst_qticodec2vdec_buffer_pool,
     GST_TYPE_BUFFER_POOL);
@@ -53,6 +57,9 @@ print_gst_buf (gpointer key, gpointer value, gpointer data)
 static void
 gst_qticodec2vdec_buffer_pool_init (Gstqticodec2vdecBufferPool * pool)
 {
+  GST_DEBUG_CATEGORY_INIT (qtivdecbufferpool_debug,
+      "qticodec2vdecpool", 0, "QTI GST codec2.0 decoder buffer pool");
+
   pool->buffer_table = NULL;
   pool->allocator = NULL;
 }
@@ -70,7 +77,7 @@ gst_qticodec2vdec_buffer_pool_finalize (GObject * obj)
   }
 
   if (pool->allocator) {
-    GST_DEBUG_OBJECT(pool, "finalize allocator:%p ref cnt:%d", pool->allocator, GST_OBJECT_REFCOUNT (pool->allocator));
+    GST_DEBUG_OBJECT (pool, "finalize allocator:%p ref cnt:%d", pool->allocator, GST_OBJECT_REFCOUNT (pool->allocator));
     gst_object_unref (pool->allocator);
   }
 
@@ -104,14 +111,14 @@ gst_qticodec2vdec_buffer_pool_acquire_buffer (GstBufferPool * pool, GstBuffer **
 
   out_buf = (GstBuffer *) g_hash_table_lookup(out_port_pool->buffer_table, &key);
   if (out_buf) {
-    GST_DEBUG_OBJECT (dec, "found a gst buf:%p fd:%d meta_fd:%d idx:%lu ref_cnt:%d", out_buf,
+    GST_DEBUG_OBJECT (pool, "found a gst buf:%p fd:%d meta_fd:%d idx:%lu ref_cnt:%d", out_buf,
         param_ext->fd, param_ext->meta_fd, param_ext->index, GST_OBJECT_REFCOUNT(out_buf));
     /*replace buffer index with current one*/
     structure = gst_mini_object_get_qdata (GST_MINI_OBJECT (out_buf), qticodec2vdecbufferpool_qdata_quark ());
     if (structure) {
       g_value_set_uint64 (&new_index, param_ext->index);
       gst_structure_set_value (structure, "index", &new_index);
-      GST_DEBUG_OBJECT (dec, "set index:%lu into structure", param_ext->index);
+      GST_DEBUG_OBJECT (pool, "set index:%lu into structure", param_ext->index);
     }
   } else {
     /* If can't find related gst buffer in hash table by fd/meta_fd,
@@ -124,7 +131,7 @@ gst_qticodec2vdec_buffer_pool_acquire_buffer (GstBufferPool * pool, GstBuffer **
     mem = gst_dmabuf_allocator_alloc_with_flags (out_port_pool->allocator,
             param_ext->fd, param_ext->size, GST_FD_MEMORY_FLAG_DONT_CLOSE);
     if (G_UNLIKELY (!mem)) {
-      GST_ERROR_OBJECT (dec, "failed to allocate GstDmaMemory");
+      GST_ERROR_OBJECT (pool, "failed to allocate GstDmaMemory");
       return GST_FLOW_ERROR;
     }
     gst_buffer_append_memory (out_buf, mem);
@@ -154,7 +161,7 @@ gst_qticodec2vdec_buffer_pool_acquire_buffer (GstBufferPool * pool, GstBuffer **
     }
 
     /* Add video meta data, which is needed for downstream element. */
-    GST_DEBUG_OBJECT (dec, "attach video meta: width:%d height:%d offset:%lu %lu stride:%d %d planes:%d size:%lu gst size:%lu",
+    GST_DEBUG_OBJECT (pool, "attach video meta: width:%d height:%d offset:%lu %lu stride:%d %d planes:%d size:%lu gst size:%lu",
         GST_VIDEO_INFO_WIDTH (vinfo), GST_VIDEO_INFO_HEIGHT (vinfo), offset[0], offset[1], stride[0], stride[1],
         GST_VIDEO_INFO_N_PLANES (vinfo), GST_VIDEO_INFO_SIZE (vinfo), gst_buffer_get_size(out_buf));
     gst_buffer_add_video_meta_full (out_buf, GST_VIDEO_FRAME_FLAG_NONE, GST_VIDEO_INFO_FORMAT (vinfo),
@@ -167,7 +174,7 @@ gst_qticodec2vdec_buffer_pool_acquire_buffer (GstBufferPool * pool, GstBuffer **
     buf_key = g_malloc(sizeof(gint64));
     *buf_key = key;
     g_hash_table_insert (out_port_pool->buffer_table, buf_key, out_buf);
-    GST_DEBUG_OBJECT (dec, "add a gst buf:%p fd:%d meta_fd:%d idx:%lu ref_cnt:%d", out_buf,
+    GST_DEBUG_OBJECT (pool, "add a gst buf:%p fd:%d meta_fd:%d idx:%lu ref_cnt:%d", out_buf,
         param_ext->fd, param_ext->meta_fd, param_ext->index, GST_OBJECT_REFCOUNT(out_buf));
 
     structure = gst_structure_new_empty("BUFFER");
@@ -202,12 +209,12 @@ gst_qticodec2vdec_buffer_pool_release_buffer (GstBufferPool * pool, GstBuffer * 
     gst_structure_get_uint64 (structure, "index", &index);
 
     if (dec) {
-      GST_DEBUG_OBJECT (dec, "release output buffer index: %ld", index);
+      GST_DEBUG_OBJECT (pool, "release output buffer index: %ld", index);
       if (!c2component_freeOutBuffer(dec->comp, index)) {
-        GST_ERROR_OBJECT (dec, "Failed to release buffer (%lu)", index);
+        GST_ERROR_OBJECT (pool, "Failed to release buffer (%lu)", index);
       }
     } else {
-      GST_ERROR_OBJECT (dec, "Null Gstqticodec2vdec hanlde");
+      GST_ERROR_OBJECT (pool, "Null Gstqticodec2vdec hanlde");
     }
   } else {
     /* If buffer don't have this quark, means it's allocated in pre-allocation stage
