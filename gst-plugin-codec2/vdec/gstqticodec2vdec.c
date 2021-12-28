@@ -1202,34 +1202,26 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
   GstMapInfo mapinfo = { 0, };
   GstBuffer* buf = NULL;
   BufferDescriptor inBuf;
-  gboolean mem_mapped = FALSE;
   gboolean ret = FALSE;
 
   GST_DEBUG_OBJECT (dec, "decode");
-
-  GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
+  if (!frame) {
+    GST_WARNING_OBJECT (dec, "frame is NULL, ret GST_FLOW_EOS");
+    return GST_FLOW_EOS;
+  }
 
   memset (&inBuf, 0, sizeof(BufferDescriptor));
 
-  inBuf.flag = 0;
+  buf = frame->input_buffer;
+  gst_buffer_map (buf, &mapinfo, GST_MAP_READ);
+  inBuf.fd = -1;
+  inBuf.data = mapinfo.data;
+  inBuf.size = mapinfo.size;
+  inBuf.pool_type = BUFFER_POOL_BASIC_LINEAR;
 
-  if (frame) {
-    GST_VIDEO_DECODER_STREAM_LOCK (decoder);
+  GST_INFO_OBJECT (dec, "frame->pts (%" G_GUINT64_FORMAT ")", frame->pts);
 
-    buf = frame->input_buffer;
-    gst_buffer_map (buf, &mapinfo, GST_MAP_READ);
-    inBuf.fd = -1;
-    inBuf.data = mapinfo.data;
-    inBuf.size = mapinfo.size;
-    inBuf.pool_type = BUFFER_POOL_BASIC_LINEAR;
-    mem_mapped = TRUE;
-
-    GST_INFO_OBJECT (dec, "frame->pts (%" G_GUINT64_FORMAT ")", frame->pts);
-
-    GST_VIDEO_DECODER_STREAM_UNLOCK(decoder);
-  } else {
-    inBuf.flag |= FLAG_TYPE_END_OF_STREAM;
-  }
+  GST_VIDEO_DECODER_STREAM_UNLOCK(decoder);
 
   /* Keep track of queued frame */
   dec->queued_frame[(dec->frame_index) % MAX_QUEUED_FRAME] =  frame->system_frame_number;
@@ -1239,11 +1231,7 @@ gst_qticodec2vdec_decode (GstVideoDecoder* decoder, GstVideoCodecFrame* frame) {
 
   /* Queue buffer to Codec2 */
   ret = c2component_queue (dec->comp, &inBuf);
-  /* unmap the gstbuffer if it's mapped*/
-  if (mem_mapped) {
-    gst_buffer_unmap (buf, &mapinfo);
-  }
-
+  gst_buffer_unmap (buf, &mapinfo);
   if (!ret) {
     goto error_setup_input;
   }
