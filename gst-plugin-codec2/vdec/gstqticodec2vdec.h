@@ -108,6 +108,8 @@ struct _Gstqticodec2vdec
   struct timeval start_time;
   struct timeval first_frame_time;
   GstBufferPool *out_port_pool;
+  void* gbm_lib;
+  guint64 (*gbm_api_bo_get_modifier)(void* bo);
 };
 
 /*

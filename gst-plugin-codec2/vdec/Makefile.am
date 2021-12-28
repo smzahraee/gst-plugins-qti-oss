@@ -19,7 +19,7 @@ libgstqticodec2vdec_la_LIBADD = $(GST_LIBS) \
                 $(GST_BASE_LIBS) \
                 -lgstvideo-$(GST_API_VERSION) \
                 -lgstallocators-$(GST_API_VERSION) \
-                -lcodec2wrapper
+                -lcodec2wrapper -ldl
 
 libgstqticodec2vdec_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS) -L$(CURDIR)/../wrapper/.libs
 
