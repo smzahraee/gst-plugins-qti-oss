@@ -130,15 +130,24 @@ static GstStaticPadTemplate gst_qtivdec_src_template =
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS (
-    QTICODEC2VDEC_RAW_CAPS_WITH_FEATURES(GST_CAPS_FEATURE_MEMORY_DMABUF,"{ NV12_UBWC }")
-     ";"
     QTICODEC2VDEC_RAW_CAPS_WITH_FEATURES(GST_CAPS_FEATURE_MEMORY_DMABUF,"{ NV12 }")
      ";"
     QTICODEC2VDEC_RAW_CAPS("{ NV12 }")
-     ";"
-    QTICODEC2VDEC_RAW_CAPS("{ NV12_UBWC }")
     )
   );
+
+static gboolean
+caps_has_compression (const GstCaps * caps, const gchar * compression)
+{
+  GstStructure *structure = NULL;
+  const gchar *string = NULL;
+
+  structure = gst_caps_get_structure (caps, 0);
+  string = gst_structure_has_field (structure, "compression") ?
+      gst_structure_get_string (structure, "compression") : NULL;
+
+  return (g_strcmp0 (string, compression) == 0) ? TRUE : FALSE;
+}
 
 static void modifier_free(gpointer p_modifier)
 {
@@ -271,10 +280,11 @@ gst_to_c2_pixelformat (GstVideoDecoder* decoder, GstVideoFormat format) {
 
   switch(format) {
     case GST_VIDEO_FORMAT_NV12 :
-      result = PIXEL_FORMAT_NV12_LINEAR;
-      break;
-    case GST_VIDEO_FORMAT_NV12_UBWC :
-      result = PIXEL_FORMAT_NV12_UBWC;
+      if (dec->is_ubwc) {
+        result = PIXEL_FORMAT_NV12_UBWC;
+      } else {
+        result = PIXEL_FORMAT_NV12_LINEAR;
+      }
       break;
     default:
       result = PIXEL_FORMAT_NV12_UBWC;
@@ -382,7 +392,8 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GPtrArray* config) {
 
   s = gst_caps_get_structure (intersection, 0);
   format_str = gst_structure_get_string (s, "format");
-  GST_DEBUG_OBJECT (dec, "Fixed color format: %s", format_str);
+  dec->is_ubwc = caps_has_compression (intersection, "ubwc");
+  GST_DEBUG_OBJECT (dec, "Fixed color format:%s, UBWC:%d", format_str, dec->is_ubwc);
 
   if (!format_str || (output_format = gst_video_format_from_string (format_str))
       == GST_VIDEO_FORMAT_UNKNOWN) {

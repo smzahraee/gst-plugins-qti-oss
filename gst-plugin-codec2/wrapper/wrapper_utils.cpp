@@ -278,7 +278,6 @@ gst_to_c2_gbmformat (GstVideoFormat format) {
 
   switch(format) {
     case GST_VIDEO_FORMAT_NV12 :
-    case GST_VIDEO_FORMAT_NV12_UBWC :
       result = GBM_FORMAT_NV12;
       break;
     case GST_VIDEO_FORMAT_P010_10LE :
@@ -289,20 +288,6 @@ gst_to_c2_gbmformat (GstVideoFormat format) {
       break;
     default:
       LOG_WARNING("unsupported video format:%s", gst_video_format_to_string(format));
-      break;
-  }
-
-  return result;
-}
-
-guint32 to_c2_gbm_ubwc_flag (GstVideoFormat format) {
-  guint32 result = 0;
-
-  switch(format) {
-    case GST_VIDEO_FORMAT_NV12_UBWC :
-      result = GBM_BO_USAGE_UBWC_ALIGNED_QTI;
-      break;
-    default:
       break;
   }
 
