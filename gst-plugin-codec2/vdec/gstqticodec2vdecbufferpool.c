@@ -142,18 +142,19 @@ gst_qticodec2vdec_buffer_pool_acquire_buffer (GstBufferPool * pool, GstBuffer **
 
     switch (GST_VIDEO_INFO_FORMAT (vinfo)) {
       case GST_VIDEO_FORMAT_NV12:
-        stride[0] = stride[1] =
-          VENUS_Y_STRIDE(COLOR_FMT_NV12, GST_VIDEO_INFO_WIDTH (vinfo));
-        offset[0] = 0;
-        offset[1] = stride[0] * VENUS_Y_SCANLINES(COLOR_FMT_NV12,
-            GST_VIDEO_INFO_HEIGHT (vinfo));
-        break;
-      case GST_VIDEO_FORMAT_NV12_UBWC:
-        stride[0] = stride[1] =
-          VENUS_Y_STRIDE(COLOR_FMT_NV12_UBWC, GST_VIDEO_INFO_WIDTH (vinfo));
-        offset[0] = 0;
-        offset[1] = stride[0] * VENUS_Y_SCANLINES(COLOR_FMT_NV12_UBWC,
-            GST_VIDEO_INFO_HEIGHT (vinfo));
+        if (dec->is_ubwc) {
+          stride[0] = stride[1] =
+            VENUS_Y_STRIDE(COLOR_FMT_NV12_UBWC, GST_VIDEO_INFO_WIDTH (vinfo));
+          offset[0] = 0;
+          offset[1] = stride[0] * VENUS_Y_SCANLINES(COLOR_FMT_NV12_UBWC,
+              GST_VIDEO_INFO_HEIGHT (vinfo));
+        } else {
+          stride[0] = stride[1] =
+            VENUS_Y_STRIDE(COLOR_FMT_NV12, GST_VIDEO_INFO_WIDTH (vinfo));
+          offset[0] = 0;
+          offset[1] = stride[0] * VENUS_Y_SCANLINES(COLOR_FMT_NV12,
+              GST_VIDEO_INFO_HEIGHT (vinfo));
+        }
         break;
       default:
         g_assert_not_reached ();
