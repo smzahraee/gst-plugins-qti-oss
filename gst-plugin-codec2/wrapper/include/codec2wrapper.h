@@ -108,7 +108,9 @@ typedef enum {
     PIXEL_FORMAT_NV12_LINEAR = 0,
     PIXEL_FORMAT_NV12_UBWC,
     PIXEL_FORMAT_RGBA_8888,
-    PIXEL_FORMAT_YV12
+    PIXEL_FORMAT_YV12,
+    PIXEL_FORMAT_P010,
+    PIXEL_FORMAT_TP10_UBWC
 } PIXEL_FORMAT_TYPE;
 
 typedef enum {
@@ -229,6 +231,7 @@ typedef struct {
     BUFFER_POOL_TYPE pool_type;
     guint8* config_data; // codec config data
     guint32 config_size; // size of codec config data
+    void* c2_buffer;
 } BufferDescriptor;
 
 typedef struct {

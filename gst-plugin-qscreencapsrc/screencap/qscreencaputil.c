@@ -1027,7 +1027,7 @@ QGbm_info * gbm_memory_alloc(GstQCtx * qctx,int w,int h)
         return NULL;
     }
 
-    GST_DEBUG("create NV12 gbm_bo with width=%d, height=%d", w, h);
+    GST_DEBUG("create rgba gbm_bo with width=%d, height=%d", w, h);
     bo = qctx->gbm_bo_create(qctx->gbm, w, h,GBM_FORMAT_ABGR8888,
               GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
 

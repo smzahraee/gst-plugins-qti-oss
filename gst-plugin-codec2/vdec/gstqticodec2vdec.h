@@ -38,8 +38,6 @@
 
 G_BEGIN_DECLS
 
-#define GST_CAPS_FEATURE_MEMORY_DMA "memory:DMABuf"
-
 #define QTICODEC2VDEC_SINK_WH_CAPS    \
   "width  = (int) [ 32, 8192 ], "     \
   "height = (int) [ 32, 8192 ]"
@@ -109,6 +107,7 @@ struct _Gstqticodec2vdec
   GCond  pending_cond;
   struct timeval start_time;
   struct timeval first_frame_time;
+  GstBufferPool *out_port_pool;
 };
 
 /*

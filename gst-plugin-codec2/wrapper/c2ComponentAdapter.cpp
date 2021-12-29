@@ -120,7 +120,7 @@ c2_status_t C2ComponentAdapter::writePlane(uint8_t *dest, BufferDescriptor *buff
         uint32_t uv_stride = VENUS_UV_STRIDE(COLOR_FMT_NV12, width);
         uint32_t y_scanlines = VENUS_Y_SCANLINES(COLOR_FMT_NV12, height);
 
-        for (int i = 0; i < height; i ++) {
+        for (int i = 0; i < height; i++) {
             memcpy(dst, src, width);
             dst += y_stride;
             src += width;
@@ -129,11 +129,37 @@ c2_status_t C2ComponentAdapter::writePlane(uint8_t *dest, BufferDescriptor *buff
         uint32_t offset = y_stride * y_scanlines;
         dst = dest + offset;
 
-        for (int i = 0; i < height/2; i ++) {
+        for (int i = 0; i < height / 2; i++) {
             memcpy(dst, src, width);
             dst += uv_stride;
             src += width;
         }
+    } else if (buffer_info->format == GST_VIDEO_FORMAT_P010_10LE) {
+        uint32_t width = buffer_info->width;
+        uint32_t height = buffer_info->height;
+        uint32_t y_stride = VENUS_Y_STRIDE(COLOR_FMT_P010, width);
+        uint32_t uv_stride = VENUS_UV_STRIDE(COLOR_FMT_P010, width);
+        uint32_t y_scanlines = VENUS_Y_SCANLINES(COLOR_FMT_P010, height);
+
+        for (int i = 0; i < height; i++) {
+            memcpy(dst, src, width * 2);
+            dst += y_stride;
+            src += width * 2;
+        }
+
+        uint32_t offset = y_stride * y_scanlines;
+        dst = dest + offset;
+
+        for (int i = 0; i < height / 2; i++) {
+            memcpy(dst, src, width * 2);
+            dst += uv_stride;
+            src += width * 2;
+        }
+    } else if (buffer_info->format == GST_VIDEO_FORMAT_NV12_10LE32_UBWC) {
+        uint32_t width = buffer_info->width;
+        uint32_t height = buffer_info->height;
+        uint32_t buf_size = VENUS_BUFFER_SIZE(COLOR_FMT_NV12_BPP10_UBWC, width, height);
+        memcpy(dst, src, buf_size);
     } else {
         result = C2_BAD_VALUE;
     }
@@ -259,10 +285,16 @@ std::shared_ptr<C2Buffer> C2ComponentAdapter::alloc(BufferDescriptor* buffer) {
                   LOG_ERROR("Graphic pool failed to allocate input buffer");
                   return NULL;
               } else {
+                const C2Handle *handle = graphic_block->handle();
+                if (nullptr == handle) {
+                    LOG_ERROR("C2GraphicBlock handle is null");
+                    return NULL;
+                }
+
                 /* ref the buffer and store it. When the fd is queued,
                  * we can find the C2buffer with the input fd
                  * */
-                uint32_t fd = graphic_block->handle()->data[0];
+                gint32 fd = handle->data[0];
                 mInPendingBuffer[fd] = buf;
                 buffer->fd = fd;
                 guint32 width = 0;
@@ -272,7 +304,7 @@ std::shared_ptr<C2Buffer> C2ComponentAdapter::alloc(BufferDescriptor* buffer) {
                 guint64 usage = 0;
                 guint32 size = 0;
 
-                _UnwrapNativeCodec2GBMMetadata (graphic_block->handle(), &width, &height, &format, &usage, &stride, &size, NULL);
+                _UnwrapNativeCodec2GBMMetadata (handle, &width, &height, &format, &usage, &stride, &size, NULL);
                 buffer->capacity = size;
                 LOG_MESSAGE("allocated C2Buffer, fd: %d capacity: %d", fd, buffer->capacity);
             }
@@ -306,6 +338,7 @@ c2_status_t C2ComponentAdapter::queue (BufferDescriptor* buffer)
     c2_status_t result = C2_OK;
     std::list<std::unique_ptr<C2Work>> workList;
     std::unique_ptr<C2Work> work = std::make_unique<C2Work>();
+    std::shared_ptr<C2Buffer> c2_buf;
 
     work->input.flags = inputFrameFlag;
     work->input.ordinal.timestamp = timestamp;
@@ -316,7 +349,14 @@ c2_status_t C2ComponentAdapter::queue (BufferDescriptor* buffer)
 
     /* check if input buffer contains fd/va and decide if we need to
      * allocate a new C2 buffer or not */
-    if (fd > 0) {
+    if (buffer->c2_buffer) {
+        /* Disable delete function for this shared_ptr to avoid double free issue
+         * since it is created from raw pointer got from another shared_ptr. That
+         * shared_ptr takes responsibility to call delete function.*/
+        std::shared_ptr<C2Buffer> c2_buf(static_cast<C2Buffer*>(buffer->c2_buffer), [](C2Buffer*){});
+        work->input.buffers.emplace_back(c2_buf);
+        result = C2_OK;
+    } else if (fd > 0) {
         std::map<uint64_t, std::shared_ptr<C2Buffer>>::iterator it;
 
         /* Find the buffer with fd */

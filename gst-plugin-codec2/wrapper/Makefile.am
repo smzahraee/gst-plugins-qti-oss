@@ -21,8 +21,6 @@ libcodec2wrapper_la_CPPFLAGS = $(AM_CPPFLAGS) \
                             $(GLIB_CFLAGS) \
                             $(GST_CFLAGS) \
                             $(GST_BASE_CFLAGS) \
-                            -DC2PORT \
-                            -DHAVE_MOCK_CODEC \
                             -D_AGL_LINUX_ \
                             -DG_LOG_DOMAIN=\"codec2wrapper\"
 
