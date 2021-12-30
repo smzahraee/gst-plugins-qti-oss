@@ -32,48 +32,64 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __GST_ML_FRAME_H__
-#define __GST_ML_FRAME_H__
+#ifndef __GST_QTI_BATCH_H__
+#define __GST_QTI_BATCH_H__
 
-#include <gst/ml/ml-type.h>
-#include <gst/ml/ml-info.h>
+#include <gst/gst.h>
 
 G_BEGIN_DECLS
 
-typedef struct _GstMLFrame GstMLFrame;
+#define GST_TYPE_BATCH (gst_batch_get_type())
+#define GST_BATCH(obj) \
+  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_BATCH,GstBatch))
+#define GST_BATCH_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_BATCH,GstBatchClass))
+#define GST_IS_BATCH(obj) \
+  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_BATCH))
+#define GST_IS_BATCH_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_BATCH))
+#define GST_BATCH_CAST(obj)       ((GstBatch *)(obj))
 
-/**
- * _GstMLFrame:
- * @info: The #GstMLInfo
- * @buffer: Mapped buffer containing the tensor memory blocks
- * @map: Mappings of the tensor memory blocks
- *
- * A ML frame obtained from gst_ml_frame_map()
- */
-struct _GstMLFrame {
-  GstMLInfo  info;
+#define GST_BATCH_GET_LOCK(obj)   (&GST_BATCH(obj)->lock)
+#define GST_BATCH_LOCK(obj)       g_mutex_lock(GST_BATCH_GET_LOCK(obj))
+#define GST_BATCH_UNLOCK(obj)     g_mutex_unlock(GST_BATCH_GET_LOCK(obj))
 
-  GstBuffer  *buffer;
+typedef struct _GstBatch GstBatch;
+typedef struct _GstBatchClass GstBatchClass;
 
-  GstMapInfo map[GST_ML_MAX_TENSORS];
+struct _GstBatch
+{
+  /// Inherited parent structure.
+  GstElement     parent;
+
+  /// Global mutex lock.
+  GMutex         lock;
+
+  /// Next available index for the sink pads.
+  guint          nextidx;
+
+  /// Convenient local reference to media sink pads.
+  GList          *sinkpads;
+  /// Convenient local reference to source pad.
+  GstPad         *srcpad;
+
+  /// Worker task.
+  GstTask        *worktask;
+  // Indicates whether the worker task is active or not.
+  gboolean       active;
+  /// Worker task mutex.
+  GRecMutex      worklock;
+  /// Condition for push/pop buffers from the queues.
+  GCond          wakeup;
 };
 
-GST_API
-gboolean  gst_ml_frame_map   (GstMLFrame * frame, const GstMLInfo * info,
-                              GstBuffer * buffer, GstMapFlags flags);
+struct _GstBatchClass {
+  /// Inherited parent structure.
+  GstElementClass parent;
+};
 
-GST_API
-void      gst_ml_frame_unmap (GstMLFrame * frame);
-
-
-#define GST_ML_FRAME_TYPE(f)           (GST_ML_INFO_TYPE(&(f)->info))
-#define GST_ML_FRAME_N_TENSORS(f)      (GST_ML_INFO_N_TENSORS(&(f)->info))
-#define GST_ML_FRAME_N_DIMENSIONS(f,n) (GST_ML_INFO_N_DIMENSIONS(&(f)->info,n))
-
-#define GST_ML_FRAME_N_BLOCKS(f)       (gst_buffer_n_memory ((f)->buffer))
-#define GST_ML_FRAME_BLOCK_DATA(f,n)   ((f)->map[n].data)
-#define GST_ML_FRAME_BLOCK_SIZE(f,n)   ((f)->map[n].size)
+GType gst_batch_get_type (void);
 
 G_END_DECLS
 
-#endif /* __GST_ML_FRAME_H__ */
+#endif // __GST_QTI_BATCH_H__
