@@ -119,17 +119,14 @@ gst_ml_tflite_create_pool (GstMLTFLite * tflite, GstCaps * caps)
     return NULL;
   }
 
-  // GST_INFO_OBJECT (tflite, "Uses ION memory");
-  // pool = gst_ml_buffer_pool_new (GST_ML_BUFFER_POOL_TYPE_ION);
-  GST_INFO_OBJECT (tflite, "Uses SYSTEM memory");
-  pool = gst_ml_buffer_pool_new (GST_ML_BUFFER_POOL_TYPE_SYSTEM);
+  GST_INFO_OBJECT (tflite, "Uses ION memory");
+  pool = gst_ml_buffer_pool_new (GST_ML_BUFFER_POOL_TYPE_ION);
 
   config = gst_buffer_pool_get_config (pool);
   gst_buffer_pool_config_set_params (config, caps, gst_ml_info_size (&info),
       DEFAULT_PROP_MIN_BUFFERS, DEFAULT_PROP_MAX_BUFFERS);
 
-  // allocator = gst_fd_allocator_new ();
-  allocator = gst_allocator_find (GST_ALLOCATOR_SYSMEM);
+  allocator = gst_fd_allocator_new ();
 
   gst_buffer_pool_config_set_allocator (config, allocator, NULL);
   gst_buffer_pool_config_add_option (
@@ -225,7 +222,7 @@ gst_ml_tflite_decide_allocation (GstBaseTransform * base, GstQuery * query)
 
   gst_query_parse_allocation (query, &caps, NULL);
   if (!caps) {
-    GST_ERROR_OBJECT (tflite, "Failed to parse the decide_allocation caps!");
+    GST_ERROR_OBJECT (tflite, "Failed to parse the allocation caps!");
     return FALSE;
   }
 
@@ -269,6 +266,7 @@ gst_ml_tflite_prepare_output_buffer (GstBaseTransform * base,
 {
   GstMLTFLite *tflite = GST_ML_TFLITE (base);
   GstBufferPool *pool = tflite->outpool;
+  GstProtectionMeta *pmeta = NULL;
   GstFlowReturn ret = GST_FLOW_OK;
 
   if (gst_base_transform_is_passthrough (base)) {
@@ -297,8 +295,11 @@ gst_ml_tflite_prepare_output_buffer (GstBaseTransform * base,
   }
 
   // Copy the flags and timestamps from the input buffer.
-  gst_buffer_copy_into (*outbuffer, inbuffer,
-      GST_BUFFER_COPY_FLAGS | GST_BUFFER_COPY_TIMESTAMPS, 0, -1);
+  gst_buffer_copy_into (*outbuffer, inbuffer, GST_BUFFER_COPY_FLAGS |
+      GST_BUFFER_COPY_TIMESTAMPS, 0, -1);
+
+  if ((pmeta = gst_buffer_get_protection_meta (inbuffer)) != NULL)
+    gst_buffer_add_protection_meta (*outbuffer, gst_structure_copy (pmeta->info));
 
   return GST_FLOW_OK;
 }
@@ -462,12 +463,31 @@ gst_ml_tflite_transform (GstBaseTransform * base, GstBuffer * inbuffer,
     GstBuffer * outbuffer)
 {
   GstMLTFLite *tflite = GST_ML_TFLITE (base);
+  GstMLFrame inframe, outframe;
+  const GstMLInfo * info = NULL;
   GstClockTime ts_begin = GST_CLOCK_TIME_NONE, ts_end = GST_CLOCK_TIME_NONE;
   GstClockTimeDiff tsdelta = GST_CLOCK_STIME_NONE;
 
+  info = gst_ml_tflite_engine_get_input_info (tflite->engine);
+
+  // Create ML frame from input buffer.
+  if (!gst_ml_frame_map (&inframe, info, inbuffer, GST_MAP_READ)) {
+    GST_ERROR_OBJECT (tflite, "Failed to map input buffer!");
+    return GST_FLOW_ERROR;
+  }
+
+  info = gst_ml_tflite_engine_get_output_info (tflite->engine);
+
+  // Create ML frame from output buffer.
+  if (!gst_ml_frame_map (&outframe, info, outbuffer, GST_MAP_READWRITE)) {
+    GST_ERROR_OBJECT (tflite, "Failed to map output buffer!");
+    gst_ml_frame_unmap (&inframe);
+    return GST_FLOW_ERROR;
+  }
+
   ts_begin = gst_util_get_timestamp ();
 
-  gst_ml_tflite_engine_execute (tflite->engine, inbuffer, outbuffer);
+  gst_ml_tflite_engine_execute (tflite->engine, &inframe, &outframe);
 
   ts_end = gst_util_get_timestamp ();
 
@@ -476,6 +496,9 @@ gst_ml_tflite_transform (GstBaseTransform * base, GstBuffer * inbuffer,
   GST_LOG_OBJECT (tflite, "Execute took %" G_GINT64_FORMAT ".%03"
       G_GINT64_FORMAT " ms", GST_TIME_AS_MSECONDS (tsdelta),
       (GST_TIME_AS_USECONDS (tsdelta) % 1000));
+
+  gst_ml_frame_unmap (&outframe);
+  gst_ml_frame_unmap (&inframe);
 
   return GST_FLOW_OK;
 }
