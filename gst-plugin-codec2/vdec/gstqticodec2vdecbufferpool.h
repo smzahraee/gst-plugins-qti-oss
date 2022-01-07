@@ -45,13 +45,11 @@
 #include "gstqticodec2vdec.h"
 
 G_BEGIN_DECLS
-
 /* buffer pool functions */
 #define GST_TYPE_QTICODEC2VDEC_BUFFER_POOL      (gst_qticodec2vdec_buffer_pool_get_type())
 #define GST_IS_QTICODEC2VDEC_BUFFER_POOL(obj)   (G_TYPE_CHECK_INSTANCE_TYPE ((obj), GST_TYPE_QTICODEC2VDEC_BUFFER_POOL))
 #define GST_QTICODEC2VDEC_BUFFER_POOL(obj)      (G_TYPE_CHECK_INSTANCE_CAST ((obj), GST_TYPE_QTICODEC2VDEC_BUFFER_POOL, Gstqticodec2vdecBufferPool))
 #define GST_QTICODEC2VDEC_BUFFER_POOL_CAST(obj) ((Gstqticodec2vdecBufferPool*)(obj))
-
 typedef struct _Gstqticodec2vdecBufferPool Gstqticodec2vdecBufferPool;
 typedef struct _Gstqticodec2vdecBufferPoolClass Gstqticodec2vdecBufferPoolClass;
 
@@ -68,7 +66,8 @@ struct _Gstqticodec2vdecBufferPoolClass
   GstBufferPoolClass parent_class;
 };
 
-typedef struct GstBufferPoolAcquireParamsExt {
+typedef struct GstBufferPoolAcquireParamsExt
+{
   GstBufferPoolAcquireParams params;
   gint32 fd;
   gint32 meta_fd;
@@ -77,9 +76,8 @@ typedef struct GstBufferPoolAcquireParamsExt {
 } GstBufferPoolAcquireParamsExt;
 
 GType gst_qticodec2vdec_buffer_pool_get_type (void);
-GstBufferPool *gst_qticodec2vdec_buffer_pool_new (Gstqticodec2vdec * qticodec2vdec, GstAllocator * allocator,
-                                                  GHashTable *buffer_table);
+GstBufferPool *gst_qticodec2vdec_buffer_pool_new (Gstqticodec2vdec *
+    qticodec2vdec, GstAllocator * allocator, GHashTable * buffer_table);
 
 G_END_DECLS
-
 #endif /* __GST_QTICODEC2VDECBUFFERPOOL_H__ */

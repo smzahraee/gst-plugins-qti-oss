@@ -30,37 +30,42 @@
 #include "c2ComponentInterfaceAdapter.h"
 #include <gst/gst.h>
 
-GST_DEBUG_CATEGORY_EXTERN (gst_qticodec2wrapper_debug);
+GST_DEBUG_CATEGORY_EXTERN(gst_qticodec2wrapper_debug);
 #define GST_CAT_DEFAULT gst_qticodec2wrapper_debug
 
 namespace QTI {
 
-C2ComponentInterfaceAdapter::C2ComponentInterfaceAdapter(std::shared_ptr<C2ComponentInterface> compIntf) {
+C2ComponentInterfaceAdapter::C2ComponentInterfaceAdapter(std::shared_ptr<C2ComponentInterface> compIntf)
+{
 
     mCompIntf = std::move(compIntf);
 }
 
-C2ComponentInterfaceAdapter::~C2ComponentInterfaceAdapter() {
+C2ComponentInterfaceAdapter::~C2ComponentInterfaceAdapter()
+{
     LOG_MESSAGE("delete C2 Component Interface Adapter");
     mCompIntf = nullptr;
 }
 
-C2String C2ComponentInterfaceAdapter::getName () const  {
+C2String C2ComponentInterfaceAdapter::getName() const
+{
 
     return mCompIntf->getName();
 }
 
-c2_node_id_t C2ComponentInterfaceAdapter::getId () const  {
+c2_node_id_t C2ComponentInterfaceAdapter::getId() const
+{
 
     return mCompIntf->getId();
 }
 
-c2_status_t C2ComponentInterfaceAdapter::config (const std::vector<C2Param*> &stackParams, c2_blocking_t mayBlock) {
+c2_status_t C2ComponentInterfaceAdapter::config(const std::vector<C2Param*>& stackParams, c2_blocking_t mayBlock)
+{
 
     LOG_MESSAGE("Component interface (%p) configured", this);
 
     c2_status_t result = C2_NO_INIT;
-    std::vector<std::unique_ptr<C2SettingResult>> failures;
+    std::vector<std::unique_ptr<C2SettingResult> > failures;
 
     result = mCompIntf->config_vb(stackParams, mayBlock, &failures);
     if ((C2_OK != result) || (failures.size() != 0)) {
@@ -70,11 +75,12 @@ c2_status_t C2ComponentInterfaceAdapter::config (const std::vector<C2Param*> &st
     return result;
 }
 
-c2_status_t C2ComponentInterfaceAdapter::setComponent(std::weak_ptr<C2Component> comp) {
+c2_status_t C2ComponentInterfaceAdapter::setComponent(std::weak_ptr<C2Component> comp)
+{
 
     c2_status_t result = C2_NO_INIT;
 
-    if (!comp.expired()){
+    if (!comp.expired()) {
         mConnectedComponent = comp;
         result = C2_OK;
     }

@@ -30,17 +30,17 @@
 #ifndef __C2COMPONENTADAPTER_H__
 #define __C2COMPONENTADAPTER_H__
 
-#include "types.h"
 #include "c2ComponentInterfaceAdapter.h"
 #include "codec2wrapper.h"
+#include "types.h"
 #include "wrapper_utils.h"
 
-#include <C2Config.h>
-#include <C2Component.h>
-#include <mutex>
-#include <map>
-#include <condition_variable>
 #include <C2Buffer.h>
+#include <C2Component.h>
+#include <C2Config.h>
+#include <condition_variable>
+#include <map>
+#include <mutex>
 
 namespace QTI {
 
@@ -53,9 +53,9 @@ public:
     ~C2ComponentListenerAdapter();
 
     /* Methods implementing C2Component::Listener */
-    void onWorkDone_nb (std::weak_ptr<C2Component> component, std::list<std::unique_ptr<C2Work>> workItems) override;
-    void onTripped_nb (std::weak_ptr<C2Component> component, std::vector<std::shared_ptr<C2SettingResult>> settingResult) override;
-    void onError_nb (std::weak_ptr<C2Component> component, uint32_t errorCode) override;
+    void onWorkDone_nb(std::weak_ptr<C2Component> component, std::list<std::unique_ptr<C2Work> > workItems) override;
+    void onTripped_nb(std::weak_ptr<C2Component> component, std::vector<std::shared_ptr<C2SettingResult> > settingResult) override;
+    void onError_nb(std::weak_ptr<C2Component> component, uint32_t errorCode) override;
 
 private:
     C2ComponentAdapter* mComp;
@@ -71,40 +71,40 @@ public:
     std::shared_ptr<C2Buffer> alloc(BufferDescriptor* buffer);
 
     /* Queue buffer with va (copy) */
-    c2_status_t queue (BufferDescriptor* buffer);
+    c2_status_t queue(BufferDescriptor* buffer);
 
     /* Queue buffer with fd (zero-copy) */
-    c2_status_t queue (
+    c2_status_t queue(
         uint32_t fd,
         C2FrameData::flags_t inputFrameFlag,
         uint64_t frame_index,
         uint64_t timestamp,
         C2BlockPool::local_id_t poolType);
 
-    c2_status_t flush (C2Component::flush_mode_t mode, std::list< std::unique_ptr< C2Work >> *const flushedWork);
-    c2_status_t drain (C2Component::drain_mode_t mode);
-    c2_status_t start ();
-    c2_status_t stop ();
-    c2_status_t reset ();
-    c2_status_t release ();
-    C2ComponentInterfaceAdapter* intf ();
+    c2_status_t flush(C2Component::flush_mode_t mode, std::list<std::unique_ptr<C2Work> >* const flushedWork);
+    c2_status_t drain(C2Component::drain_mode_t mode);
+    c2_status_t start();
+    c2_status_t stop();
+    c2_status_t reset();
+    c2_status_t release();
+    C2ComponentInterfaceAdapter* intf();
     c2_status_t createBlockpool(C2BlockPool::local_id_t poolType);
     c2_status_t configBlockPool(C2BlockPool::local_id_t poolType);
 
     /* Methods implementing Listener */
-    void handleWorkDone(std::weak_ptr<C2Component> component, std::list<std::unique_ptr<C2Work>> workItems);
-    void handleTripped(std::weak_ptr<C2Component> component, std::vector<std::shared_ptr<C2SettingResult>> settingResult);
+    void handleWorkDone(std::weak_ptr<C2Component> component, std::list<std::unique_ptr<C2Work> > workItems);
+    void handleTripped(std::weak_ptr<C2Component> component, std::vector<std::shared_ptr<C2SettingResult> > settingResult);
     void handleError(std::weak_ptr<C2Component> component, uint32_t errorCode);
 
     /* This class methods */
-    c2_status_t setListenercallback (std::unique_ptr<EventCallback> callback, c2_blocking_t mayBlock);
-    c2_status_t setCompStore (std::weak_ptr<C2ComponentStore> store);
-    c2_status_t freeOutputBuffer (uint64_t bufferIdx);
-    c2_status_t setMapBufferToCpu (bool enable);
+    c2_status_t setListenercallback(std::unique_ptr<EventCallback> callback, c2_blocking_t mayBlock);
+    c2_status_t setCompStore(std::weak_ptr<C2ComponentStore> store);
+    c2_status_t freeOutputBuffer(uint64_t bufferIdx);
+    c2_status_t setMapBufferToCpu(bool enable);
 
 private:
-    c2_status_t prepareC2Buffer (std::shared_ptr<C2Buffer> *c2Buf, BufferDescriptor* buffer);
-    c2_status_t writePlane(uint8_t *dest, BufferDescriptor *buffer_info);
+    c2_status_t prepareC2Buffer(std::shared_ptr<C2Buffer>* c2Buf, BufferDescriptor* buffer);
+    c2_status_t writePlane(uint8_t* dest, BufferDescriptor* buffer_info);
     c2_status_t waitForProgressOrStateChange(
         uint32_t numPendingWorks,
         uint32_t timeoutMs);
@@ -118,8 +118,8 @@ private:
 
     std::shared_ptr<C2BlockPool> mLinearPool; // C2PlatformLinearBlockPool
     std::shared_ptr<C2BlockPool> mGraphicPool; // C2PlatformGraphicBlockPool
-    std::map<uint64_t, std::shared_ptr<C2Buffer>> mInPendingBuffer;
-    std::map<uint64_t, std::shared_ptr<C2Buffer>> mOutPendingBuffer;
+    std::map<uint64_t, std::shared_ptr<C2Buffer> > mInPendingBuffer;
+    std::map<uint64_t, std::shared_ptr<C2Buffer> > mOutPendingBuffer;
 
     uint32_t mNumPendingWorks;
     std::mutex mLock;

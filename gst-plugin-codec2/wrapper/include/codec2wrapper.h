@@ -34,31 +34,31 @@
 extern "C" {
 #endif
 
+#include <dlfcn.h>
 #include <glib.h>
 #include <gmodule.h>
-#include <dlfcn.h>
 #include <gst/video/video.h>
 
-#define ALIGN(num, to) (((num) + (to-1)) & (~(to-1)))
+#define ALIGN(num, to) (((num) + (to - 1)) & (~(to - 1)))
 
-#define CONFIG_FUNCTION_KEY_PIXELFORMAT     "pixelformat"
-#define CONFIG_FUNCTION_KEY_RESOLUTION      "resolution"
-#define CONFIG_FUNCTION_KEY_BITRATE         "bitrate"
-#define CONFIG_FUNCTION_KEY_INTERLACE       "interlace"
-#define CONFIG_FUNCTION_KEY_MIRROR          "mirror"
-#define CONFIG_FUNCTION_KEY_ROTATION        "rotation"
-#define CONFIG_FUNCTION_KEY_RATECONTROL     "ratecontrol"
-#define CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY     "dec_low_latency"
-#define CONFIG_FUNCTION_KEY_INTRAREFRESH    "intra_refresh"
+#define CONFIG_FUNCTION_KEY_PIXELFORMAT "pixelformat"
+#define CONFIG_FUNCTION_KEY_RESOLUTION "resolution"
+#define CONFIG_FUNCTION_KEY_BITRATE "bitrate"
+#define CONFIG_FUNCTION_KEY_INTERLACE "interlace"
+#define CONFIG_FUNCTION_KEY_MIRROR "mirror"
+#define CONFIG_FUNCTION_KEY_ROTATION "rotation"
+#define CONFIG_FUNCTION_KEY_RATECONTROL "ratecontrol"
+#define CONFIG_FUNCTION_KEY_DEC_LOW_LATENCY "dec_low_latency"
+#define CONFIG_FUNCTION_KEY_INTRAREFRESH "intra_refresh"
 #define CONFIG_FUNCTION_KEY_OUTPUT_PICTURE_ORDER_MODE "output_picture_order_mode"
-#define CONFIG_FUNCTION_KEY_DOWNSCALE       "downscale"
-#define CONFIG_FUNCTION_KEY_ENC_CSC         "enc_colorspace_conversion"
-#define CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO   "colorspace_color_aspects"
-#define CONFIG_FUNCTION_KEY_SLICE_MODE      "slice_mode"
+#define CONFIG_FUNCTION_KEY_DOWNSCALE "downscale"
+#define CONFIG_FUNCTION_KEY_ENC_CSC "enc_colorspace_conversion"
+#define CONFIG_FUNCTION_KEY_COLOR_ASPECTS_INFO "colorspace_color_aspects"
+#define CONFIG_FUNCTION_KEY_SLICE_MODE "slice_mode"
 
 #define C2_TICKS_PER_SECOND 1000000
 
-typedef enum  {
+typedef enum {
     BUFFER_POOL_BASIC_LINEAR = 0,
     BUFFER_POOL_BASIC_GRAPHIC
 } BUFFER_POOL_TYPE;
@@ -80,28 +80,28 @@ typedef enum {
 } FLUSH_MODE_TYPE;
 
 typedef enum {
-    INTERLACE_MODE_PROGRESSIVE = 0,                  ///< progressive
-    INTERLACE_MODE_INTERLEAVED_TOP_FIRST,            ///< line-interleaved. top-field-first
-    INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST,         ///< line-interleaved. bottom-field-first
-    INTERLACE_MODE_FIELD_TOP_FIRST,                  ///< field-sequential. top-field-first
-    INTERLACE_MODE_FIELD_BOTTOM_FIRST,               ///< field-sequential. bottom-field-first
+    INTERLACE_MODE_PROGRESSIVE = 0, ///< progressive
+    INTERLACE_MODE_INTERLEAVED_TOP_FIRST, ///< line-interleaved. top-field-first
+    INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST, ///< line-interleaved. bottom-field-first
+    INTERLACE_MODE_FIELD_TOP_FIRST, ///< field-sequential. top-field-first
+    INTERLACE_MODE_FIELD_BOTTOM_FIRST, ///< field-sequential. bottom-field-first
 } INTERLACE_MODE_TYPE;
 
 typedef enum {
-    C2_INTERLACE_MODE_PROGRESSIVE = 0,                  ///< progressive
-    C2_INTERLACE_MODE_INTERLEAVED_TOP_FIRST,            ///< line-interleaved. top-field-first
-    C2_INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST,         ///< line-interleaved. bottom-field-first
-    C2_INTERLACE_MODE_FIELD_TOP_FIRST,                  ///< field-sequential. top-field-first
-    C2_INTERLACE_MODE_FIELD_BOTTOM_FIRST,               ///< field-sequential. bottom-field-first
+    C2_INTERLACE_MODE_PROGRESSIVE = 0, ///< progressive
+    C2_INTERLACE_MODE_INTERLEAVED_TOP_FIRST, ///< line-interleaved. top-field-first
+    C2_INTERLACE_MODE_INTERLEAVED_BOTTOM_FIRST, ///< line-interleaved. bottom-field-first
+    C2_INTERLACE_MODE_FIELD_TOP_FIRST, ///< field-sequential. top-field-first
+    C2_INTERLACE_MODE_FIELD_BOTTOM_FIRST, ///< field-sequential. bottom-field-first
 } C2_INTERLACE_MODE_TYPE;
 
 typedef enum {
-    FLAG_TYPE_DROP_FRAME    = 1 << 0,
-    FLAG_TYPE_END_OF_STREAM = 1 << 1,   ///< For input frames: no output frame shall be generated when processing this frame.
-                                        ///< For output frames: this frame shall be discarded.
-    FLAG_TYPE_DISCARD_FRAME = 1 << 2,   ///< This frame shall be discarded with its metadata.
-    FLAG_TYPE_INCOMPLETE    = 1 << 3,   ///< This frame is not the last frame produced for the input
-    FLAG_TYPE_CODEC_CONFIG  = 1 << 4    ///< Frame contains only codec-specific configuration data, and no actual access unit
+    FLAG_TYPE_DROP_FRAME = 1 << 0,
+    FLAG_TYPE_END_OF_STREAM = 1 << 1, ///< For input frames: no output frame shall be generated when processing this frame.
+    ///< For output frames: this frame shall be discarded.
+    FLAG_TYPE_DISCARD_FRAME = 1 << 2, ///< This frame shall be discarded with its metadata.
+    FLAG_TYPE_INCOMPLETE = 1 << 3, ///< This frame is not the last frame produced for the input
+    FLAG_TYPE_CODEC_CONFIG = 1 << 4 ///< Frame contains only codec-specific configuration data, and no actual access unit
 } FLAG_TYPE;
 
 typedef enum {
@@ -219,7 +219,7 @@ typedef struct {
     gint32 fd;
     gint32 meta_fd;
     guint32 size;
-    guint32 capacity;       ///< Total allocation size
+    guint32 capacity; ///< Total allocation size
     guint32 offset;
     guint64 timestamp;
     guint64 index;
@@ -238,7 +238,7 @@ typedef struct {
 typedef struct {
     const char* config_name;
     gboolean isInput;
-    union{
+    union {
         guint32 u32;
         guint64 u64;
         gint32 i32;
@@ -250,11 +250,11 @@ typedef struct {
         guint32 height;
     } resolution;
 
-    union{
+    union {
         PIXEL_FORMAT_TYPE fmt;
     } pixelFormat;
 
-    union{
+    union {
         INTERLACE_MODE_TYPE type;
     } interlaceMode;
 
@@ -262,11 +262,11 @@ typedef struct {
         MIRROR_TYPE type;
     } mirror;
 
-    union{
+    union {
         RC_MODE_TYPE type;
     } rcMode;
 
-    union{
+    union {
         SLICE_MODE type;
     } SliceMode;
 
@@ -291,39 +291,38 @@ typedef void (*listener_cb)(const void* handle, EVENT_TYPE type, void* data);
 // Component Store API
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void* c2componentStore_create();
-const gchar* c2componentStore_getName (void* const comp_store);
-gboolean c2componentStore_createComponent (void* const comp_store, const gchar* name, void** const component);
-gboolean c2componentStore_createInterface (void* const comp_store, const gchar* name, void** const interface);
-gboolean c2componentStore_listComponents (void* const comp_store, GPtrArray* array);
-gboolean c2componentStore_isComponentSupported (void* const comp_store, gchar* name);
-gboolean c2componentStore_delete (void* comp_store);
+const gchar* c2componentStore_getName(void* const comp_store);
+gboolean c2componentStore_createComponent(void* const comp_store, const gchar* name, void** const component);
+gboolean c2componentStore_createInterface(void* const comp_store, const gchar* name, void** const interface);
+gboolean c2componentStore_listComponents(void* const comp_store, GPtrArray* array);
+gboolean c2componentStore_isComponentSupported(void* const comp_store, gchar* name);
+gboolean c2componentStore_delete(void* comp_store);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Component API
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-gboolean c2component_setListener (void* const comp, void* cb_context, listener_cb callback, BLOCK_MODE_TYPE block);
+gboolean c2component_setListener(void* const comp, void* cb_context, listener_cb callback, BLOCK_MODE_TYPE block);
 gboolean c2component_alloc(void* const comp, BufferDescriptor* buffer);
 gboolean c2component_queue(void* const comp, BufferDescriptor* buffer);
-gboolean c2component_flush (void* const comp, FLUSH_MODE_TYPE mode, void* const flushedWork);
-gboolean c2component_drain (void* const comp, DRAIN_MODE_TYPE mode);
-gboolean c2component_start (void* const comp);
-gboolean c2component_stop (void* const comp);
-gboolean c2component_reset (void* const comp);
-gboolean c2component_release (void* const comp);
-void* c2component_intf (void* const comp);
-gboolean c2component_createBlockpool (void* const comp, BUFFER_POOL_TYPE poolType);
-gboolean c2component_configBlockpool (void* comp, BUFFER_POOL_TYPE poolType);
-gboolean c2component_mapOutBuffer (void* const comp, gboolean map);
-gboolean c2component_freeOutBuffer (void* const comp, guint64 bufferId);
-gboolean c2component_delete (void* comp);
+gboolean c2component_flush(void* const comp, FLUSH_MODE_TYPE mode, void* const flushedWork);
+gboolean c2component_drain(void* const comp, DRAIN_MODE_TYPE mode);
+gboolean c2component_start(void* const comp);
+gboolean c2component_stop(void* const comp);
+gboolean c2component_reset(void* const comp);
+gboolean c2component_release(void* const comp);
+void* c2component_intf(void* const comp);
+gboolean c2component_createBlockpool(void* const comp, BUFFER_POOL_TYPE poolType);
+gboolean c2component_configBlockpool(void* comp, BUFFER_POOL_TYPE poolType);
+gboolean c2component_mapOutBuffer(void* const comp, gboolean map);
+gboolean c2component_freeOutBuffer(void* const comp, guint64 bufferId);
+gboolean c2component_delete(void* comp);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ComponentInterface API
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-const gchar* c2componentInterface_getName (void* const comp_intf);
-const gint c2componentInterface_getId (void* const comp_intf);
-gboolean c2componentInterface_config (void* const comp_intf, GPtrArray* config, BLOCK_MODE_TYPE block);
-
+const gchar* c2componentInterface_getName(void* const comp_intf);
+const gint c2componentInterface_getId(void* const comp_intf);
+gboolean c2componentInterface_config(void* const comp_intf, GPtrArray* config, BLOCK_MODE_TYPE block);
 
 #ifdef __cplusplus
 }

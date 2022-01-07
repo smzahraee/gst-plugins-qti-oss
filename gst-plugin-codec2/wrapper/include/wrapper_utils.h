@@ -30,11 +30,11 @@
 #ifndef __WRAPPER_UTILS_H__
 #define __WRAPPER_UTILS_H__
 
-#include "types.h"
-#include "gbm_priv.h"
 #include "codec2wrapper.h"
-#include <gst/video/video.h>
+#include "gbm_priv.h"
+#include "types.h"
 #include <C2Config.h>
+#include <gst/video/video.h>
 
 namespace QTI {
 
@@ -46,20 +46,20 @@ c2_blocking_t toC2BlocingType(BLOCK_MODE_TYPE block_type);
 
 C2Component::drain_mode_t toC2DrainMode(DRAIN_MODE_TYPE mode);
 
-C2Component::flush_mode_t toC2FlushMode (FLUSH_MODE_TYPE mode);
+C2Component::flush_mode_t toC2FlushMode(FLUSH_MODE_TYPE mode);
 
-uint32_t toC2RateControlMode (RC_MODE_TYPE mode);
+uint32_t toC2RateControlMode(RC_MODE_TYPE mode);
 
 FLAG_TYPE toWrapperFlag(C2FrameData::flags_t flag);
 
 C2FrameData::flags_t toC2Flag(FLAG_TYPE flag);
 
 uint32_t toC2PixelFormat(PIXEL_FORMAT_TYPE pixel);
-guint32 gst_to_c2_gbmformat (GstVideoFormat format);
-C2Color::primaries_t toC2Primaries (COLOR_PRIMARIES pixel);
-C2Color::transfer_t toC2TransferChar (TRANSFER_CHAR transfer_char);
-C2Color::matrix_t toC2Matrix (MATRIX matrix);
-C2Color::range_t toC2FullRange (FULL_RANGE full_range);
+guint32 gst_to_c2_gbmformat(GstVideoFormat format);
+C2Color::primaries_t toC2Primaries(COLOR_PRIMARIES pixel);
+C2Color::transfer_t toC2TransferChar(TRANSFER_CHAR transfer_char);
+C2Color::matrix_t toC2Matrix(MATRIX matrix);
+C2Color::range_t toC2FullRange(FULL_RANGE full_range);
 
 // namespace QTI
 }

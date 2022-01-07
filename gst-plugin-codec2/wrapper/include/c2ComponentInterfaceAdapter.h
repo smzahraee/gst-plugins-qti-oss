@@ -42,21 +42,21 @@ public:
     C2ComponentInterfaceAdapter(std::shared_ptr<C2ComponentInterface> compIntf);
     ~C2ComponentInterfaceAdapter();
 
-    C2String getName () const;
-    c2_node_id_t getId () const;
+    C2String getName() const;
+    c2_node_id_t getId() const;
 
     // Apply configurations
-    c2_status_t config (const std::vector<C2Param*> &stackParams, c2_blocking_t mayBlock);
+    c2_status_t config(const std::vector<C2Param*>& stackParams, c2_blocking_t mayBlock);
 
 private:
     // Set underlying Component
     c2_status_t setComponent(std::weak_ptr<C2Component> comp);
 
     // Underlying Component Interface
-    std::shared_ptr<C2ComponentInterface>       mCompIntf;
+    std::shared_ptr<C2ComponentInterface> mCompIntf;
 
     // backing component (may be empty)
-    std::weak_ptr<C2Component>                  mConnectedComponent;
+    std::weak_ptr<C2Component> mConnectedComponent;
 };
 
 } // namespace QTI

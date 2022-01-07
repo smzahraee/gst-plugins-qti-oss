@@ -40,14 +40,12 @@
 #include "codec2wrapper.h"
 
 G_BEGIN_DECLS
-
 #define GST_TYPE_QTICODEC2VENC          (gst_qticodec2venc_get_type())
 #define GST_QTICODEC2VENC(obj)          (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_QTICODEC2VENC,Gstqticodec2venc))
 #define GST_QTICODEC2VENC_CLASS(klass)  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_QTICODEC2VENC,Gstqticodec2vencClass))
 #define GST_IS_QTICODEC2VENC(obj)       (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_QTICODEC2VENC))
 #define GST_IS_QTICODEC2VENC_CLASS(obj) (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_QTICODEC2VENC))
-
-typedef struct _Gstqticodec2venc      Gstqticodec2venc;
+typedef struct _Gstqticodec2venc Gstqticodec2venc;
 typedef struct _Gstqticodec2vencClass Gstqticodec2vencClass;
 
 /* Maximum number of input frame queued */
@@ -77,7 +75,7 @@ struct _Gstqticodec2venc
   gint width;
   gint height;
   GstVideoFormat input_format;
-  gchar* streamformat;
+  gchar *streamformat;
   guint64 frame_index;
   guint64 num_input_queued;
   guint64 num_output_done;
@@ -100,7 +98,7 @@ struct _Gstqticodec2venc
   SLICE_MODE slice_mode;
   guint32 slice_size;
   GMutex pending_lock;
-  GCond  pending_cond;
+  GCond pending_cond;
 };
 
 /*
@@ -114,5 +112,4 @@ struct _Gstqticodec2vencClass
 GType gst_qticodec2venc_get_type (void);
 
 G_END_DECLS
-
 #endif /* __GST_QTICODEC2VENC_H__ */

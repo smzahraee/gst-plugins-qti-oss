@@ -30,14 +30,13 @@
 #ifndef __TYPES_H__
 #define __TYPES_H__
 
-#include <stdio.h>
+#include <C2Buffer.h>
 #include <C2Component.h>
 #include <glib.h>
-#include <C2Buffer.h>
 #include <gst/gst.h>
+#include <stdio.h>
 
 namespace QTI {
-
 
 #define LOG_MESSAGE GST_LOG
 #define LOG_INFO GST_INFO
@@ -53,17 +52,18 @@ class EventCallback {
 public:
     // Notify that an output buffer is available with given index.
     virtual void onOutputBufferAvailable(
-        const std::shared_ptr<C2Buffer> &buffer,
+        const std::shared_ptr<C2Buffer>& buffer,
         uint64_t index,
         uint64_t timestamp,
-        C2FrameData::flags_t flag) = 0;
+        C2FrameData::flags_t flag)
+        = 0;
 
     virtual void onTripped(uint32_t errorCode) = 0;
     virtual void onError(uint32_t errorCode) = 0;
 
     // Map buffer
-    virtual void setMapBufferToCpu (bool enable) = 0;
-    virtual ~EventCallback () {}
+    virtual void setMapBufferToCpu(bool enable) = 0;
+    virtual ~EventCallback() {}
 };
 
 } // namespace QTI

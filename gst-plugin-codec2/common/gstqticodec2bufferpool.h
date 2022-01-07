@@ -35,24 +35,21 @@
 #include <gst/allocators/allocators.h>
 
 G_BEGIN_DECLS
-
 #define GST_TYPE_QTICODEC2_ALLOCATOR      (gst_qticodec2_allocator_get_type())
 #define GST_QTICODEC2_ALLOCATOR(obj)      (G_TYPE_CHECK_INSTANCE_CAST ((obj), GST_TYPE_QTICODEC2_ALLOCATOR, GstQticodec2Allocator))
 #define GST_QTICODEC2_ALLOCATOR_CAST(obj) ((GstQticodec2Allocator*)(obj))
-
 typedef struct _GstQticodec2Allocator GstQticodec2Allocator;
 typedef struct _GstQticodec2AllocatorClass GstQticodec2AllocatorClass;
 
-GType
-gst_qticodec2_allocator_get_type (void);
+GType gst_qticodec2_allocator_get_type (void);
 
 struct _GstQticodec2Allocator
 {
-  GstFdAllocator   parent;    // parent
-  GstVideoInfo*    info;      // info used for allocation
-  void*            comp;      // c2 component
-  BUFFER_POOL_TYPE pool_type; // graphic or linear
-  gsize            alloc_size; // allocation size
+  GstFdAllocator parent;        // parent
+  GstVideoInfo *info;           // info used for allocation
+  void *comp;                   // c2 component
+  BUFFER_POOL_TYPE pool_type;   // graphic or linear
+  gsize alloc_size;             // allocation size
 };
 
 struct _GstQticodec2AllocatorClass
@@ -62,9 +59,8 @@ struct _GstQticodec2AllocatorClass
   gpointer _gst_reserved[GST_PADDING];
 };
 
-GstAllocator *
-gst_qticodec2_allocator_new (gpointer comp, BUFFER_POOL_TYPE pool_type,
-    GstCaps * caps);
+GstAllocator *gst_qticodec2_allocator_new (gpointer comp,
+    BUFFER_POOL_TYPE pool_type, GstCaps * caps);
 
 typedef struct _GstQticodec2BufferPool GstQticodec2BufferPool;
 typedef struct _GstQticodec2BufferPoolClass GstQticodec2BufferPoolClass;
@@ -86,13 +82,10 @@ struct _GstQticodec2BufferPoolClass
   GstBufferPoolClass parent_class;
 };
 
-GType
-gst_qticodec2_buffer_pool_get_type (void);
+GType gst_qticodec2_buffer_pool_get_type (void);
 
-GstBufferPool *
-gst_qticodec2_buffer_pool_new (gpointer comp, BUFFER_POOL_TYPE pool_type,
-    guint num_buffers, GstCaps * caps);
+GstBufferPool *gst_qticodec2_buffer_pool_new (gpointer comp,
+    BUFFER_POOL_TYPE pool_type, guint num_buffers, GstCaps * caps);
 
 G_END_DECLS
-
 #endif /* __GST_QTICODEC2_BUFFER_POOL__ */

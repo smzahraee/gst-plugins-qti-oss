@@ -32,31 +32,35 @@
 #include "c2ComponentInterfaceAdapter.h"
 #include <gst/gst.h>
 
-GST_DEBUG_CATEGORY_EXTERN (gst_qticodec2wrapper_debug);
+GST_DEBUG_CATEGORY_EXTERN(gst_qticodec2wrapper_debug);
 #define GST_CAT_DEFAULT gst_qticodec2wrapper_debug
 
 namespace QTI {
 
 C2ComponentStoreAdapter::C2ComponentStoreAdapter(std::shared_ptr<C2ComponentStore> store,
     QC2ComponentStoreFactory* factory, void* dl_handle)
-    :mStore(std::move(store)), mFactory(factory), mDlHandle(dl_handle)
+    : mStore(std::move(store))
+    , mFactory(factory)
+    , mDlHandle(dl_handle)
 {
 }
 
-C2ComponentStoreAdapter::~C2ComponentStoreAdapter() {
+C2ComponentStoreAdapter::~C2ComponentStoreAdapter()
+{
 
     mStore = nullptr;
 
     if (mFactory) {
-      delete mFactory;
+        delete mFactory;
     }
     if (mDlHandle) {
-      GST_DEBUG("dl close libqcodec2_core handle");
-      dlclose(mDlHandle);
+        GST_DEBUG("dl close libqcodec2_core handle");
+        dlclose(mDlHandle);
     }
 }
 
-C2String C2ComponentStoreAdapter::getName() {
+C2String C2ComponentStoreAdapter::getName()
+{
 
     C2String name;
 
@@ -67,7 +71,8 @@ C2String C2ComponentStoreAdapter::getName() {
     return name;
 }
 
-c2_status_t C2ComponentStoreAdapter::createComponent(C2String name, void **const component) {
+c2_status_t C2ComponentStoreAdapter::createComponent(C2String name, void** const component)
+{
 
     c2_status_t result = C2_BAD_VALUE;
     std::shared_ptr<C2Component> comp = nullptr;
@@ -84,7 +89,8 @@ c2_status_t C2ComponentStoreAdapter::createComponent(C2String name, void **const
     return result;
 }
 
-c2_status_t C2ComponentStoreAdapter::createInterface (C2String name, void **const interface) {
+c2_status_t C2ComponentStoreAdapter::createInterface(C2String name, void** const interface)
+{
 
     c2_status_t result = C2_BAD_VALUE;
     std::shared_ptr<C2ComponentInterface> compIntf = nullptr;
@@ -101,9 +107,10 @@ c2_status_t C2ComponentStoreAdapter::createInterface (C2String name, void **cons
     return result;
 }
 
-std::vector<std::shared_ptr<const C2Component::Traits>> C2ComponentStoreAdapter::listComponents() {
+std::vector<std::shared_ptr<const C2Component::Traits> > C2ComponentStoreAdapter::listComponents()
+{
 
-    std::vector<std::shared_ptr<const C2Component::Traits>> result;
+    std::vector<std::shared_ptr<const C2Component::Traits> > result;
 
     if (mStore) {
         result = mStore->listComponents();
@@ -112,11 +119,12 @@ std::vector<std::shared_ptr<const C2Component::Traits>> C2ComponentStoreAdapter:
     return result;
 }
 
-bool C2ComponentStoreAdapter::isComponentSupported(char* name) {
+bool C2ComponentStoreAdapter::isComponentSupported(char* name)
+{
     if (!name)
         return false;
 
-    for (auto cs: listComponents()) {
+    for (auto cs : listComponents()) {
         std::string comp_name(name);
         if (cs->name.compare(comp_name) == 0) {
             return true;
