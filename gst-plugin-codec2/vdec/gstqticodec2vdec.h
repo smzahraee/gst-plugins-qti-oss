@@ -71,6 +71,8 @@ G_BEGIN_DECLS
 typedef struct _Gstqticodec2vdec      Gstqticodec2vdec;
 typedef struct _Gstqticodec2vdecClass Gstqticodec2vdecClass;
 
+typedef guint64 (*f_get_modifier)(void* bo);
+
 /* Maximum number of input frame queued */
 #define MAX_QUEUED_FRAME  64
 
@@ -114,7 +116,7 @@ struct _Gstqticodec2vdec
   struct timeval first_frame_time;
   GstBufferPool *out_port_pool;
   void* gbm_lib;
-  guint64 (*gbm_api_bo_get_modifier)(void* bo);
+  f_get_modifier gbm_api_bo_get_modifier;
   gboolean is_ubwc;
 };
 

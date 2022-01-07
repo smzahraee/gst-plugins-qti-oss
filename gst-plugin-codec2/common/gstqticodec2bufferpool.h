@@ -36,12 +36,12 @@
 
 G_BEGIN_DECLS
 
-typedef struct _GstQticodec2Allocator GstQticodec2Allocator;
-typedef struct _GstQticodec2AllocatorClass GstQticodec2AllocatorClass;
-
 #define GST_TYPE_QTICODEC2_ALLOCATOR      (gst_qticodec2_allocator_get_type())
 #define GST_QTICODEC2_ALLOCATOR(obj)      (G_TYPE_CHECK_INSTANCE_CAST ((obj), GST_TYPE_QTICODEC2_ALLOCATOR, GstQticodec2Allocator))
 #define GST_QTICODEC2_ALLOCATOR_CAST(obj) ((GstQticodec2Allocator*)(obj))
+
+typedef struct _GstQticodec2Allocator GstQticodec2Allocator;
+typedef struct _GstQticodec2AllocatorClass GstQticodec2AllocatorClass;
 
 GType
 gst_qticodec2_allocator_get_type (void);

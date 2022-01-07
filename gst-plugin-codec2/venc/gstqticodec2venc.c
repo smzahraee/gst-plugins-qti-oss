@@ -648,7 +648,8 @@ gst_qticodec2venc_setup_output (GstVideoEncoder* encoder, GstVideoCodecState* st
     structure = gst_caps_get_structure (outcaps, 0);
 
     /* Fill actual width/height into output caps */
-    GValue g_width = { 0, }, g_height = { 0, };
+    GValue g_width = { 0, };
+    GValue g_height = { 0, };
     g_value_init (&g_width, G_TYPE_INT);
     g_value_set_int (&g_width, enc->width);
 
@@ -1239,8 +1240,8 @@ handle_video_event (const void* handle, EVENT_TYPE type, void* data) {
     case EVENT_OUTPUTS_DONE: {
       BufferDescriptor* outBuffer = (BufferDescriptor*)data;
 
-      GST_DEBUG_OBJECT (enc, "Event output done, va: %p, offset: %d, index: %lu, fd: %u, \
-          filled len: %u, buffer size: %u, timestamp: %lu, flag: %x", outBuffer->data,
+      GST_DEBUG_OBJECT (enc, "Event output done, va: %p, offset: %d, index: %lu, fd: %u,"
+          "filled len: %u, buffer size: %u, timestamp: %lu, flag: %x", outBuffer->data,
           outBuffer->offset, outBuffer->index, outBuffer->fd, outBuffer->size,
           outBuffer->capacity, outBuffer->timestamp, outBuffer->flag);
 

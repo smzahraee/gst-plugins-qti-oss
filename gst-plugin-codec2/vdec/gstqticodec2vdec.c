@@ -406,7 +406,8 @@ gst_qticodec2vdec_setup_output (GstVideoDecoder* decoder, GPtrArray* config) {
       output_format, dec->width, dec->height);
 
   /* Fill actual width/height into output caps */
-  GValue g_width = { 0, }, g_height = { 0, };
+  GValue g_width = { 0, };
+  GValue g_height = { 0, };
   g_value_init (&g_width, G_TYPE_INT);
   g_value_set_int (&g_width, dec->width);
 
@@ -1148,7 +1149,8 @@ handle_video_event(const void* handle, EVENT_TYPE type, void* data) {
           dec->output_state =
             gst_video_decoder_set_output_state (decoder, dec->outPixelfmt, dec->width, dec->height, dec->input_state);
 
-          GValue new_width = { 0, }, new_height = { 0, };
+          GValue new_width = { 0, };
+          GValue new_height = { 0, };
           g_value_init (&new_width, G_TYPE_INT);
           g_value_set_int (&new_width, dec->width);
 
