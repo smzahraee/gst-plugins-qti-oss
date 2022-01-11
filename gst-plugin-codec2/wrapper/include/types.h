@@ -30,11 +30,11 @@
 #ifndef __TYPES_H__
 #define __TYPES_H__
 
-#include <C2Buffer.h>
+#include <stdio.h>
 #include <C2Component.h>
 #include <glib.h>
+#include <C2Buffer.h>
 #include <gst/gst.h>
-#include <stdio.h>
 
 namespace QTI {
 

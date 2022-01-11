@@ -30,11 +30,11 @@
 #ifndef __WRAPPER_UTILS_H__
 #define __WRAPPER_UTILS_H__
 
-#include "codec2wrapper.h"
-#include "gbm_priv.h"
 #include "types.h"
-#include <C2Config.h>
+#include "gbm_priv.h"
+#include "codec2wrapper.h"
 #include <gst/video/video.h>
+#include <C2Config.h>
 
 namespace QTI {
 

@@ -27,18 +27,18 @@
 * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "codec2wrapper.h"
+#include "c2ComponentStoreAdapter.h"
 #include "c2ComponentAdapter.h"
 #include "c2ComponentInterfaceAdapter.h"
-#include "c2ComponentStoreAdapter.h"
+#include "codec2wrapper.h"
 #include "wrapper_utils.h"
 #include <sys/mman.h>
 
-#include <C2AllocatorGBM.h>
-#include <C2Buffer.h>
-#include <C2PlatformSupport.h>
-#include <gst/gst.h>
 #include <string.h>
+#include <C2PlatformSupport.h>
+#include <C2Buffer.h>
+#include <gst/gst.h>
+#include <C2AllocatorGBM.h>
 // config for some vendor parameters
 #include "QC2V4L2Config.h"
 #include <media/msm_media_info.h>

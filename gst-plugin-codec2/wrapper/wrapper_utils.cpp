@@ -31,9 +31,9 @@
 #define __UTILS_H__
 
 #include "wrapper_utils.h"
+#include <types.h>
 #include <C2Config.h>
 #include <codec2wrapper.h>
-#include <types.h>
 
 namespace QTI {
 

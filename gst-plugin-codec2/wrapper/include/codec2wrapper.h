@@ -34,9 +34,9 @@
 extern "C" {
 #endif
 
-#include <dlfcn.h>
 #include <glib.h>
 #include <gmodule.h>
+#include <dlfcn.h>
 #include <gst/video/video.h>
 
 #define ALIGN(num, to) (((num) + (to - 1)) & (~(to - 1)))

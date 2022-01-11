@@ -29,11 +29,11 @@
 
 #include "c2ComponentAdapter.h"
 
-#include <C2AllocatorGBM.h>
-#include <C2PlatformSupport.h>
 #include <chrono>
-#include <gst/gst.h>
+#include <C2PlatformSupport.h>
 #include <media/msm_media_info.h>
+#include <gst/gst.h>
+#include <C2AllocatorGBM.h>
 
 GST_DEBUG_CATEGORY_EXTERN(gst_qticodec2wrapper_debug);
 #define GST_CAT_DEFAULT gst_qticodec2wrapper_debug

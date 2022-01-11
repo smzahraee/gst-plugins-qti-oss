@@ -30,17 +30,17 @@
 #ifndef __C2COMPONENTADAPTER_H__
 #define __C2COMPONENTADAPTER_H__
 
+#include "types.h"
 #include "c2ComponentInterfaceAdapter.h"
 #include "codec2wrapper.h"
-#include "types.h"
 #include "wrapper_utils.h"
 
-#include <C2Buffer.h>
-#include <C2Component.h>
 #include <C2Config.h>
-#include <condition_variable>
-#include <map>
+#include <C2Component.h>
 #include <mutex>
+#include <map>
+#include <condition_variable>
+#include <C2Buffer.h>
 
 namespace QTI {
 
