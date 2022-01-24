@@ -52,14 +52,14 @@ G_BEGIN_DECLS
  *
  * Type of memory that the pool will use for allocating buffers.
  */
-#define GST_ML_BUFFER_POOL_TYPE_ION "GstMlBufferPoolTypeIonMemory"
+#define GST_ML_BUFFER_POOL_TYPE_ION "GstMLBufferPoolTypeIonMemory"
 
 /**
  * GST_ML_BUFFER_POOL_TYPE_SYSTEM:
  *
  * Type of memory that the pool will use for allocating buffers.
  */
-#define GST_ML_BUFFER_POOL_TYPE_SYSTEM "GstMlBufferPoolTypeSystemMemory"
+#define GST_ML_BUFFER_POOL_TYPE_SYSTEM "GstMLBufferPoolTypeSystemMemory"
 
 typedef struct _GstMLBufferPool GstMLBufferPool;
 typedef struct _GstMLBufferPoolClass GstMLBufferPoolClass;
@@ -71,7 +71,15 @@ typedef struct _GstMLBufferPoolPrivate GstMLBufferPoolPrivate;
  * An option that can be activated on bufferpool to request ML tensor metadata
  * on buffers from the pool.
  */
-#define GST_ML_BUFFER_POOL_OPTION_TENSOR_META "GstBufferPoolOptionMLTensorMeta"
+#define GST_ML_BUFFER_POOL_OPTION_TENSOR_META "GstMLBufferPoolOptionTensorMeta"
+
+/**
+ * GST_ML_BUFFER_POOL_OPTION_CONTINUOUS:
+ *
+ * An option that can be activated on bufferpool to request all tensors to be
+ * into a continuous physical memory.
+ */
+#define GST_ML_BUFFER_POOL_OPTION_CONTINUOUS "GstMLBufferPoolOptionContinuous"
 
 struct _GstMLBufferPool
 {
@@ -90,9 +98,6 @@ GType             gst_ml_buffer_pool_get_type (void);
 
 GST_API
 GstBufferPool *   gst_ml_buffer_pool_new      (const gchar * memtype);
-
-GST_API
-const GstMLInfo * gst_ml_buffer_pool_get_info (GstBufferPool * pool);
 
 G_END_DECLS
 

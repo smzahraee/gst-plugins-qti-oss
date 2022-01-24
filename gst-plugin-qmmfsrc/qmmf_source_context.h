@@ -60,6 +60,7 @@ enum
   PARAM_CAMERA_EIS,
   PARAM_CAMERA_SHDR,
   PARAM_CAMERA_ADRC,
+  PARAM_CAMERA_CONTROL_MODE,
   PARAM_CAMERA_EFFECT_MODE,
   PARAM_CAMERA_SCENE_MODE,
   PARAM_CAMERA_ANTIBANDING_MODE,
@@ -101,12 +102,6 @@ GST_API gboolean
 gst_qmmf_context_close (GstQmmfContext * context);
 
 GST_API gboolean
-gst_qmmf_context_create_session (GstQmmfContext * context);
-
-GST_API gboolean
-gst_qmmf_context_delete_session (GstQmmfContext * context);
-
-GST_API gboolean
 gst_qmmf_context_create_video_stream (GstQmmfContext * context, GstPad * pad);
 
 GST_API gboolean
@@ -120,13 +115,13 @@ GST_API gboolean
 gst_qmmf_context_delete_image_stream (GstQmmfContext * context, GstPad * pad);
 
 GST_API gboolean
-gst_qmmf_context_start_session (GstQmmfContext * context);
+gst_qmmf_context_start_video_stream (GstQmmfContext * context, GstPad * pad);
 
 GST_API gboolean
-gst_qmmf_context_stop_session (GstQmmfContext * context);
+gst_qmmf_context_stop_video_stream (GstQmmfContext * context, GstPad * pad);
 
 GST_API gboolean
-gst_qmmf_context_pause_session (GstQmmfContext * context);
+gst_qmmf_context_pause_video_stream (GstQmmfContext * context, GstPad * pad);
 
 GST_API gboolean
 gst_qmmf_context_capture_image (GstQmmfContext * context, GstPad * pad,
