@@ -74,6 +74,8 @@ struct _GstImageBufferPoolPrivate
   // Map of data FDs and ION handles on case ION memory is used OR
   // map of data FDs and GBM buffer objects if GBM memory is used.
   GHashTable          *datamap;
+  // Mutex for protecting insert/remove from the data map.
+  GMutex              lock;
 
   // GBM library APIs
   struct gbm_device * (*gbm_create_device) (gint fd);
@@ -242,12 +244,14 @@ gbm_device_alloc (GstImageBufferPool * vpool)
 
   fd = priv->gbm_bo_get_fd (bo);
 
+  g_mutex_lock (&priv->lock);
   g_hash_table_insert (priv->datamap, GINT_TO_POINTER (fd), bo);
+  g_mutex_unlock (&priv->lock);
 
   GST_DEBUG_OBJECT (vpool, "Allocated GBM memory FD %d", fd);
 
   return gst_fd_allocator_alloc (priv->allocator, fd, priv->info.size,
-      GST_FD_MEMORY_FLAG_DONT_CLOSE | GST_FD_MEMORY_FLAG_KEEP_MAPPED);
+      GST_FD_MEMORY_FLAG_DONT_CLOSE);
 }
 
 static void
@@ -257,10 +261,14 @@ gbm_device_free (GstImageBufferPool * vpool, gint fd)
 
   GST_DEBUG_OBJECT (vpool, "Closing GBM memory FD %d", fd);
 
-  struct gbm_bo *bo = g_hash_table_lookup (priv->datamap, GINT_TO_POINTER (fd));
-  priv->gbm_bo_destroy (bo);
+  g_mutex_lock (&priv->lock);
 
+  struct gbm_bo *bo = g_hash_table_lookup (priv->datamap, GINT_TO_POINTER (fd));
   g_hash_table_remove (priv->datamap, GINT_TO_POINTER (fd));
+
+  g_mutex_unlock (&priv->lock);
+
+  priv->gbm_bo_destroy (bo);
 }
 
 static gboolean
@@ -343,7 +351,7 @@ ion_device_alloc (GstImageBufferPool * vpool)
 
   // Wrap the allocated FD in FD backed allocator.
   return gst_fd_allocator_alloc (priv->allocator, fd, priv->info.size,
-      GST_FD_MEMORY_FLAG_DONT_CLOSE | GST_FD_MEMORY_FLAG_KEEP_MAPPED);
+      GST_FD_MEMORY_FLAG_DONT_CLOSE);
 }
 
 static void
@@ -433,7 +441,7 @@ gst_image_buffer_pool_set_config (GstBufferPool * pool, GstStructure * config)
   info.size = MAX (size, info.size);
   priv->info = info;
 
-  // Check wthether we should allocate ubwc buffers.
+  // Check whether we should allocate ubwc buffers.
   priv->isubwc = gst_buffer_pool_config_has_option (config,
       GST_IMAGE_BUFFER_POOL_OPTION_UBWC_MODE);
 
@@ -554,6 +562,37 @@ gst_image_buffer_pool_free (GstBufferPool * pool, GstBuffer * buffer)
   gst_buffer_unref (buffer);
 }
 
+static gboolean
+remove_buffer_meta (GstBuffer * buffer, GstMeta ** meta, gpointer user_data)
+{
+  if (!GST_META_FLAG_IS_SET (*meta, GST_META_FLAG_POOLED)) {
+    GST_META_FLAG_UNSET (*meta, GST_META_FLAG_LOCKED);
+    *meta = NULL;
+  }
+
+  return TRUE;
+}
+
+static void
+gst_image_buffer_pool_reset (GstBufferPool * pool, GstBuffer * buffer)
+{
+  GstImageBufferPoolPrivate *priv = GST_IMAGE_BUFFER_POOL_CAST (pool)->priv;
+
+  // Resize the buffer to the original size because it will be discarded in
+  // default_release_buffer
+  gst_buffer_resize (buffer, 0, priv->info.size);
+
+  GST_BUFFER_OFFSET (buffer) = GST_BUFFER_OFFSET_NONE;
+  GST_BUFFER_OFFSET_END (buffer) = GST_BUFFER_OFFSET_NONE;
+  GST_BUFFER_DURATION (buffer) = GST_CLOCK_TIME_NONE;
+  GST_BUFFER_PTS (buffer) = GST_CLOCK_TIME_NONE;
+  GST_BUFFER_DTS (buffer) = GST_CLOCK_TIME_NONE;
+  GST_BUFFER_FLAGS (buffer) &= GST_BUFFER_FLAG_TAG_MEMORY;
+
+  // Remove metadata
+  gst_buffer_foreach_meta (buffer, remove_buffer_meta, pool);
+}
+
 static void
 gst_image_buffer_pool_finalize (GObject * object)
 {
@@ -573,6 +612,8 @@ gst_image_buffer_pool_finalize (GObject * object)
     close_ion_device (vpool);
   }
 
+  g_mutex_clear (&priv->lock);
+
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
@@ -588,6 +629,7 @@ gst_image_buffer_pool_class_init (GstImageBufferPoolClass * klass)
   pool->set_config = gst_image_buffer_pool_set_config;
   pool->alloc_buffer = gst_image_buffer_pool_alloc;
   pool->free_buffer = gst_image_buffer_pool_free;
+  pool->reset_buffer = gst_image_buffer_pool_reset;
 
   GST_DEBUG_CATEGORY_INIT (gst_image_pool_debug, "image-pool", 0,
       "image-pool object");
@@ -598,6 +640,8 @@ gst_image_buffer_pool_init (GstImageBufferPool * vpool)
 {
   vpool->priv = gst_image_buffer_pool_get_instance_private (vpool);
   vpool->priv->devfd = -1;
+
+  g_mutex_init (&vpool->priv->lock);
 }
 
 
