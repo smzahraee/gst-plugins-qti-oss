@@ -32,48 +32,54 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __GST_ML_FRAME_H__
-#define __GST_ML_FRAME_H__
+#ifndef __GST_QTI_ML_DEMUX_H__
+#define __GST_QTI_ML_DEMUX_H__
 
-#include <gst/ml/ml-type.h>
-#include <gst/ml/ml-info.h>
+#include <gst/gst.h>
 
 G_BEGIN_DECLS
 
-typedef struct _GstMLFrame GstMLFrame;
+#define GST_TYPE_ML_DEMUX (gst_ml_demux_get_type())
+#define GST_ML_DEMUX(obj) \
+  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_ML_DEMUX,GstMLDemux))
+#define GST_ML_DEMUX_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_ML_DEMUX,GstMLDemuxClass))
+#define GST_IS_ML_DEMUX(obj) \
+  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_ML_DEMUX))
+#define GST_IS_ML_DEMUX_CLASS(obj) \
+  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_ML_DEMUX))
 
-/**
- * _GstMLFrame:
- * @info: The #GstMLInfo
- * @buffer: Mapped buffer containing the tensor memory blocks
- * @map: Mappings of the tensor memory blocks
- *
- * A ML frame obtained from gst_ml_frame_map()
- */
-struct _GstMLFrame {
-  GstMLInfo  info;
+#define GST_ML_DEMUX_GET_LOCK(obj)   (&GST_ML_DEMUX(obj)->lock)
+#define GST_ML_DEMUX_LOCK(obj)       g_mutex_lock(GST_ML_DEMUX_GET_LOCK(obj))
+#define GST_ML_DEMUX_UNLOCK(obj)     g_mutex_unlock(GST_ML_DEMUX_GET_LOCK(obj))
 
-  GstBuffer  *buffer;
+typedef struct _GstMLDemux GstMLDemux;
+typedef struct _GstMLDemuxClass GstMLDemuxClass;
 
-  GstMapInfo map[GST_ML_MAX_TENSORS];
+struct _GstMLDemux
+{
+  /// Inherited parent structure.
+  GstElement parent;
+
+  /// Global mutex lock.
+  GMutex     lock;
+
+  /// Next available index for the source pads.
+  guint      nextidx;
+
+  /// Convenient local reference to sink pad.
+  GstPad     *sinkpad;
+  /// Convenient local reference to source pads.
+  GList      *srcpads;
 };
 
-GST_API
-gboolean  gst_ml_frame_map   (GstMLFrame * frame, const GstMLInfo * info,
-                              GstBuffer * buffer, GstMapFlags flags);
+struct _GstMLDemuxClass {
+  /// Inherited parent structure.
+  GstElementClass parent;
+};
 
-GST_API
-void      gst_ml_frame_unmap (GstMLFrame * frame);
-
-
-#define GST_ML_FRAME_TYPE(f)           (GST_ML_INFO_TYPE(&(f)->info))
-#define GST_ML_FRAME_N_TENSORS(f)      (GST_ML_INFO_N_TENSORS(&(f)->info))
-#define GST_ML_FRAME_N_DIMENSIONS(f,n) (GST_ML_INFO_N_DIMENSIONS(&(f)->info,n))
-
-#define GST_ML_FRAME_N_BLOCKS(f)       (gst_buffer_n_memory ((f)->buffer))
-#define GST_ML_FRAME_BLOCK_DATA(f,n)   ((f)->map[n].data)
-#define GST_ML_FRAME_BLOCK_SIZE(f,n)   ((f)->map[n].size)
+GType gst_ml_demux_get_type (void);
 
 G_END_DECLS
 
-#endif /* __GST_ML_FRAME_H__ */
+#endif // __GST_QTI_ML_DEMUX_H__

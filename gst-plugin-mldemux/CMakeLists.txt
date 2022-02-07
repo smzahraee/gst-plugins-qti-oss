@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8.2)
-project(GST_PLUGIN_QTI_OSS_BATCH
+project(GST_PLUGIN_QTI_OSS_ML_DEMUX
   VERSION ${GST_PLUGINS_QTI_OSS_VERSION} LANGUAGES C
 )
 
@@ -15,10 +15,6 @@ pkg_check_modules(GST
   REQUIRED gstreamer-1.0>=${GST_VERSION_REQUIRED})
 pkg_check_modules(GST_BASE
   REQUIRED gstreamer-base-1.0>=${GST_VERSION_REQUIRED})
-pkg_check_modules(GST_VIDEO
-  REQUIRED gstreamer-video-1.0>=${GST_VERSION_REQUIRED})
-pkg_check_modules(GST_AUDIO
-  REQUIRED gstreamer-audio-1.0>=${GST_VERSION_REQUIRED})
 
 # Generate configuration header file.
 configure_file(config.h.in config.h @ONLY)
@@ -31,27 +27,26 @@ add_definitions(-DHAVE_CONFIG_H)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-parameter")
 
-# GStreamer batch plugin.
-set(GST_QTI_BATCH gstqtibatch)
+# GStreamer ML demux plugin.
+set(GST_QTI_ML_DEMUX gstqtimldemux)
 
-add_library(${GST_QTI_BATCH} SHARED
-  batch.c
-  batchpads.c
+add_library(${GST_QTI_ML_DEMUX} SHARED
+  mldemux.c
+  mldemuxpads.c
 )
 
-target_include_directories(${GST_QTI_BATCH} PUBLIC
+target_include_directories(${GST_QTI_ML_DEMUX} PUBLIC
   ${GST_INCLUDE_DIRS}
 )
 
-target_link_libraries(${GST_QTI_BATCH} PRIVATE
+target_link_libraries(${GST_QTI_ML_DEMUX} PRIVATE
   ${GST_LIBRARIES}
   ${GST_BASE_LIBRARIES}
-  ${GST_VIDEO_LIBRARIES}
-  ${GST_AUDIO_LIBRARIES}
+  gstqtimlbase
 )
 
 install(
-  TARGETS ${GST_QTI_BATCH}
+  TARGETS ${GST_QTI_ML_DEMUX}
   LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/gstreamer-1.0
   PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
               GROUP_EXECUTE GROUP_READ
